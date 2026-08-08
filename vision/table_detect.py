@@ -198,6 +198,48 @@ def _order(pts: np.ndarray, shape=None) -> np.ndarray:
     return np.array([p[i] for i in idx], np.float32)        # 좌하, 우하, 우상, 좌상
 
 
+def seam_to_nose(quad: np.ndarray, table, cushion_mm: float | None = None
+                 ) -> np.ndarray:
+    """나무 안쪽 선(천 경계) → 쿠션 날(노즈) 사각형.
+
+    ⚠️ 천 덩어리의 바깥 경계는 노즈가 아니다. 바닥천과 쿠션천이 같은 색이라
+       경계는 **천이 나무에 물리는 자리**다. 거기서 노즈까지가 쿠션 폭이다.
+       그만큼 안쪽으로 줄여야 공 좌표가 맞는다 (사용자 제안, 2026-08-09).
+
+    cushion_mm 을 안 주면 table 의 값을 쓴다.
+    """
+    c = float(table.cushion_width if cushion_mm is None else cushion_mm)
+    seam = np.array([[-c, -c], [table.width + c, -c],
+                     [table.width + c, table.height + c], [-c, table.height + c]],
+                    np.float64)
+    M = cv2.getPerspectiveTransform(seam.astype(np.float32),
+                                    np.asarray(quad, np.float32))
+    nose = np.array([[[0.0, 0.0], [table.width, 0.0],
+                      [table.width, table.height], [0.0, table.height]]], np.float32)
+    return cv2.perspectiveTransform(nose, M)[0]
+
+
+def cushion_from_aspect(quad: np.ndarray, table, shape) -> float | None:
+    """천 경계 사각형의 진짜 비율에서 쿠션 폭을 거꾸로 푼다.
+
+    내경은 정확히 1:2 지만 천 경계는 (W+2c) x (H+2c) 라 1:2 가 아니다.
+    그 어긋남이 곧 c 다. 새로 잴 값이 필요 없다 — 당구대마다 알아서 풀린다.
+
+    ⚠️ 비율 0.01 이 c 7mm 이라 한 장으로는 못 믿는다. 여러 장의 중앙값을 쓸 것.
+    """
+    p = np.asarray(quad, np.float64)
+    ctr = p.mean(axis=0)
+    p = p[np.argsort(np.arctan2(p[:, 1] - ctr[1], p[:, 0] - ctr[0]))]
+    r = _rect_aspect(p, shape)
+    if r is None:
+        return None
+    if r < 1.0:
+        r = 1.0 / r
+    if r <= 1.0:
+        return None
+    return (table.width - table.height * r) / (2 * (r - 1))
+
+
 def _roundness(img: np.ndarray, quad: np.ndarray, cfg: dict) -> float:
     """이 코너 순서로 펴면 공이 얼마나 동그랗게 나오나. 작을수록 좋다.
 
@@ -380,9 +422,14 @@ def warp(img: np.ndarray, quad: np.ndarray, cfg: dict, find_nose: bool = True) -
                    inset=(pad, pad, w + pad, h + pad))
 
 def detect(img: np.ndarray, cfg: dict | None = None) -> TopView:
-    """사진 한 장 → 상단뷰."""
+    """사진 한 장 → 상단뷰.
+
+    ⚠️ find_corners 가 주는 것은 **천 경계 = 나무 안쪽 선**이지 노즈가 아니다.
+       쿠션 폭만큼 줄여야 공 좌표가 맞는다 (사용자 제안, 2026-08-09).
+    """
+    from core.table import Table                       # 순환 import 를 피해 여기서
     cfg = cfg or load_config()
-    return warp(img, find_corners(img, cfg), cfg)
+    return warp(img, seam_to_nose(find_corners(img, cfg), Table.load()), cfg)
 
 
 def detect_file(path: Path | str, cfg: dict | None = None) -> TopView:
