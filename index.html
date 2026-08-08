@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 24;
+const MOBILE_VER = 25;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -239,10 +239,10 @@ function sideButtons(){
   // 오른쪽 칸에 두 줄(보정 4개 / 배치 5개)을 세로로 세운다.
   // ⚠️ 5개가 세로로 다 들어가야 한다 (전에 L 이 잘렸다).
   //    가로는 여백을 넉넉히 주고 칸 **가운데**로 모아, 검은 바탕에서 덩어리로 보이게 한다.
-  //    세로 여백은 줄여 버튼을 키운다 (사용자 지시).
+  //    세로 여백은 가로와 같은 값을 쓴다 (사용자 지시).
   const p = PANEL, n = 5;
   const colGap = Math.max(6, p.w * 0.10);         // 두 줄 사이 가로 여백
-  const rowGap = Math.max(3, p.h * 0.012);        // 위아래 여백 (좁게)
+  const rowGap = colGap;                          // 세로 여백을 가로와 같게 (사용자 지시)
   const bw = Math.max(12, Math.min((p.w - colGap - Math.max(6, p.w*0.12)) / 2,
                                    (p.h - rowGap*(n-1)) / n));
   const totalW = bw*2 + colGap;
