@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 59;
+const MOBILE_VER = 60;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1037,10 +1037,10 @@ function draw(){
   g.restore();
   g.strokeStyle = '#6b4520'; g.lineWidth = 2;
   g.strokeRect(r.x+1, r.y+1, r.w-2, r.h-2);
-  // 프레임 안쪽 · 천 바깥쪽에 그림자를 둘러 입체감을 준다 (사용자 지시, 10px).
-  const SHADE = 10;
+  // 프레임 안쪽 · 천 바깥쪽에 그림자를 둘러 입체감을 준다 (사용자 지시, 20px).
+  const SHADE = 20;
   for (let i = 0; i < SHADE; i++){
-    g.strokeStyle = 'rgba(0,0,0,' + (0.30 * (1 - i/SHADE)).toFixed(3) + ')';
+    g.strokeStyle = 'rgba(0,0,0,' + (0.34 * (1 - i/SHADE)).toFixed(3) + ')';
     g.lineWidth = 1;
     g.strokeRect(c.x - 6.5 - i, c.y - 6.5 - i, c.w + 13 + i*2, c.h + 13 + i*2);
   }
@@ -1086,7 +1086,10 @@ function draw(){
   requestAnimationFrame(draw);
 }
 function drawDiamonds(){
-  g.fillStyle = '#f2eee0';
+  // ⚠️ 반지름을 3px 로 박아두면 폰에서 안 보인다 (사용자 지적). 천 높이에 비례시키고
+  //    나무 위에서 뜨도록 어두운 테두리를 두른다.
+  const rd = Math.max(4, L.cloth.h * 0.017);
+  g.lineWidth = Math.max(1.5, rd * 0.30);
   for (const [rail,n] of [['bottom',8],['top',8],['left',4],['right',4]])
     for (let i = 0; i <= n; i++){
       const t = i/n;
@@ -1095,7 +1098,9 @@ function drawDiamonds(){
               : rail === 'left'    ? [-T.frame_offset, T.height*t]
                                    : [T.width+T.frame_offset, T.height*t];
       const [x,y] = toPx(...mm);
-      g.beginPath(); g.arc(x,y,3,0,7); g.fill();
+      g.beginPath(); g.arc(x,y,rd,0,7);
+      g.fillStyle = '#fbf7ea'; g.fill();
+      g.strokeStyle = '#5c3d1c'; g.stroke();
     }
 }
 function orientation(){
@@ -1237,7 +1242,7 @@ function drawBrand(){
   }
   if (fs < 9){ g.restore(); return; }              // 자리가 없으면 안 그린다
   g.font = 'italic 700 ' + Math.round(fs) + face;
-  g.fillStyle = 'rgba(214,220,231,0.58)';
+  g.fillStyle = 'rgba(236,241,249,0.92)';
   const cx = PANEL.x + PANEL.w / 2;
   const cy = PANEL.y + room * 0.60;                // 조금 아래로 (사용자 지시)
   words.forEach((t, i) => g.fillText(t, cx, cy + (i - 1) * fs * 1.16));
