@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 67;
+const MOBILE_VER = 68;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1450,25 +1450,25 @@ function drawReadout(){
   const r = READOUT, n = systemNumbers();
   // ⚠️ 어두우면 안 보인다 (사용자 지적). 버튼과 같은 무게로 띄운다.
   const bg = g.createLinearGradient(0, r.y, 0, r.y + r.h);
-  bg.addColorStop(0, '#2a2e35'); bg.addColorStop(1, '#15181c');
+  bg.addColorStop(0, '#5a626d'); bg.addColorStop(0.5, '#3d434c'); bg.addColorStop(1, '#2a2f36');
   g.fillStyle = bg;
   round(r.x, r.y, r.w, r.h, r.h*0.14); g.fill();
   g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, r.h*0.06); g.stroke();
-  g.strokeStyle = 'rgba(214,222,234,0.55)'; g.lineWidth = Math.max(1, r.h*0.022); g.stroke();
+  g.strokeStyle = 'rgba(228,235,245,0.80)'; g.lineWidth = Math.max(1, r.h*0.026); g.stroke();
   const cols = [['수구수', n && n.start], ['1쿠션', n && n.first], ['3쿠션', n && n.third]];
   g.textAlign = 'center';
   cols.forEach(([lb, v], i) => {
     const cx = r.x + r.w*(i + 0.5)/3;
     g.textBaseline = 'top';
-    g.fillStyle = 'rgba(214,222,234,0.75)';
+    g.fillStyle = 'rgba(238,243,250,0.92)';
     g.font = '700 ' + Math.round(r.h*0.24) + 'px system-ui, sans-serif';
     g.fillText(lb, cx, r.y + r.h*0.10);
     g.textBaseline = 'bottom';
-    g.fillStyle = v === null || v === undefined ? '#5b636e' : '#f4f7fb';
+    g.fillStyle = v === null || v === undefined ? '#8b93a0' : '#ffffff';
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
     g.fillText(v === null || v === undefined ? '—' : Math.round(v), cx, r.y + r.h*0.95);
     if (i < 2){
-      g.strokeStyle = 'rgba(214,222,234,0.30)'; g.lineWidth = Math.max(1, r.h*0.02);
+      g.strokeStyle = 'rgba(228,235,245,0.45)'; g.lineWidth = Math.max(1, r.h*0.022);
       g.beginPath();
       g.moveTo(r.x + r.w*(i+1)/3, r.y + r.h*0.18);
       g.lineTo(r.x + r.w*(i+1)/3, r.y + r.h*0.82); g.stroke();
