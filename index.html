@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 63;
+const MOBILE_VER = 64;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -847,7 +847,7 @@ function sideButtons(){
   const rowGap = colGap;
   const lead   = Math.max(2, p.w * 0.036);         // 숫자와 버튼 사이 (전의 30%)
   const CAM_H  = 1.6;                              // 카메라 높이 배수
-  const RO_H   = 0.62;                             // 판독창 높이 배수 (카메라 위)
+  const RO_H   = 0.82;                             // 판독창 높이 배수 (카메라 위)
   const bw = Math.max(12, Math.min((p.w - colGap - lead) / 2,
                                    (p.h - rowGap*4) / (3 + RO_H + CAM_H)));
   const totalW = bw*2 + colGap;
@@ -1041,10 +1041,10 @@ function draw(){
   g.restore();
   g.strokeStyle = '#6b4520'; g.lineWidth = 2;
   g.strokeRect(r.x+1, r.y+1, r.w-2, r.h-2);
-  // 프레임 안쪽 · 천 바깥쪽에 그림자를 둘러 입체감을 준다 (사용자 지시, 20px).
-  const SHADE = 20;
+  // 프레임 안쪽 · 천 바깥쪽에 그림자를 둘러 입체감을 준다 (사용자 지시).
+  const SHADE = 14;
   for (let i = 0; i < SHADE; i++){
-    g.strokeStyle = 'rgba(0,0,0,' + (0.34 * (1 - i/SHADE)).toFixed(3) + ')';
+    g.strokeStyle = 'rgba(0,0,0,' + (0.32 * (1 - i/SHADE)).toFixed(3) + ')';
     g.lineWidth = 1;
     const e = T.cushion_width * L.sc + 0.5 + i;
     g.strokeRect(c.x - e, c.y - e, c.w + e*2, c.h + e*2);
@@ -1271,7 +1271,17 @@ function frameParam(mm){
 }
 
 // 번호표에서 그 자리의 값을 읽는다 (점 사이는 직선 보간).
-function readScale(name, rail, t){
+// 레일의 t 끝(0/1)에서 맞닿는 이웃 레일과 그쪽 끝
+//   bottom t: 0=좌하 1=우하   right t: 0=우하 1=우상
+//   top    t: 0=좌상 1=우상   left  t: 0=좌하 1=좌상
+const CORNER_NEXT = {
+  'bottom:1': ['right', 0], 'right:0': ['bottom', 1],
+  'right:1' : ['top', 1],   'top:1'  : ['right', 1],
+  'top:0'   : ['left', 1],  'left:1' : ['top', 0],
+  'left:0'  : ['bottom', 0],'bottom:0': ['left', 0]
+};
+
+function readScale(name, rail, t, clampEnds){
   const sc = SCALES.find(s => s.name === name);
   if (!sc) return null;
   const n = (rail === 'bottom' || rail === 'top') ? 8 : 4;
@@ -1279,7 +1289,23 @@ function readScale(name, rail, t){
                        .map(p => [p.index / n, p.number])
                        .sort((a,b) => a[0]-b[0]);
   if (pts.length < 2) return null;
-  if (t <= pts[0][0] || t >= pts[pts.length-1][0]) return null;   // 눈금 밖은 안 읽는다
+  // ⚠️ 코너각은 모두 수구수 50 이다 (사용자 확정) — 모서리에서 만나는 양쪽 끝
+  //    포인트 사이 공간을 전부 그 값으로 본다. 다만 **두 레일의 끝값이 같은
+  //    모서리에서만** 그렇다. 아무 끝이나 늘리면 없는 값을 지어내게 된다
+  //    (우측 레일 반대쪽 끝은 100 이라 늘리면 100 이 나와 버렸다).
+  if (t <= pts[0][0] || t >= pts[pts.length-1][0]){
+    if (!clampEnds) return null;
+    const lo = t <= pts[0][0];
+    const mine = lo ? pts[0][1] : pts[pts.length-1][1];
+    const nb = CORNER_NEXT[rail + ':' + (lo ? 0 : 1)];
+    if (!nb) return null;
+    const np = sc.points.filter(q => q.rail === nb[0]);
+    if (!np.length) return null;
+    const idx = np.map(q => q.index);
+    const other = nb[1] ? Math.max(...idx) : Math.min(...idx);
+    const val = np.find(q => q.index === other).number;
+    return val === mine ? mine : null;
+  }
   for (let i = 0; i < pts.length-1; i++)
     if (t >= pts[i][0] && t <= pts[i+1][0]){
       const k = (t - pts[i][0]) / (pts[i+1][0] - pts[i][0]);
@@ -1316,7 +1342,7 @@ function systemNumbers(){
     if (cand.length){
       const q = [C[0] + dx*cand[0][0], C[1] + dy*cand[0][0]];
       const f = frameParam(q);
-      if (f) start = readScale('start', f.rail, f.t);
+      if (f) start = readScale('start', f.rail, f.t, true);   // 코너 = 50
     }
   }
   const third = (start !== null && first !== null) ? start - first : null;
@@ -1327,23 +1353,27 @@ function systemNumbers(){
 function drawReadout(){
   if (!READOUT) return;
   const r = READOUT, n = systemNumbers();
-  g.fillStyle = '#241d12';
-  round(r.x, r.y, r.w, r.h, r.h*0.16); g.fill();
-  g.strokeStyle = '#7a6432'; g.lineWidth = Math.max(1.5, r.h*0.035); g.stroke();
+  // ⚠️ 어두우면 안 보인다 (사용자 지적). 버튼과 같은 무게로 띄운다.
+  const bg = g.createLinearGradient(0, r.y, 0, r.y + r.h);
+  bg.addColorStop(0, '#5d4a22'); bg.addColorStop(1, '#33280f');
+  g.fillStyle = bg;
+  round(r.x, r.y, r.w, r.h, r.h*0.14); g.fill();
+  g.strokeStyle = '#14161a'; g.lineWidth = Math.max(2, r.h*0.055); g.stroke();
+  g.strokeStyle = '#e6c878'; g.lineWidth = Math.max(1.5, r.h*0.028); g.stroke();
   const cols = [['수구수', n && n.start], ['1쿠션', n && n.first], ['3쿠션', n && n.third]];
   g.textAlign = 'center';
   cols.forEach(([lb, v], i) => {
     const cx = r.x + r.w*(i + 0.5)/3;
     g.textBaseline = 'top';
-    g.fillStyle = 'rgba(240,215,143,0.72)';
-    g.font = '600 ' + Math.round(r.h*0.24) + 'px system-ui, sans-serif';
+    g.fillStyle = '#f5e3ae';
+    g.font = '700 ' + Math.round(r.h*0.24) + 'px system-ui, sans-serif';
     g.fillText(lb, cx, r.y + r.h*0.10);
     g.textBaseline = 'bottom';
-    g.fillStyle = v === null || v === undefined ? '#6a5c3a' : '#f0d78f';
-    g.font = '800 ' + Math.round(r.h*0.46) + 'px system-ui, sans-serif';
+    g.fillStyle = v === null || v === undefined ? '#9a8a60' : '#fff3cf';
+    g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
     g.fillText(v === null || v === undefined ? '—' : Math.round(v), cx, r.y + r.h*0.95);
     if (i < 2){
-      g.strokeStyle = 'rgba(240,215,143,0.22)'; g.lineWidth = 1;
+      g.strokeStyle = 'rgba(255,240,200,0.40)'; g.lineWidth = Math.max(1, r.h*0.02);
       g.beginPath();
       g.moveTo(r.x + r.w*(i+1)/3, r.y + r.h*0.18);
       g.lineTo(r.x + r.w*(i+1)/3, r.y + r.h*0.82); g.stroke();
