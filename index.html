@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 17;
+const MOBILE_VER = 18;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -175,13 +175,14 @@ function layout(){
   //    버튼 크기가 음수가 되고 화면이 죽는다 (arcTo radius -0.54).
   // ⚠️ 배율을 두 개(sc, sc2) 두지 말 것. 하나가 옛 값을 쓰면 테두리와 천이
   //    어긋나 당구대와 버튼이 겹친다 (실기기에서 확인).
-  const fit = Math.min((w - 4)/ow, (h - 4)/oh);   // 당구대만 놓았을 때
-  const need = Math.max(h * 0.28, 84);            // 버튼 칸에 꼭 필요한 폭
-  const panelW = Math.max(w - 4 - ow*fit, need);
-  const sc = Math.min((w - 6 - panelW)/ow, (h - 4)/oh);
+  // 여백을 최소로. 위·아래 각 1px 만 남긴다.
+  const fit = Math.min((w - 2)/ow, (h - 2)/oh);   // 당구대만 놓았을 때
+  const need = Math.max(h * 0.26, 80);            // 버튼 칸에 꼭 필요한 폭
+  const panelW = Math.max(w - 2 - ow*fit, need);
+  const sc = Math.min((w - 3 - panelW)/ow, (h - 2)/oh);
 
   const rw = ow*sc, rh = oh*sc;
-  const rl = 2, rt = 2;      // 위·왼쪽에 붙인다 (위쪽 여백을 없앤다)
+  const rl = 1, rt = 1;      // 위·왼쪽 끝에 붙인다
   const px = T.rail_x*sc, py = T.rail_y*sc;
   PANEL = {x: rl + rw + 4, y: rt, w: Math.max(w - (rl+rw) - 8, 40), h: rh};
   L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
