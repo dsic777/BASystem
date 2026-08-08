@@ -19,7 +19,7 @@
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 2;
+const MOBILE_VER = 3;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -149,11 +149,13 @@ const toMm = (px,py) => [(px-L.ox)/L.sc, (L.oy-py)/L.sc];
 //    (사용자 지적). 화면 짧은 변에 비례시켜 손가락에 맞춘다.
 let BW = 58, BH = 58, BG = 8, ROWG = 12, GRPG = 18;
 function sizeButtons(){
-  const base = Math.min(cv.width, cv.height);
-  BW = BH = Math.round(base * 0.115);      // 짧은 변의 11.5%
-  BG   = Math.round(BW * 0.16);
-  ROWG = Math.round(BW * 0.20);
-  GRPG = Math.round(BW * 0.32);
+  // ⚠️ 기준은 **당구대 짧은 변(천 높이)** 하나로 통일한다. cv.width 같은 물리 화소를
+  //    쓰면 폰마다 제각각이고, 당점(천 기준)과 버튼(화소 기준)이 따로 논다.
+  const base = L.cloth.h;
+  BW = BH = Math.round(base * 0.185);      // 천 높이의 18.5%
+  BG   = Math.round(BW * 0.14);
+  ROWG = Math.round(BW * 0.16);
+  GRPG = Math.round(BW * 0.30);
 }
 let BTN = [];
 function buttonRects(){
@@ -178,7 +180,7 @@ function buttonRects(){
     out.push({x:x + i*(BW+BG) + (i ? GRPG : 0), y:y2, w:BW, h:BH, lb}));
   return out;
 }
-const clockR = () => Math.max(18, L.cloth.h*0.075);   // 0.12 → 0.075 (너무 컸다)
+const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
 const clockCenter = () => [L.cloth.x + L.cloth.w - clockR() - 16, L.cloth.y + L.cloth.h/2];
 const ballR = () => Math.max(5, T.ball_diameter/2*L.sc);
 
@@ -297,7 +299,7 @@ function drawNumbers(){
   for (const sc of SCALES){
     const third = sc.name === 'third_cushion';
     // 숫자도 화면에 비례시킨다. 17/20px 고정이면 폰에서 안 보인다.
-    const fs = Math.max(13, Math.round(Math.min(cv.width, cv.height) * (third ? 0.036 : 0.044)));
+    const fs = Math.round(L.cloth.h * (third ? 0.055 : 0.065));   // 천 높이 기준
     g.font = 'bold ' + fs + 'px sans-serif';
     g.fillStyle = sc.color; g.textAlign = 'center'; g.textBaseline = 'middle';
     const seen = [];
