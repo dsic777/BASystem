@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 29;
+const MOBILE_VER = 30;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -284,7 +284,15 @@ function tapButton(px,py){
     else if (b.lb === '-') S.corr -= 0.5;
     else if (b.lb === '0') S.corr = 0;
     else if (b.lb === 'cam') shoot();
-    else if (b.lb === 'swap') { S.cueWhite = !S.cueWhite; }
+    else if (b.lb === 'swap'){
+      // ⚠️ S.cueWhite 만 뒤집으면 안 된다. 공은 역할(cue/obj1)로 담겨 있어서
+      //    깃발만 바꾸면 화면의 노란 링이 엉뚱한 공에 남는다 (사용자 지적).
+      //    흰공·노란공의 자리와 색을 통째로 맞바꾼다.
+      S.cueWhite = !S.cueWhite;
+      const a = S.balls.cue, b2 = S.balls.obj1;
+      if (a) S.balls.obj1 = a; else delete S.balls.obj1;
+      if (b2) S.balls.cue = b2; else delete S.balls.cue;
+    }
     else if (['white','yellow','red'].includes(b.lb))
       S.place = S.place === b.lb ? null : b.lb;
     else if (b.lb === 'reset') doReset();
