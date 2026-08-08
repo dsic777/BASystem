@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 62;
+const MOBILE_VER = 63;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -766,7 +766,7 @@ let L = {};
 // 세로로 든 화면에서는 당구대를 눕혀서 그린다. 당구대가 2:1 이라 세로 화면에
 // 그대로 넣으면 절반이 빈다. 그리기 좌표계를 90도 돌리고, 손가락 좌표는
 // 되돌려서 받는다.
-let ROT = false, SIDE = false, PANEL = null;
+let ROT = false, SIDE = false, PANEL = null, READOUT = null;
 function layout(){
   ROT = cv.height > cv.width;
   const w = ROT ? cv.height : cv.width, h = ROT ? cv.width : cv.height;
@@ -847,10 +847,11 @@ function sideButtons(){
   const rowGap = colGap;
   const lead   = Math.max(2, p.w * 0.036);         // 숫자와 버튼 사이 (전의 30%)
   const CAM_H  = 1.6;                              // 카메라 높이 배수
+  const RO_H   = 0.62;                             // 판독창 높이 배수 (카메라 위)
   const bw = Math.max(12, Math.min((p.w - colGap - lead) / 2,
-                                   (p.h - rowGap*3) / (3 + CAM_H)));
+                                   (p.h - rowGap*4) / (3 + RO_H + CAM_H)));
   const totalW = bw*2 + colGap;
-  const totalH = bw*(3 + CAM_H) + rowGap*3;
+  const totalH = bw*(3 + RO_H + CAM_H) + rowGap*4;
   const x0 = p.x + lead + (p.w - lead - totalW) / 2;
   // ⚠️ 가운데 정렬이면 위 이름 자리가 좁다. 아래쪽으로 내린다 (사용자 지시).
   const y0 = p.y + (p.h - totalH) * 0.78;
@@ -858,7 +859,10 @@ function sideButtons(){
   [['swap','reset'], ['white','yellow'], ['red','exit']].forEach((row,i) =>
     row.forEach((lb,j) => out.push({x:x0 + j*(bw+colGap), y:y0 + i*(bw+rowGap),
                                     w:bw, h:bw, lb})));
-  out.push({x:x0, y:y0 + 3*(bw+rowGap), w:totalW, h:bw*CAM_H, lb:'cam'});
+  // 판독창(누르는 것 아님) 자리를 잡아두고, 카메라는 그 아래에 둔다 (사용자 지시).
+  const roY = y0 + 3*(bw+rowGap);
+  READOUT = {x:x0, y:roY, w:totalW, h:bw*RO_H};
+  out.push({x:x0, y:roY + bw*RO_H + rowGap, w:totalW, h:bw*CAM_H, lb:'cam'});
   BW = BH = bw;
   return out;
 }
@@ -1088,7 +1092,7 @@ function draw(){
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
-  drawButtons(); drawBrand();
+  drawButtons(); drawReadout(); drawBrand();
   requestAnimationFrame(draw);
 }
 function drawDiamonds(){
@@ -1254,6 +1258,99 @@ function drawBrand(){
   words.forEach((t, i) => g.fillText(t, cx, cy + (i - 1) * fs * 1.16));
   g.restore();
 }
+
+// ---------------------------------------------------------------- 번호 판독
+// 프레임 위의 한 점(mm, 접기 전 기준) → 그 레일 위 위치 t 와 레일 이름.
+function frameParam(mm){
+  const off = T.frame_offset, e = 1.0;
+  if (Math.abs(mm[1] + off) < e)              return {rail:'bottom', t: mm[0]/T.width};
+  if (Math.abs(mm[1] - (T.height+off)) < e)   return {rail:'top',    t: mm[0]/T.width};
+  if (Math.abs(mm[0] + off) < e)              return {rail:'left',   t: mm[1]/T.height};
+  if (Math.abs(mm[0] - (T.width+off)) < e)    return {rail:'right',  t: mm[1]/T.height};
+  return null;
+}
+
+// 번호표에서 그 자리의 값을 읽는다 (점 사이는 직선 보간).
+function readScale(name, rail, t){
+  const sc = SCALES.find(s => s.name === name);
+  if (!sc) return null;
+  const n = (rail === 'bottom' || rail === 'top') ? 8 : 4;
+  const pts = sc.points.filter(p => p.rail === rail)
+                       .map(p => [p.index / n, p.number])
+                       .sort((a,b) => a[0]-b[0]);
+  if (pts.length < 2) return null;
+  if (t <= pts[0][0] || t >= pts[pts.length-1][0]) return null;   // 눈금 밖은 안 읽는다
+  for (let i = 0; i < pts.length-1; i++)
+    if (t >= pts[i][0] && t <= pts[i+1][0]){
+      const k = (t - pts[i][0]) / (pts[i+1][0] - pts[i][0]);
+      return pts[i][1] + k * (pts[i+1][1] - pts[i][1]);
+    }
+  return null;
+}
+
+// 조준선에서 수구수 · 1쿠션수 · 3쿠션수를 읽는다.
+// ⚠️ 3쿠션수는 재는 게 아니라 **수구수 − 1쿠션수** 다 (CLAUDE.md 확정 공식).
+function systemNumbers(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return null;
+  const o = orientation();
+  // 접기 전 기준으로 되돌려서 읽는다 (번호표는 접기 전 좌표로 정의돼 있다)
+  const A = fold(o, S.aim), C = fold(o, cue.p);
+
+  const a = frameParam(A);
+  const first = a ? readScale('first_cushion', a.rail, a.t) : null;
+
+  // 수구수 — 조준선을 수구 뒤로 연장해 만나는 프레임 자리
+  const off = T.frame_offset;
+  let dx = C[0]-A[0], dy = C[1]-A[1];
+  const len = Math.hypot(dx,dy);
+  let start = null;
+  if (len > 1){
+    dx /= len; dy /= len;
+    const cand = [];
+    if (dy < 0) cand.push([(-off - C[1])/dy, 'bottom']);
+    if (dy > 0) cand.push([(T.height+off - C[1])/dy, 'top']);
+    if (dx < 0) cand.push([(-off - C[0])/dx, 'left']);
+    if (dx > 0) cand.push([(T.width+off - C[0])/dx, 'right']);
+    cand.sort((p,q) => p[0]-q[0]);
+    if (cand.length){
+      const q = [C[0] + dx*cand[0][0], C[1] + dy*cand[0][0]];
+      const f = frameParam(q);
+      if (f) start = readScale('start', f.rail, f.t);
+    }
+  }
+  const third = (start !== null && first !== null) ? start - first : null;
+  return {start, first, third};
+}
+
+// 카메라 버튼 위 판독창 — 수구수 / 1쿠션 / 3쿠션
+function drawReadout(){
+  if (!READOUT) return;
+  const r = READOUT, n = systemNumbers();
+  g.fillStyle = '#241d12';
+  round(r.x, r.y, r.w, r.h, r.h*0.16); g.fill();
+  g.strokeStyle = '#7a6432'; g.lineWidth = Math.max(1.5, r.h*0.035); g.stroke();
+  const cols = [['수구수', n && n.start], ['1쿠션', n && n.first], ['3쿠션', n && n.third]];
+  g.textAlign = 'center';
+  cols.forEach(([lb, v], i) => {
+    const cx = r.x + r.w*(i + 0.5)/3;
+    g.textBaseline = 'top';
+    g.fillStyle = 'rgba(240,215,143,0.72)';
+    g.font = '600 ' + Math.round(r.h*0.24) + 'px system-ui, sans-serif';
+    g.fillText(lb, cx, r.y + r.h*0.10);
+    g.textBaseline = 'bottom';
+    g.fillStyle = v === null || v === undefined ? '#6a5c3a' : '#f0d78f';
+    g.font = '800 ' + Math.round(r.h*0.46) + 'px system-ui, sans-serif';
+    g.fillText(v === null || v === undefined ? '—' : Math.round(v), cx, r.y + r.h*0.95);
+    if (i < 2){
+      g.strokeStyle = 'rgba(240,215,143,0.22)'; g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(r.x + r.w*(i+1)/3, r.y + r.h*0.18);
+      g.lineTo(r.x + r.w*(i+1)/3, r.y + r.h*0.82); g.stroke();
+    }
+  });
+}
+
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   // ⚠️ 글자에 검은 테두리를 덧그려 굵게 보이게 한다. 캔버스 폰트 굵기는 900 이 최대라
