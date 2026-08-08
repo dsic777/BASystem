@@ -60,7 +60,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 50;
+const MOBILE_VER = 51;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1199,13 +1199,25 @@ VID.playsInline = true; VID.muted = true;
 //    안 붙는다 — 그래서 진짜 카메라가 켜졌다. 지금은 **기본이 시험 모드**다.
 //    진짜 카메라로 돌아가려면 아래 true 를 false 로 (또는 주소에 ?t=0).
 const TEST = {on: !/[?&]t=0/.test(location.search), list: null, i: -1,
-              img: null, name: ''};
+              img: null, name: '', done: false};
+
+// 확인할 사진만 골라 본다. 빈 배열이면 15장 전부.
+// 지금은 v48 에서 공을 하나밖에 못 찾던 두 장 — 천 색 범위를 넓힌 v49 로 고쳐졌는지 본다.
+const TEST_ONLY = ['191914.jpg', '192004.jpg'];
 
 async function nextTestPhoto(){
   if (!TEST.list){
-    TEST.list = await fetch('test/photos/list.json').then(r => r.json());
+    const all = await fetch('test/photos/list.json').then(r => r.json());
+    TEST.list = TEST_ONLY.length ? all.filter(n => TEST_ONLY.includes(n)) : all;
   }
-  TEST.i = (TEST.i + 1) % TEST.list.length;
+  // ⚠️ 한 바퀴 돌면 멈춘다. 계속 반복하면 어디까지 봤는지 알 수 없다 (사용자 요청).
+  if (TEST.i + 1 >= TEST.list.length){
+    TEST.done = true;
+    msg.style.display = 'block';
+    msg.textContent = '완료 — ' + TEST.list.length + '장 다 봤습니다';
+    return;
+  }
+  TEST.i++;
   const name = TEST.list[TEST.i];
   const img = new Image();
   await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = 'test/photos/' + name; });
@@ -1308,9 +1320,10 @@ function usePhoto(img){
   }
   msg.style.display = 'block';
   const who = TEST.on && TEST.name ? TEST.name + ' · ' : '';
+  const last = TEST.on && TEST.list && TEST.i + 1 >= TEST.list.length;
   msg.textContent = TABLE_HULL
-    ? who + '당구대 찾음 · 공 ' + n + '개 (' + Math.round(performance.now()-t0) + 'ms)'
-    : who + '★당구대를 못 찾음';
+    ? who + '당구대 찾음 · 공 ' + n + '개' + (last ? '  —  완료' : '')
+    : who + '★당구대를 못 찾음' + (last ? '  —  완료' : '');
   setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 2500);
 }
 
