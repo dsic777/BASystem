@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 42;
+const MOBILE_VER = 43;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -808,6 +808,7 @@ function tapButton(px,py){
       window.close();
       setTimeout(() => {
         PHOTO = WARPED = TABLE_HULL = null;
+        TEST.img = null; TEST.i = -1;
         S.balls = {}; S.aim = null; S.corr = 0;
         msg.style.display = 'block'; msg.textContent = '처음 상태로 돌렸습니다';
         setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2000);
@@ -866,9 +867,9 @@ function ballAt(px,py){
   return null;
 }
 function down(px,py){
-  if (CAMLIVE && SHUTTER){
+  if ((CAMLIVE || TEST.img) && SHUTTER){
     const d = Math.hypot(px - SHUTTER.x, py - SHUTTER.y);
-    if (d <= SHUTTER.r * 1.3) { capture(); return; }
+    if (d <= SHUTTER.r * 1.3) { shoot(); return; }
   }
   if (tapButton(px,py)) return;
   if (S.place){
@@ -912,12 +913,14 @@ function draw(){
   g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
   g.fillStyle = '#264 abe'; g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
 
-  if (CAMLIVE && VID.videoWidth){
-    // 카메라 미리보기 — 천 자리에 비율을 지켜 채운다
-    const c = L.cloth, k2 = Math.max(c.w/VID.videoWidth, c.h/VID.videoHeight);
-    const vw = VID.videoWidth*k2, vh = VID.videoHeight*k2;
+  const PREVIEW = TEST.img ? TEST.img : (CAMLIVE && VID.videoWidth ? VID : null);
+  if (PREVIEW){
+    // 미리보기 (카메라 또는 시험 사진) — 천 자리에 비율을 지켜 채운다
+    const pw = PREVIEW.videoWidth || PREVIEW.width, ph = PREVIEW.videoHeight || PREVIEW.height;
+    const c = L.cloth, k2 = Math.max(c.w/pw, c.h/ph);
+    const vw = pw*k2, vh = ph*k2;
     g.save(); g.beginPath(); g.rect(c.x,c.y,c.w,c.h); g.clip();
-    g.drawImage(VID, c.x+(c.w-vw)/2, c.y+(c.h-vh)/2, vw, vh);
+    g.drawImage(PREVIEW, c.x+(c.w-vw)/2, c.y+(c.h-vh)/2, vw, vh);
     g.restore();
     // ⚠️ 촬영 버튼이 어디인지 몰라 못 찍는다 (사용자 지적).
     //    가로로 든 폰에서 **오른손 엄지가 닿는 자리** = 오른쪽 가운데에 둔다.
@@ -1184,7 +1187,35 @@ let CAMSTREAM = null, CAMLIVE = false, SHUTTER = null;
 const VID = document.createElement('video');
 VID.playsInline = true; VID.muted = true;
 
+// ---------------------------------------------------------------- 시험 모드
+// 주소에 ?t=1 을 붙이면 카메라 대신 test/photos 의 사진을 한 장씩 보여준다.
+// 촬영 버튼을 누르면 그 사진을 읽어 공을 놓는다. 폰에서 **무엇을 어떻게 읽는지**를
+// 눈으로 보려고 만든 것이다 (사용자 요청). 카메라는 ?t=1 을 빼면 그대로 동작한다.
+const TEST = {on: /[?&]t=1/.test(location.search), list: null, i: -1,
+              img: null, name: ''};
+
+async function nextTestPhoto(){
+  if (!TEST.list){
+    TEST.list = await fetch('test/photos/list.json').then(r => r.json());
+  }
+  TEST.i = (TEST.i + 1) % TEST.list.length;
+  const name = TEST.list[TEST.i];
+  const img = new Image();
+  await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = 'test/photos/' + name; });
+  TEST.img = img; TEST.name = name;
+  msg.style.display = 'block';
+  msg.textContent = '시험 ' + (TEST.i+1) + '/' + TEST.list.length + ' · ' + name
+                  + ' — 흰 버튼을 누르면 읽습니다';
+  draw();
+}
+
 async function shoot(){
+  if (TEST.on){
+    if (TEST.img){ const img = TEST.img; TEST.img = null; usePhoto(img); return; }
+    try { await nextTestPhoto(); }
+    catch(e){ msg.style.display='block'; msg.textContent = '시험 사진을 못 읽었습니다: ' + e; }
+    return;
+  }
   if (CAMLIVE) { capture(); return; }             // 미리보기 중이면 찍는다
   try{
     CAMSTREAM = await navigator.mediaDevices.getUserMedia({
@@ -1254,9 +1285,10 @@ function usePhoto(img){
       if (found[c]){ S.balls[roleOf(c)] = {p: found[c], color: c}; n++; }
   }
   msg.style.display = 'block';
+  const who = TEST.on && TEST.name ? TEST.name + ' · ' : '';
   msg.textContent = TABLE_HULL
-    ? '당구대 찾음 · 공 ' + n + '개 (' + Math.round(performance.now()-t0) + 'ms)'
-    : '★당구대를 못 찾음';
+    ? who + '당구대 찾음 · 공 ' + n + '개 (' + Math.round(performance.now()-t0) + 'ms)'
+    : who + '★당구대를 못 찾음';
   setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 2500);
 }
 
