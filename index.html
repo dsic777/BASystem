@@ -1,7 +1,13 @@
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>파이브앤하프 — 모바일</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#16181c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>BASystem — 당구 어시스턴트</title>
 <style>
-  html,body{margin:0;height:100%;background:#16181c;overflow:hidden;
+  html,body{margin:0;height:100dvh;background:#16181c;overflow:hidden;
             -webkit-user-select:none;user-select:none;touch-action:none}
   canvas{display:block;width:100%;height:100%}
   #msg{position:fixed;left:8px;top:8px;color:#ffd; font:14px/1.4 sans-serif;
@@ -10,6 +16,7 @@
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
 <script>
+const VERSION = '1.0.0';   // ⚠️ 고칠 때마다 올린다. sw.js 의 VERSION 과 같이 맞춘다.
 // 파이브앤하프 모바일 — 윈도우판(ui/app.py)과 같은 두뇌를 쓴다.
 // 값(규격·번호표·실측 반사표)은 data/ 를 그대로 읽는다. 두 벌로 나누지 않는다.
 // ⚠️ 저장소 뿌리에 둔다. 서버가 /basystem/ 을 이 폴더로 바로 서비스하므로
@@ -106,10 +113,17 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
 
 // ---------------------------------------------------------------- 화면 좌표
 let L = {};
+// 세로로 든 화면에서는 당구대를 눕혀서 그린다. 당구대가 2:1 이라 세로 화면에
+// 그대로 넣으면 절반이 빈다. 그리기 좌표계를 90도 돌리고, 손가락 좌표는
+// 되돌려서 받는다.
+let ROT = false;
 function layout(){
-  const w = cv.width, h = cv.height;
+  ROT = cv.height > cv.width;
+  const w = ROT ? cv.height : cv.width, h = ROT ? cv.width : cv.height;
   const ow = T.outer_width, oh = T.outer_height;
-  const sc = Math.min((w-12)/ow, (h-12)/oh);
+  // 화면을 가득 채운다. 세로로 들면 눕혀서 그린다 (당구대는 2:1 이라
+  // 세로 화면에 그대로 넣으면 절반이 빈다).
+  const sc = Math.min((w-8)/ow, (h-8)/oh);
   const rw = ow*sc, rh = oh*sc, rl = (w-rw)/2, rt = (h-rh)/2;
   const px = T.rail_x*sc, py = T.rail_y*sc;
   L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
@@ -227,7 +241,9 @@ const up = () => { S.drag = null; S.aiming = false; };
 // ---------------------------------------------------------------- 그리기
 function draw(){
   layout(); BTN = buttonRects();
+  g.setTransform(1,0,0,1,0,0);
   g.fillStyle = '#16181c'; g.fillRect(0,0,cv.width,cv.height);
+  if (ROT){ g.translate(0, cv.height); g.rotate(-Math.PI/2); }
   const r = L.rail, c = L.cloth;
   g.fillStyle = '#96703e'; g.fillRect(r.x,r.y,r.w,r.h);
   g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
@@ -391,11 +407,15 @@ function resize(){
 addEventListener('resize', resize);
 const pos = e => {
   const t = e.touches ? e.touches[0] : e;
-  return [t.clientX*devicePixelRatio, t.clientY*devicePixelRatio];
+  const x = t.clientX*devicePixelRatio, y = t.clientY*devicePixelRatio;
+  return ROT ? [cv.height - y, x] : [x, y];      // 눕혀 그렸으면 손가락도 되돌린다
 };
 cv.addEventListener('pointerdown', e => { down(...pos(e)); });
 cv.addEventListener('pointermove', e => { move(...pos(e)); });
 addEventListener('pointerup', up);
+
+if ('serviceWorker' in navigator)
+  addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
 
 (async () => {
   try{
