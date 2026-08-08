@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 39;
+const MOBILE_VER = 40;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -414,8 +414,21 @@ function refineQuad(img, quad){
     return [(Hm[0]*u + Hm[1]*v + Hm[2])/w2, (Hm[3]*u + Hm[4]*v + Hm[5])/w2];
   };
   // t=0,1 이 어디로 가야 하는지 (역함수: 관측 = (이상 - a)/b)
-  const gx0 = fx ? (0 - fx.a)/fx.b : 0, gx1 = fx ? (1 - fx.a)/fx.b : 1;
-  const gy0 = fy ? (0 - fy.a)/fy.b : 0, gy1 = fy ? (1 - fy.a)/fy.b : 1;
+  // ⚠️ 다이아몬드는 쿠션 날이 아니라 그보다 frame_offset(90mm) **바깥**의 프레임
+  //    선에 있다. 다이아몬드를 0~1 에 맞추면 사각형이 프레임까지 커져 레일을 문다
+  //    (실기기에서 좌우에 나무색 띠가 보였다). 그만큼 안쪽으로 되돌린다.
+  //      가로 2448/(2448+180) = 0.9315,  세로 1224/(1224+180) = 0.8718
+  const off = T.frame_offset;
+  const rx = T.width  / (T.width  + 2*off);
+  const ry = T.height / (T.height + 2*off);
+  const shrink = (t0, t1, r) => {                 // 0~1 구간을 가운데 기준으로 r 배
+    const m = (t0+t1)/2, half = (t1-t0)/2*r;
+    return [m-half, m+half];
+  };
+  let gx0 = fx ? (0 - fx.a)/fx.b : 0, gx1 = fx ? (1 - fx.a)/fx.b : 1;
+  let gy0 = fy ? (0 - fy.a)/fy.b : 0, gy1 = fy ? (1 - fy.a)/fy.b : 1;
+  if (fx) [gx0, gx1] = shrink(gx0, gx1, rx);
+  if (fy) [gy0, gy1] = shrink(gy0, gy1, ry);
   const X0 = PAD + W*gx0, X1 = PAD + W*gx1;
   const Y0 = PAD + H*gy0, Y1 = PAD + H*gy1;
   DIAMOND_FIT = {nx: found.top.length + found.bottom.length,
