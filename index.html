@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 40;
+const MOBILE_VER = 41;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -452,6 +452,51 @@ function orderQuad(quad){
   return idx.map(i => by[i]);
 }
 
+
+// ---------------------------------------------------------------- 정답 배치
+// 숙제로 드린 배치도의 **지정 좌표**(mm). 이걸 화면에 겹쳐 그리면 원근보정이
+// 얼마나 정확한지 눈으로·숫자로 잴 수 있다. 배치도를 만든 값 그대로다.
+const LAYOUTS = {
+  '01': {name:'기본',      white:[620,300],  yellow:[1600,900], red:[2010,400]},
+  '02': {name:'붙은공',    white:[1200,612], yellow:[1261.5,612], red:[2000,900]},
+  '03': {name:'코너밀집',  white:[110,110],  yellow:[240,95],   red:[130,250]},
+  '04': {name:'상단쿠션',  white:[700,400],  yellow:[1224,1193.25], red:[1800,300]},
+  '05': {name:'하단쿠션',  white:[700,800],  yellow:[1224,30.75],   red:[1800,900]},
+  '06': {name:'좌측쿠션',  white:[900,300],  yellow:[30.75,612],    red:[1500,900]},
+  '07': {name:'다이아몬드위', white:[918,30.75], yellow:[1700,800], red:[2100,400]},
+  '08': {name:'조명반사',  white:[1224,612], yellow:[600,300],  red:[1900,900]},
+  '09': {name:'우측쿠션',  white:[1000,300], yellow:[2417.25,612],  red:[1500,900]},
+  '10': {name:'일직선',    white:[400,612],  yellow:[1224,612], red:[2048,612]},
+  '11': {name:'대각선끝',  white:[140,140],  yellow:[1224,612], red:[2308,1084]},
+};
+let ANSWER = null;          // 지금 비교 중인 배치 (null 이면 안 그린다)
+
+function drawAnswer(){
+  if (!ANSWER) return;
+  const a = LAYOUTS[ANSWER];
+  if (!a) return;
+  g.save();
+  for (const [c, mm] of [['white',a.white],['yellow',a.yellow],['red',a.red]]){
+    const [x,y] = toPx(...mm), r = ballR();
+    g.strokeStyle = TONE[c]; g.lineWidth = Math.max(2, r*0.28);
+    g.setLineDash([r*0.5, r*0.4]);
+    g.beginPath(); g.arc(x, y, r*1.25, 0, 7); g.stroke();
+    // 실제로 놓은 공과의 거리
+    const put = S.balls[roleOf(c)];
+    if (put){
+      const d = Math.hypot(put.p[0]-mm[0], put.p[1]-mm[1]);
+      g.setLineDash([]);
+      g.fillStyle = '#fff'; g.font = 'bold ' + Math.round(r*1.1) + 'px sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'bottom';
+      g.strokeStyle = '#101014'; g.lineWidth = Math.max(2, r*0.3);
+      g.strokeText(Math.round(d) + 'mm', x, y - r*1.5);
+      g.fillText(Math.round(d) + 'mm', x, y - r*1.5);
+    }
+    g.setLineDash([]);
+  }
+  g.restore();
+}
+
 // ---------------------------------------------------------------- 상태
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0};
@@ -755,7 +800,7 @@ function draw(){
       g.restore();
     }
   }
-  drawDiamonds(); drawNumbers(); drawPath(); drawBalls(); drawClock(); drawButtons();
+  drawDiamonds(); drawNumbers(); drawAnswer(); drawPath(); drawBalls(); drawClock(); drawButtons();
   requestAnimationFrame(draw);
 }
 function drawDiamonds(){
@@ -1052,6 +1097,11 @@ addEventListener('pointerup', up);
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
     msg.textContent = '';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
+    const mA = location.search.match(/[?&]a=(\d{2})/);
+    if (mA && LAYOUTS[mA[1]]){
+      ANSWER = mA[1];
+      log('정답 배치 ' + ANSWER + ' ' + LAYOUTS[ANSWER].name);
+    }
     resize(); draw();
     log('그리기 시작 · 캔버스 ' + cv.width + 'x' + cv.height);
   }catch(e){
