@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 64;
+const MOBILE_VER = 65;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -890,6 +890,36 @@ const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
 //    당점은 버튼과 무관하게 **천 네 모서리 중 하나**에 둔다. 버튼은 알아서 피한다.
 // ⚠️ 한 자리에 고정하면 그 모서리에 공이 있을 때 덮어버린다 (사용자 지적).
 //    공에서 제일 먼 모서리를 고른다. 공이 없으면 왼쪽 위 그대로.
+
+let PATH_CACHE = {key:null, pts:null};
+
+// 화면의 한 점에서 지금 궤적까지의 거리 (px). 궤적이 없으면 아주 큰 값.
+// ⚠️ clockCenter 안에서 부르므로 clockCenter 를 되부르는 것을 넣으면 안 된다
+//    (전에 서로 물고 돌아 화면이 통째로 죽었다).
+function pathDist(t){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return 1e9;
+  // ⚠️ 한 프레임에 네 모서리를 다 재므로 그때마다 궤적을 새로 굴리면 안 된다.
+  //    조건이 같으면 지난 결과를 쓴다.
+  const key = cue.p[0]+','+cue.p[1]+','+S.aim[0]+','+S.aim[1]+','+S.corr+','+L.sc;
+  if (PATH_CACHE.key !== key){
+    let hits = null;
+    try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
+    PATH_CACHE = {key, pts: (hits && hits.length)
+      ? [cue.p, ...hits.map(h => h.p)].map(p => toPx(...p)) : null};
+  }
+  const pts = PATH_CACHE.pts;
+  if (!pts) return 1e9;
+  let best = 1e9;
+  for (let i = 0; i < pts.length-1; i++){
+    const [ax,ay] = pts[i], [bx,by] = pts[i+1];
+    const dx = bx-ax, dy = by-ay, ll = dx*dx + dy*dy;
+    const u = ll < 1e-9 ? 0 : Math.max(0, Math.min(1, ((t[0]-ax)*dx + (t[1]-ay)*dy)/ll));
+    best = Math.min(best, Math.hypot(t[0]-ax-dx*u, t[1]-ay-dy*u));
+  }
+  return best;
+}
+
 function clockCenter(){
   const r = clockR(), m = r * 0.5, c = L.cloth;
   const spot = [[c.x + r + m,       c.y + r + m],          // 왼쪽 위 (기본)
@@ -901,10 +931,15 @@ function clockCenter(){
   // ⚠️ '기준치를 넘으면 바로 그 자리'로 하면 안 된다. 기준을 아슬아슬하게 넘긴
   //    왼쪽 위가 계속 뽑혀 공을 덮는다 (사용자 지적, 6.jpg — 54px 떨어졌는데
   //    기준이 52px 이라 통과했다). **제일 빈 모서리**를 고른다.
-  let best = spot[0], bestD = -1;
-  for (const s of spot){
-    const d = Math.min(...put.map(p => Math.hypot(p[0]-s[0], p[1]-s[1])));
-    if (d > bestD){ bestD = d; best = s; }                  // 같으면 앞쪽(왼쪽 위) 유지
+  const ballD = t => Math.min(...put.map(p => Math.hypot(p[0]-t[0], p[1]-t[1])));
+  const clear = r + ballR() * 1.6;                          // 이만큼이면 공을 안 덮는다
+  // 공은 반드시 피하고, **그중에서 궤적도 가능하면 피한다** (사용자 지시).
+  const okay = spot.filter(t => ballD(t) >= clear);
+  const cand = okay.length ? okay : spot;
+  let best = cand[0], bestD = -1;
+  for (const t of cand){
+    const d = okay.length ? pathDist(t) : ballD(t);
+    if (d > bestD){ bestD = d; best = t; }                  // 같으면 앞쪽(왼쪽 위) 유지
   }
   return best;
 }
