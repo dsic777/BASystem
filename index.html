@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 33;
+const MOBILE_VER = 34;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -269,6 +269,81 @@ function hullToQuad(hull){
   const c = best.reduce((a,q) => [a[0]+q[0]/4, a[1]+q[1]/4], [0,0]);
   return best.slice().sort((a,b) =>
     Math.atan2(a[1]-c[1], a[0]-c[0]) - Math.atan2(b[1]-c[1], b[0]-c[0]));
+}
+
+
+// ---------------------------------------------------------------- 원근보정
+// 4점 → 4점 호모그래피. 8x8 선형계를 가우스 소거로 푼다.
+function homography(src, dst){
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++){
+    const [x,y] = src[i], [u,v] = dst[i];
+    A.push([x,y,1,0,0,0,-u*x,-u*y]); b.push(u);
+    A.push([0,0,0,x,y,1,-v*x,-v*y]); b.push(v);
+  }
+  for (let c = 0; c < 8; c++){                    // 부분 피벗 가우스 소거
+    let piv = c;
+    for (let r = c+1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (Math.abs(A[piv][c]) < 1e-12) return null;
+    [A[c],A[piv]] = [A[piv],A[c]]; [b[c],b[piv]] = [b[piv],b[c]];
+    for (let r = 0; r < 8; r++){
+      if (r === c) continue;
+      const f = A[r][c] / A[c][c];
+      if (!f) continue;
+      for (let k2 = c; k2 < 8; k2++) A[r][k2] -= f*A[c][k2];
+      b[r] -= f*b[c];
+    }
+  }
+  const h = b.map((v,i) => v / A[i][i]);
+  return [h[0],h[1],h[2], h[3],h[4],h[5], h[6],h[7],1];
+}
+
+// 사진을 당구대 모양으로 편다. 결과는 캔버스로 들고 있다가 천 자리에 그린다.
+function warpPhoto(img, quad, outW, outH){
+  // quad 는 순환 순서. 좌하 → 우하 → 우상 → 좌상 으로 맞춘다.
+  const c = quad.reduce((a,q) => [a[0]+q[0]/4, a[1]+q[1]/4], [0,0]);
+  const byAng = quad.slice().sort((a,b) =>
+    Math.atan2(a[1]-c[1], a[0]-c[0]) - Math.atan2(b[1]-c[1], b[0]-c[0]));
+  // 화면 좌표는 아래가 +y 다. 가장 아래 두 점이 '아래 변'.
+  let base = 0, bestY = -Infinity;
+  for (let i = 0; i < 4; i++){
+    const m = (byAng[i][1] + byAng[(i+1)%4][1]) / 2;
+    if (m > bestY){ bestY = m; base = i; }
+  }
+  const idx = byAng[base][0] > byAng[(base+1)%4][0]
+    ? [(base+1)%4, base, (base+3)%4, (base+2)%4]
+    : [base, (base+1)%4, (base+2)%4, (base+3)%4];
+  const src = idx.map(i => byAng[i]);             // 좌하, 우하, 우상, 좌상
+  const dst = [[0,outH],[outW,outH],[outW,0],[0,0]];
+  const H = homography(dst, src);                 // 결과 픽셀 → 원본 픽셀
+  if (!H) return null;
+
+  const cn = document.createElement('canvas');
+  cn.width = outW; cn.height = outH;
+  const cg = cn.getContext('2d', {willReadFrequently:true});
+  const out = cg.createImageData(outW, outH);
+
+  const sw = Math.min(img.width, 1280);
+  const sh = Math.round(img.height / img.width * sw);
+  const tmp = document.createElement('canvas');
+  tmp.width = sw; tmp.height = sh;
+  const tg = tmp.getContext('2d', {willReadFrequently:true});
+  tg.drawImage(img, 0, 0, sw, sh);
+  const sp = tg.getImageData(0, 0, sw, sh).data;
+  const kx = sw / img.width;
+
+  for (let y = 0; y < outH; y++) for (let x = 0; x < outW; x++){
+    const w2 = H[6]*x + H[7]*y + H[8];
+    const sx = Math.round((H[0]*x + H[1]*y + H[2]) / w2 * kx);
+    const sy = Math.round((H[3]*x + H[4]*y + H[5]) / w2 * kx);
+    const o = (y*outW + x) * 4;
+    if (sx < 0 || sy < 0 || sx >= sw || sy >= sh){ out.data[o+3] = 0; continue; }
+    const q = (sy*sw + sx) * 4;
+    out.data[o] = sp[q]; out.data[o+1] = sp[q+1];
+    out.data[o+2] = sp[q+2]; out.data[o+3] = 255;
+  }
+  cg.putImageData(out, 0, 0);
+  return cn;
 }
 
 // ---------------------------------------------------------------- 상태
@@ -492,9 +567,16 @@ function draw(){
   g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
   g.fillStyle = '#264 abe'; g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
 
-  if (PHOTO){
-    // ⚠️ 천 자리에만 깔면 원근 때문에 어디가 어딘지 알기 어렵다. 아직 원근보정이
-    //    없으므로 **화면 전체**에 비율을 지켜 깔아 둔다. 그걸 보고 손으로 공을 놓는다.
+  if (WARPED){
+    // 3단계 — 원근보정한 사진을 천 자리에 정확히 겹친다.
+    // ⚠️ 코너는 '천 경계'라 쿠션 날과 조금 다를 수 있다. 편 그림에서 다이아몬드가
+    //    8등분·4등분 자리에 오는지 보고 오차를 잰다 (다이아몬드가 진실 원천).
+    const c = L.cloth;
+    g.save(); g.globalAlpha = 0.75;
+    g.drawImage(WARPED, c.x, c.y, c.w, c.h);
+    g.restore();
+  } else if (PHOTO){
+    // 당구대를 못 찾으면 원본을 화면 전체에 깔아 둔다 (손으로 놓을 수 있게)
     const cw = ROT ? cv.height : cv.width, ch = ROT ? cv.width : cv.height;
     const k = Math.min(cw / PHOTO.width, ch / PHOTO.height);
     const pw = PHOTO.width*k, ph = PHOTO.height*k;
@@ -716,7 +798,7 @@ function camIcon(cx,cy,h){
 // ⚠️ 카메라를 화면 안에 띄우지 않는다. <input capture> 로 폰 기본 카메라를 열면
 //    촬영 후 저절로 돌아온다 — 확인 버튼이나 물음이 없다 (사용자 지시).
 //    마음에 안 들면 카메라 버튼을 다시 누르면 된다.
-let PHOTO = null;                                 // 찍은 사진 (배경으로 깔아 둔다)
+let PHOTO = null, WARPED = null;                                 // 찍은 사진 (배경으로 깔아 둔다)
 const CAMIN = document.createElement('input');
 CAMIN.type = 'file';
 CAMIN.accept = 'image/*';
@@ -732,6 +814,8 @@ CAMIN.addEventListener('change', () => {
     PHOTO = img;
     const t0 = performance.now();
     TABLE_HULL = findTable(img);
+    WARPED = (TABLE_HULL && TABLE_HULL.quad)
+      ? warpPhoto(img, TABLE_HULL.quad, 700, 350) : null;
     msg.style.display = 'block';
     msg.textContent = TABLE_HULL
       ? '당구대 찾음 (천 ' + Math.round(TABLE_HULL.area*100) + '%, '
