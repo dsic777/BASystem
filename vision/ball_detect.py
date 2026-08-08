@@ -72,6 +72,37 @@ def _classify(hsv, rules, bgr=None) -> tuple[str, str]:
     return ("unknown", "미상")
 
 
+
+def _split_touching(blob: np.ndarray, ball_px: float) -> list[np.ndarray]:
+    """붙어 있는 공 덩어리를 나눈다.
+
+    ⚠️ 3구는 공이 붙는 배치가 흔하다. 한 덩어리로 두면 크기·모양 조건에 걸려
+       **둘 다 사라진다** (2026-08-08 사진 15장 중 6장이 이 경우).
+
+    거리변환의 봉우리가 곧 공 중심이다. 봉우리를 씨앗으로 분수령을 돌려 가른다.
+    """
+    dist = cv2.distanceTransform(blob, cv2.DIST_L2, 5)
+    r = ball_px / 2.0
+    # 봉우리 = 반지름의 절반 이상 떨어진 곳. 공 하나면 하나, 둘이면 둘이 나온다.
+    _, peaks = cv2.threshold(dist, r * 0.55, 255, cv2.THRESH_BINARY)
+    peaks = peaks.astype(np.uint8)
+    n, seeds = cv2.connectedComponents(peaks)
+    if n <= 2:                                       # 배경 + 봉우리 하나 = 안 붙었다
+        return [blob]
+
+    markers = seeds.astype(np.int32) + 1
+    markers[blob == 0] = 1                           # 배경
+    rgb = cv2.cvtColor(blob * 255, cv2.COLOR_GRAY2BGR)
+    cv2.watershed(rgb, markers)
+
+    out = []
+    for k in range(2, n + 1):
+        part = np.where(markers == k, 1, 0).astype(np.uint8)
+        if int(part.sum()) >= ball_px ** 2 * 0.25:
+            out.append(part)
+    return out or [blob]
+
+
 def detect(top_image: np.ndarray, cfg: dict | None = None,
            ball_px: float | None = None) -> list[Ball]:
     """상단뷰(쿠션 날 안쪽) → 공 목록. 큰 것부터.
@@ -118,11 +149,11 @@ def detect(top_image: np.ndarray, cfg: dict | None = None,
         cx, cy = centroids[i]
         if not (margin < cx < w - margin and margin < cy < h - margin):
             continue                                 # 가장자리 = 쿠션 잔상
+        blob = (labels == i).astype(np.uint8)
 
         # 가운데 픽셀 하나는 반사광·모션블러에 흔들린다. 덩어리 평균색을 쓴다.
         # ⚠️ HSV 를 평균내면 안 된다 — 빨강은 H가 0과 179 를 오가서 평균이 90(청록)이 된다.
         #    BGR 을 평균낸 뒤 그 색 하나를 HSV 로 바꾼다.
-        blob = (labels == i).astype(np.uint8)
         bgr = tuple(int(v) for v in cv2.mean(top_image, mask=blob)[:3])
         one = np.uint8([[list(bgr)]])
         hsv_of = tuple(int(v) for v in cv2.cvtColor(one, cv2.COLOR_BGR2HSV)[0, 0])
@@ -133,7 +164,152 @@ def detect(top_image: np.ndarray, cfg: dict | None = None,
     return out
 
 
-RED_BAND = 12          # 색상환에서 이 안쪽이면 빨강 (0 또는 179 근처)
+def _quad_mask(shape, quad: np.ndarray, pad: float) -> np.ndarray:
+    """당구대 사각형 안쪽만 남기는 마스크. pad 만큼 바깥으로 넓힌다.
+
+    옆 당구대·바닥 타일·사람 옷이 공 색에 걸리므로 먼저 잘라낸다.
+    쿠션에 붙은 공은 중심이 안쪽이어도 몸통이 사각형 밖으로 나가므로 조금 넓힌다.
+    """
+    q = np.asarray(quad, np.float64)
+    c = q.mean(axis=0)
+    big = c + (q - c) * (1.0 + pad)
+    m = np.zeros(shape[:2], np.uint8)
+    cv2.fillConvexPoly(m, big.astype(np.int32), 255)
+    return m
+
+
+def _local_ball_px(H: np.ndarray, Hinv: np.ndarray, p, ball_full_px: float) -> float:
+    """사진의 그 자리에서 공이 몇 px 로 보이는지.
+
+    공은 구(球)라 사진에서 언제나 동그랗게 나온다. 크기는 거리로만 정해진다.
+    상단뷰에서 공 지름만큼 떨어진 두 방향을 사진으로 되돌려 재고, **긴 쪽**을 쓴다
+    (짧은 쪽은 원근으로 눌린 깊이 방향이라 공의 겉보기 크기가 아니다).
+    """
+    def fwd(pt, M):
+        v = M @ np.array([pt[0], pt[1], 1.0])
+        return np.array([v[0] / v[2], v[1] / v[2]])
+
+    q = fwd(p, H)
+    a = fwd(q + np.array([ball_full_px, 0.0]), Hinv)
+    b = fwd(q + np.array([0.0, ball_full_px]), Hinv)
+    return float(max(np.hypot(*(a - p)), np.hypot(*(b - p))))
+
+
+def detect_photo(photo: np.ndarray, top, cfg: dict | None = None,
+                 ball_mm: float = 61.5, table_mm: float = 2448.0) -> list[Ball]:
+    """원본 사진에서 공을 찾아 중심점만 상단뷰 좌표로 옮긴다.
+
+    ⚠️ 상단뷰에서 찾으면 안 된다. 카메라가 낮으면 먼 쪽 쿠션이 심하게 눌려 있고,
+       그걸 펴면 공이 3배로 늘어난 타원이 되어 크기·모양 조건에 전부 걸린다
+       (2026-08-08 당구장 사진 15장 중 7장이 이것). 원본에서는 공이 동그랗다.
+       늘어나지 않는 것은 **점 하나**뿐이므로 중심만 옮긴다.
+    """
+    cfg = cfg or load_config()
+    bcfg = cfg["ball"]
+    H = np.asarray(top.homography, np.float64)
+    Hinv = np.linalg.inv(H)
+
+    left, up, right, down = top.inset
+    ball_full = ball_mm / table_mm * (right - left)          # 상단뷰에서의 공 지름
+
+    hsv = cv2.cvtColor(photo, cv2.COLOR_BGR2HSV)
+    inside = _quad_mask(photo.shape, top.quad, 0.02)
+    k = np.ones((5, 5), np.uint8)
+    ih, iw = top.image.shape[:2]
+    margin = int(bcfg["border_margin"])
+    out: list[Ball] = []
+
+    # ★ 색깔별로 따로 찾는다. 한 마스크에 다 넣으면 빨간공과 노란공이 닿아 있을 때
+    #    (특히 초점이 나간 사진) 한 덩어리가 되어 크기 조건에 걸려 둘 다 사라진다
+    #    (2026-08-08 191852). 3구는 색이 셋 다 다르므로 색으로 먼저 가르는 게 맞다.
+    groups: dict[str, list[dict]] = {}
+    for rule in cfg["ball_colors"]["rules"]:
+        groups.setdefault(rule["name"], []).append(rule)
+
+    parts: list[tuple[np.ndarray, bool]] = []
+    for rules in groups.values():
+        blobs = cv2.bitwise_and(ball_mask(hsv, rules), inside)
+        blobs = cv2.morphologyEx(blobs, cv2.MORPH_OPEN, k)
+        blobs = cv2.morphologyEx(blobs, cv2.MORPH_CLOSE, k)
+        n, labels, stats, cents = cv2.connectedComponentsWithStats(blobs, 8)
+        for i in range(1, n):
+            d = _local_ball_px(H, Hinv,
+                               (float(cents[i][0]), float(cents[i][1])), ball_full)
+            area = int(stats[i, cv2.CC_STAT_AREA])
+            if d < 4 or area < d * d * 0.2:
+                continue
+            one = (labels == i).astype(np.uint8)
+            if area > d * d * 1.1:                       # 같은 색끼리 붙었을 수도
+                cut = _split_touching(one, d)
+                parts.extend((c, len(cut) > 1) for c in cut)
+            else:
+                parts.append((one, False))
+
+    for m, was_split in parts:
+        ys, xs = np.nonzero(m)
+        if not len(xs):
+            continue
+        cx, cy = float(xs.mean()), float(ys.mean())
+        d = _local_ball_px(H, Hinv, (cx, cy), ball_full)
+        if d < 4:
+            continue
+        area = int(m.sum())
+        bw = int(xs.max() - xs.min()) + 1
+        bh = int(ys.max() - ys.min()) + 1
+        # 나뉜 조각은 이미 공 크기를 기준으로 갈랐으므로 조건을 조금 푼다.
+        # 안 그러면 붙었던 공 중 한쪽만 살아남는다 (2026-08-08 191852).
+        hi_a, hi_s, hi_r = (4.0, 2.6, 2.6) if was_split else (3.0, 2.2, 2.0)
+        if not (d * d * 0.2 <= area <= d * d * hi_a):
+            continue
+        if not (d * 0.4 <= bw <= d * hi_s and d * 0.4 <= bh <= d * hi_s):
+            continue
+        if not 1.0 / hi_r <= bw / bh <= hi_r:                # 사진 속 공은 동그랗다
+            continue
+
+        v = H @ np.array([cx, cy, 1.0])                      # 상단뷰(full)로 옮긴다
+        fx, fy = v[0] / v[2], v[1] / v[2]
+        if not (margin < fx < iw - margin and margin < fy < ih - margin):
+            continue
+        # 공 중심은 쿠션 날에서 최소 반지름만큼 안쪽에 있다. 그보다 밖이면 공이 아니라
+        # 쿠션 나무다 (2026-08-08 사진에서 나무가 빨간공으로 잡혔다).
+        tx = (fx - left) / max(right - left, 1)
+        ty = (fy - up) / max(down - up, 1)
+        rx = ball_mm / 2 / table_mm * 0.2   # 코너 오차를 감안해 넉넉히
+        ry = rx * (right - left) / max(down - up, 1)
+        if not (rx < tx < 1 - rx and ry < ty < 1 - ry):
+            continue
+
+        bgr = tuple(int(x) for x in cv2.mean(photo, mask=m)[:3])
+        one = np.uint8([[list(bgr)]])
+        hsv_of = tuple(int(x) for x in cv2.cvtColor(one, cv2.COLOR_BGR2HSV)[0, 0])
+        name, label = _classify(hsv_of, cfg["ball_colors"]["rules"], bgr)
+        out.append(Ball(name, label, fx / iw, 1.0 - fy / ih, area, bgr, hsv_of))
+
+    out.sort(key=lambda b: -b.area)
+    return _merge_near(out, ball_full / max(iw, 1))
+
+
+def _merge_near(balls: list[Ball], nd: float) -> list[Ball]:
+    """공 지름 안에 겹쳐 잡힌 것들은 한 공으로 본다. 큰 쪽을 남긴다.
+
+    초점이 나가거나 반사광이 있으면 공 하나가 두 덩어리로 갈라지고, 갈라진 조각은
+    평균색이 달라져 서로 다른 색으로 판정되기도 한다. 그래서 **색은 안 본다.**
+    ⚠️ 붙어 있는 두 공은 중심이 정확히 지름만큼 떨어져 있으므로 기준은 그보다 작아야 한다.
+    """
+    kept: list[Ball] = []
+    for b in balls:                                      # 큰 것부터 들어온다
+        if any(np.hypot(a.nx - b.nx, (a.ny - b.ny) / 2) < nd * 0.75 for a in kept):
+            continue
+        kept.append(b)
+    return kept
+
+
+
+# 빨강으로 볼 색상(H) 범위. ⚠️ data/vision.json 의 red 규칙과 반드시 같아야 한다.
+#    규칙은 0~9 / 160~179 인데 여기만 0~12 / 168~179 였다가, H=164 인 빨간공이
+#    그 틈에 빠져 노란공이 되었다 (2026-08-08 192102).
+RED_LO = 9             # 이 이하면 빨강
+RED_HI = 160           # 이 이상이면 빨강
 
 
 def resolve(balls: list[Ball]) -> list[Ball]:
@@ -151,10 +327,11 @@ def resolve(balls: list[Ball]) -> list[Ball]:
 
     def is_red(b):
         h, s, _v = b.hsv
-        return (h <= RED_BAND or h >= 180 - RED_BAND) and s >= 60
+        return (h <= RED_LO or h >= RED_HI) and s >= 60
 
-    reds = [b for b in balls if is_red(b)]
-    rest = [b for b in balls if not is_red(b)]
+    # 3구는 흰·노·빨 하나씩이다. 반사광이나 큐대로 조각이 더 잡히면 큰 것만 남긴다.
+    reds = sorted((b for b in balls if is_red(b)), key=lambda b: -b.area)[:1]
+    rest = sorted((b for b in balls if not is_red(b)), key=lambda b: -b.area)[:2]
     out = [replace(b, name="red", label="빨간공") for b in reds]
 
     if len(rest) >= 2:

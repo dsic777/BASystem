@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 41;
+const MOBILE_VER = 42;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -301,7 +301,7 @@ function homography(src, dst){
 // 사진을 당구대 모양으로 편다. 결과는 캔버스로 들고 있다가 천 자리에 그린다.
 function warpPhoto(img, quad, outW, outH){
   // quad 는 순환 순서. 좌하 → 우하 → 우상 → 좌상 으로 맞춘다.
-  const src = orderQuad(quad);                    // 좌하, 우하, 우상, 좌상
+  const src = orderQuad(quad, img.width, img.height);   // 좌하, 우하, 우상, 좌상
   const dst = [[0,outH],[outW,outH],[outW,0],[0,0]];
   const H = homography(dst, src);                 // 결과 픽셀 → 원본 픽셀
   if (!H) return null;
@@ -345,7 +345,7 @@ function refineQuad(img, quad){
   cn.width = W + PAD*2; cn.height = H + PAD*2;
   const cg = cn.getContext('2d', {willReadFrequently:true});
 
-  const src = orderQuad(quad);
+  const src = orderQuad(quad, img.width, img.height);
   const dst = [[PAD, H+PAD],[W+PAD, H+PAD],[W+PAD, PAD],[PAD, PAD]];
   const Hm = homography(dst, src);
   if (!Hm) return quad;
@@ -437,21 +437,200 @@ function refineQuad(img, quad){
 }
 let DIAMOND_FIT = null;
 
-function orderQuad(quad){
+// 사진 속 사각형이 원래 직사각형이었다면 그 가로세로비가 얼마인가.
+// ⚠️ 화면상 변 길이로 장쿠션을 고르면 안 된다. 비스듬히 가까이서 찍으면 먼 쪽
+//    장쿠션이 짜부라져 단쿠션보다 짧아 보인다. 그러면 당구대를 90도 눕혀서 펴게 된다.
+//    직사각형의 사진이라는 사실만으로 초점거리와 진짜 비를 풀 수 있다 (Zhang & He, 2003).
+//    주점은 화면 중앙, 픽셀은 정사각형이라고 본다.
+//    q 는 순환 순서 4점. q0→q1 변이 가로일 때의 가로/세로. 못 구하면 null.
+function rectAspect(q, sw, sh){
+  const cross = (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const dot = (a,b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+  const u0 = sw/2, v0 = sh/2;
+  const m1 = [q[0][0],q[0][1],1], m2 = [q[1][0],q[1][1],1];
+  const m3 = [q[3][0],q[3][1],1], m4 = [q[2][0],q[2][1],1];
+  const d2 = dot(cross(m2,m4), m3), d3 = dot(cross(m3,m4), m2);
+  if (Math.abs(d2) < 1e-9 || Math.abs(d3) < 1e-9) return null;
+  const k2 = dot(cross(m1,m4), m3)/d2, k3 = dot(cross(m1,m4), m2)/d3;
+  const n2 = [k2*m2[0]-m1[0], k2*m2[1]-m1[1], k2*m2[2]-m1[2]];
+  const n3 = [k3*m3[0]-m1[0], k3*m3[1]-m1[1], k3*m3[2]-m1[2]];
+  const den = n2[2]*n3[2];
+  if (Math.abs(den) < 1e-12) return null;
+  const f2 = -((n2[0]-n2[2]*u0)*(n3[0]-n3[2]*u0)
+             + (n2[1]-n2[2]*v0)*(n3[1]-n3[2]*v0)) / den;
+  if (!isFinite(f2) || f2 <= 1) return null;
+  const inv = [[1/f2, 0, -u0/f2], [0, 1/f2, -v0/f2],
+               [-u0/f2, -v0/f2, (u0*u0 + v0*v0)/f2 + 1]];
+  const quad3 = n => {
+    let s = 0;
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) s += n[i]*inv[i][j]*n[j];
+    return s;
+  };
+  const a = quad3(n2), b = quad3(n3);
+  if (a <= 0 || b <= 0) return null;
+  return Math.sqrt(a/b);
+}
+
+function orderQuad(quad, sw, sh){
   const c = quad.reduce((a,q)=>[a[0]+q[0]/4, a[1]+q[1]/4],[0,0]);
   const by = quad.slice().sort((a,b) =>
     Math.atan2(a[1]-c[1], a[0]-c[0]) - Math.atan2(b[1]-c[1], b[0]-c[0]));
-  let base = 0, bestY = -Infinity;
-  for (let i = 0; i < 4; i++){
-    const m = (by[i][1] + by[(i+1)%4][1])/2;
-    if (m > bestY){ bestY = m; base = i; }
+  // ⚠️ 네 변 전부에서 고르면 안 된다. 당구대가 화면에서 많이 돌아가 있으면
+  //    **단쿠션**이 제일 아래로 와서 그걸 하단 장쿠션으로 착각한다. 그러면 좌표가
+  //    통째로 돌아간다 (2026-08-08 사진 15장 중 5장). 먼저 장쿠션 쌍으로 좁힌다.
+  let lp = null;
+  if (sw && sh){                                   // 원근을 되돌린 진짜 비로 정한다
+    const r = rectAspect(by, sw, sh);
+    if (r !== null && (r > 1.35 || r < 0.74)) lp = r > 1 ? 0 : 1;
   }
+  if (lp === null){                                // 못 구하면 화면상 길이로
+    const side = [0,1,2,3].map(i => Math.hypot(by[(i+1)%4][0]-by[i][0],
+                                               by[(i+1)%4][1]-by[i][1]));
+    lp = side[0] + side[2] >= side[1] + side[3] ? 0 : 1;
+  }
+  const cand = [lp, lp+2];
+  // 긴 변 둘 중 화면 아래쪽(카메라에 가까운) 것이 하단 장쿠션이다
+  const base = cand[0] === undefined ? 0 :
+    ((by[cand[0]][1] + by[(cand[0]+1)%4][1]) >= (by[cand[1]][1] + by[(cand[1]+1)%4][1])
+      ? cand[0] : cand[1]);
   const idx = by[base][0] > by[(base+1)%4][0]
     ? [(base+1)%4, base, (base+3)%4, (base+2)%4]
     : [base, (base+1)%4, (base+2)%4, (base+3)%4];
   return idx.map(i => by[i]);
 }
 
+
+// ---------------------------------------------------------------- 공 찾기
+// ⚠️ **편 그림이 아니라 원본 사진에서** 찾는다. 카메라가 낮으면 먼 쪽 쿠션이 심하게
+//    눌려 있고, 그걸 펴는 순간 공이 3배로 늘어난 타원이 되어 크기·모양 조건에 전부
+//    걸린다 (2026-08-08 당구장 사진 15장 중 7장이 이것). 원본에서 공은 동그랗다.
+//    늘어나지 않는 것은 **점 하나**뿐이므로 중심만 원근변환으로 옮긴다.
+//
+// 색 규칙은 data/vision.json 과 같아야 한다. 파이썬(vision/ball_detect.py)과 같은 값.
+const BALL_RULES = [
+  {name:'white',  s_max:120, v_min:120},
+  {name:'yellow', h_min:10,  h_max:45,  s_min:85},
+  {name:'red',    h_min:0,   h_max:9,   s_min:85},
+  {name:'red',    h_min:160, h_max:179, s_min:85}];
+const RED_LO = 9, RED_HI = 160;                  // 이 밖이면 빨강 (vision.json 과 동일)
+
+function hitRule(h, s, v, r){
+  return s >= (r.s_min ?? 0) && s <= (r.s_max ?? 255)
+      && v >= (r.v_min ?? 0) && v <= (r.v_max ?? 255)
+      && h >= (r.h_min ?? 0) && h <= (r.h_max ?? 179);
+}
+
+function applyH(H, x, y){
+  const w = H[6]*x + H[7]*y + H[8];
+  return [(H[0]*x + H[1]*y + H[2])/w, (H[3]*x + H[4]*y + H[5])/w];
+}
+
+// 사진의 그 자리에서 공이 몇 px 로 보이는지. 공은 구(球)라 사진에서 언제나 동그랗고
+// 크기는 거리로만 정해진다. mm 로 공 지름만큼 떨어진 두 방향을 사진으로 되돌려 재고
+// **긴 쪽**을 쓴다 (짧은 쪽은 원근으로 눌린 깊이 방향이라 겉보기 크기가 아니다).
+function localBallPx(Hf, Hi, x, y, ballMm){
+  const q = applyH(Hf, x, y);
+  const a = applyH(Hi, q[0] + ballMm, q[1]);
+  const b = applyH(Hi, q[0], q[1] + ballMm);
+  return Math.max(Math.hypot(a[0]-x, a[1]-y), Math.hypot(b[0]-x, b[1]-y));
+}
+
+// 사각형 안쪽만 남기는 마스크. 쿠션에 붙은 공은 몸통이 사각형 밖으로 나가므로 조금 넓힌다.
+function quadInside(quad, pad){
+  const c = quad.reduce((a,q)=>[a[0]+q[0]/4, a[1]+q[1]/4],[0,0]);
+  const big = quad.map(q => [c[0] + (q[0]-c[0])*(1+pad), c[1] + (q[1]-c[1])*(1+pad)]);
+  return (x, y) => {
+    let pos = 0, neg = 0;
+    for (let i = 0; i < 4; i++){
+      const [ax,ay] = big[i], [bx,by] = big[(i+1)%4];
+      const s = (bx-ax)*(y-ay) - (by-ay)*(x-ax);
+      if (s > 0) pos++; else if (s < 0) neg++;
+    }
+    return pos === 0 || neg === 0;
+  };
+}
+
+// 원시 픽셀에서 공을 찾는다. 캔버스를 안 쓰므로 그대로 시험할 수 있다.
+//   px: RGBA Uint8, sw×sh / quad: 그 그림에서의 당구대 4코너 / 결과: mm 좌표
+function ballsFromPixels(px, sw, sh, quad, tw, th, ballMm){
+  const src = orderQuad(quad, sw, sh);            // 좌하, 우하, 우상, 좌상
+  const mm  = [[0,0],[tw,0],[tw,th],[0,th]];
+  const Hf = homography(src, mm), Hi = homography(mm, src);
+  if (!Hf || !Hi) return [];
+  const inside = quadInside(src, 0.02);
+
+  // ★ 색깔별로 따로 찾는다. 한 마스크에 다 넣으면 빨간공과 노란공이 닿아 있을 때
+  //   (특히 초점이 나간 사진) 한 덩어리가 되어 크기 조건에 걸려 둘 다 사라진다.
+  const groups = {};
+  for (const r of BALL_RULES) (groups[r.name] = groups[r.name] || []).push(r);
+
+  const lab = new Int32Array(sw*sh);
+  const stack = new Int32Array(sw*sh);
+  const found = [];
+
+  for (const name in groups){
+    const rules = groups[name];
+    const mask = new Uint8Array(sw*sh);
+    for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++){
+      const i = y*sw + x, o = i*4;
+      if (!inside(x, y)) continue;
+      const [h,s,v] = rgb2hsv(px[o], px[o+1], px[o+2]);
+      for (const r of rules) if (hitRule(h, s, v, r)){ mask[i] = 1; break; }
+    }
+    lab.fill(0);
+    for (let seed = 0; seed < sw*sh; seed++){
+      if (!mask[seed] || lab[seed]) continue;
+      let sp = 0, n = 0, sx = 0, sy = 0, sr = 0, sg = 0, sb = 0;
+      let x0 = sw, x1 = -1, y0 = sh, y1 = -1;
+      stack[sp++] = seed; lab[seed] = 1;
+      while (sp){
+        const i = stack[--sp], x = i % sw, y = (i - x) / sw, o = i*4;
+        n++; sx += x; sy += y; sr += px[o]; sg += px[o+1]; sb += px[o+2];
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x > 0    && mask[i-1]  && !lab[i-1] ){ lab[i-1]  = 1; stack[sp++] = i-1; }
+        if (x < sw-1 && mask[i+1]  && !lab[i+1] ){ lab[i+1]  = 1; stack[sp++] = i+1; }
+        if (y > 0    && mask[i-sw] && !lab[i-sw]){ lab[i-sw] = 1; stack[sp++] = i-sw; }
+        if (y < sh-1 && mask[i+sw] && !lab[i+sw]){ lab[i+sw] = 1; stack[sp++] = i+sw; }
+      }
+      const cx = sx/n, cy = sy/n;
+      const d = localBallPx(Hf, Hi, cx, cy, ballMm);
+      if (d < 4) continue;
+      const bw = x1-x0+1, bh = y1-y0+1;
+      if (n < d*d*0.2 || n > d*d*3.0) continue;
+      if (bw < d*0.4 || bw > d*2.2 || bh < d*0.4 || bh > d*2.2) continue;
+      if (bw/bh < 0.5 || bw/bh > 2.0) continue;    // 사진 속 공은 동그랗다
+      const p = applyH(Hf, cx, cy);
+      // 공 중심은 쿠션 날에서 최소 반지름만큼 안쪽에 있다. 그보다 밖이면 쿠션 나무다.
+      const m = ballMm/2*0.2;
+      if (p[0] < m || p[0] > tw-m || p[1] < m || p[1] > th-m) continue;
+      const [hh,ss,vv] = rgb2hsv(sr/n, sg/n, sb/n);
+      found.push({p, area:n, hsv:[hh,ss,vv]});
+    }
+  }
+
+  // 겹쳐 잡힌 조각은 한 공으로 본다. 초점이 나가거나 반사광이 있으면 공 하나가 둘로
+  // 갈라지고 조각마다 평균색이 달라지므로 **색은 안 본다**.
+  // ⚠️ 붙어 있는 두 공은 중심이 정확히 지름만큼 떨어져 있으므로 기준은 그보다 작아야 한다.
+  found.sort((a,b) => b.area - a.area);
+  const kept = [];
+  for (const b of found)
+    if (!kept.some(a => Math.hypot(a.p[0]-b.p[0], a.p[1]-b.p[1]) < ballMm*0.75))
+      kept.push(b);
+
+  // 3구는 흰·노·빨 하나씩이다. 반사광이나 큐대로 조각이 더 잡히면 큰 것만 남긴다.
+  const isRed = b => (b.hsv[0] <= RED_LO || b.hsv[0] >= RED_HI) && b.hsv[1] >= 60;
+  const reds = kept.filter(isRed).slice(0, 1);
+  const rest = kept.filter(b => !isRed(b)).slice(0, 2)
+                   .sort((a,b) => a.hsv[1] - b.hsv[1]);   // 채도 낮은 순
+  const out = {};
+  if (reds[0]) out.red = reds[0].p;
+  // ⚠️ '채도 50 이하면 흰공' 같은 절대 기준은 조명이 바뀌면 깨진다. 서로 견준다 —
+  //    제일 덜 물든 것이 흰공, 나머지가 노란공.
+  if (rest.length >= 2){ out.white = rest[0].p; out.yellow = rest[1].p; }
+  else if (rest.length === 1) out[rest[0].hsv[1] < 85 ? 'white' : 'yellow'] = rest[0].p;
+  return out;
+}
 
 // ---------------------------------------------------------------- 정답 배치
 // 숙제로 드린 배치도의 **지정 좌표**(mm). 이걸 화면에 겹쳐 그리면 원근보정이
@@ -1038,19 +1217,45 @@ function stopCam(){
   if (CAMSTREAM){ CAMSTREAM.getTracks().forEach(t => t.stop()); CAMSTREAM = null; }
 }
 
+const BALL_SCAN_W = 1400;                        // 공을 찾을 해상도 (사진 15장으로 맞춤)
+
+// 사진에서 공을 찾아 그대로 놓는다. 픽셀은 원본에서 그대로 가져온다.
+function ballsFromPhoto(img, quad){
+  const sw = Math.min(img.width, BALL_SCAN_W);
+  const sh = Math.max(1, Math.round(img.height / img.width * sw));
+  const cn = document.createElement('canvas');
+  cn.width = sw; cn.height = sh;
+  const cg = cn.getContext('2d', {willReadFrequently:true});
+  cg.drawImage(img, 0, 0, sw, sh);
+  const k = sw / img.width;
+  return ballsFromPixels(cg.getImageData(0,0,sw,sh).data, sw, sh,
+                         quad.map(q => [q[0]*k, q[1]*k]),
+                         T.width, T.height, T.ball_diameter);
+}
+
 function usePhoto(img){
   PHOTO = img;
   const t0 = performance.now();
   TABLE_HULL = findTable(img);
   DIAMOND_FIT = null;
+  let found = null;
   if (TABLE_HULL && TABLE_HULL.quad){
     TABLE_HULL.quad = refineQuad(img, TABLE_HULL.quad);   // 다이아몬드로 코너 보정
     WARPED = warpPhoto(img, TABLE_HULL.quad, 700, 350);
+    try { found = ballsFromPhoto(img, TABLE_HULL.quad); }
+    catch(e){ log('공 찾기 실패 ' + e); }
   } else WARPED = null;
+
+  // ⚠️ 사진을 읽어와도 궤적은 만들지 않는다 (사용자 확정). 공만 놓는다.
+  let n = 0;
+  if (found){
+    S.balls = {}; S.aim = null;
+    for (const c of ['white','yellow','red'])
+      if (found[c]){ S.balls[roleOf(c)] = {p: found[c], color: c}; n++; }
+  }
   msg.style.display = 'block';
   msg.textContent = TABLE_HULL
-    ? '당구대 찾음 (천 ' + Math.round(TABLE_HULL.area*100) + '%, 코너 '
-      + (TABLE_HULL.quad ? '4점' : '실패') + ', ' + Math.round(performance.now()-t0) + 'ms)'
+    ? '당구대 찾음 · 공 ' + n + '개 (' + Math.round(performance.now()-t0) + 'ms)'
     : '★당구대를 못 찾음';
   setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 2500);
 }

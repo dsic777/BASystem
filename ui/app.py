@@ -235,8 +235,10 @@ class App:
             # ⚠️ cv2.imread 는 윈도우에서 한글 경로를 못 읽는다. 바이트로 읽어 디코드한다.
             image = cv2.imdecode(_np.fromfile(path, dtype=_np.uint8), cv2.IMREAD_COLOR)
             top = table_detect.detect(image)
-            balls = ball_detect.resolve(ball_detect.detect(
-                top.image, None, top.size[0] / self.table.width * self.table.ball_diameter))
+            # ⚠️ 상단뷰가 아니라 **원본 사진**에서 찾는다. 카메라가 낮으면 먼 쪽이
+            #    눌려 있어 펴는 순간 공이 3배로 늘어난 타원이 된다 (2026-08-08).
+            balls = ball_detect.resolve(ball_detect.detect_photo(
+                image, top, None, self.table.ball_diameter, self.table.width))
             aimed = cue_detect.find_aimed_ball(image, top, balls)
         except Exception as e:                       # 검출 실패는 앱을 죽이지 않는다
             self._note(f"검출 실패: {e}")
