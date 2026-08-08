@@ -60,7 +60,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 55;
+const MOBILE_VER = 56;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1252,11 +1252,11 @@ VID.playsInline = true; VID.muted = true;
 // 카메라 버튼이 카메라 대신 test/photos 의 사진을 한 장씩 보여준다. 촬영 버튼을
 // 누르면 그 사진을 읽어 공을 놓는다. 폰에서 **무엇을 어떻게 읽는지**를 눈으로 보려고
 // 만든 것이다 (사용자 요청).
-// ⚠️ 주소로 켜면 안 된다. 설치한 앱(PWA)은 manifest 의 start_url 로 열려서 ?t=1 이
-//    안 붙는다 — 그래서 진짜 카메라가 켜졌다. 지금은 **기본이 시험 모드**다.
-//    진짜 카메라로 돌아가려면 아래 true 를 false 로 (또는 주소에 ?t=0).
-const TEST = {on: !/[?&]t=0/.test(location.search), list: null, i: -1,
-              img: null, name: '', done: false};
+// 지금은 **기본이 진짜 카메라**다. 시험 모드로 보려면 아래 false 를 true 로 바꾼다.
+// ⚠️ 주소(?t=1)로는 못 켠다. 설치한 앱(PWA)은 manifest 의 start_url 로 열려서
+//    주소에 붙인 값이 사라진다 (2026-08-09 에 이것 때문에 카메라가 켜졌다).
+const TEST_MODE = false;
+const TEST = {on: TEST_MODE, list: null, i: -1, img: null, name: '', done: false};
 
 // 확인할 사진만 골라 본다. 빈 배열이면 15장 전부.
 // (v52 에서 191914 / 192004 를 확인했고 둘 다 3개 — 이제 전부 본다)
