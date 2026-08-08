@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 15;
+const MOBILE_VER = 16;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -170,25 +170,21 @@ function layout(){
   const ow = T.outer_width, oh = T.outer_height;
   // 화면을 가득 채운다. 세로로 들면 눕혀서 그린다 (당구대는 2:1 이라
   // 세로 화면에 그대로 넣으면 절반이 빈다).
-  // ⚠️ 가로 화면에서 당구대(2:1)를 가운데 놓으면 좌우가 남고, 버튼은 당구대 위를
-  //    덮는다. 남는 폭이 충분하면 당구대를 **왼쪽으로 밀고 오른쪽을 버튼 칸**으로
-  //    쓴다 (사용자 제안). 그러면 버튼이 당구대를 하나도 안 가린다.
-  // ⚠️ 조건에 따라 두 가지 배치를 왔다갔다 하게 만들면 안 된다 (실기기에서
-  //    옆 칸이 안 생기고 버튼이 다시 잘렸다). **항상** 오른쪽에 버튼 칸을
-  //    떼어 놓고, 당구대는 남는 자리에 맞춘다. 버튼이 당구대를 덮지 않는다.
-  // 당구대를 최대한 키우되, 버튼 칸은 반드시 남긴다.
+  // 당구대를 최대한 키우되 오른쪽 버튼 칸은 반드시 남긴다.
   // ⚠️ '남는 폭을 쓴다'로 하면 화면비가 2:1 보다 좁은 폰에서 남는 폭이 0 이 되어
-  //    버튼 크기가 음수가 되고 화면이 죽는다 (실기기에서 arcTo radius -0.54).
-  const sc = Math.min((w - 4)/ow, (h - 4)/oh);    // 당구대만 놓았을 때의 크기
-  const free = w - 4 - ow*sc;                     // 그때 오른쪽에 남는 폭
+  //    버튼 크기가 음수가 되고 화면이 죽는다 (arcTo radius -0.54).
+  // ⚠️ 배율을 두 개(sc, sc2) 두지 말 것. 하나가 옛 값을 쓰면 테두리와 천이
+  //    어긋나 당구대와 버튼이 겹친다 (실기기에서 확인).
+  const fit = Math.min((w - 4)/ow, (h - 4)/oh);   // 당구대만 놓았을 때
   const need = Math.max(h * 0.28, 84);            // 버튼 칸에 꼭 필요한 폭
-  const panelW = Math.max(free, need);
-  const sc2 = Math.min((w - 6 - panelW)/ow, (h - 4)/oh);
-  const rw = ow*sc2, rh = oh*sc2;
-  const rl = 2, rt = (h-rh)/2;                    // 왼쪽 끝에 붙인다
-  PANEL = {x: rl + rw + 2, y: rt, w: Math.max(w - (rl+rw) - 6, 40), h: rh};
+  const panelW = Math.max(w - 4 - ow*fit, need);
+  const sc = Math.min((w - 6 - panelW)/ow, (h - 4)/oh);
+
+  const rw = ow*sc, rh = oh*sc;
+  const rl = 2, rt = (h-rh)/2;
   const px = T.rail_x*sc, py = T.rail_y*sc;
-  L = {sc: sc2, rail:{x:rl, y:rt, w:rw, h:rh},
+  PANEL = {x: rl + rw + 4, y: rt, w: Math.max(w - (rl+rw) - 8, 40), h: rh};
+  L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
        cloth:{x:rl+px, y:rt+py, w:T.width*sc, h:T.height*sc},
        ox: rl+px, oy: rt+py+T.height*sc};
 }
