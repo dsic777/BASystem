@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 11;
+const MOBILE_VER = 12;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -173,13 +173,14 @@ function layout(){
   // ⚠️ 가로 화면에서 당구대(2:1)를 가운데 놓으면 좌우가 남고, 버튼은 당구대 위를
   //    덮는다. 남는 폭이 충분하면 당구대를 **왼쪽으로 밀고 오른쪽을 버튼 칸**으로
   //    쓴다 (사용자 제안). 그러면 버튼이 당구대를 하나도 안 가린다.
-  const sc0 = Math.min((w-8)/ow, (h-8)/oh);
-  const want = sc0*oh*0.40;                       // 버튼 칸에 필요한 폭
-  SIDE = (w - sc0*ow) >= want*0.85;               // 남는 폭이 그만하면 옆에 붙인다
-  const sc = SIDE ? Math.min((w-8-want)/ow, (h-8)/oh) : sc0;
+  // ⚠️ 조건에 따라 두 가지 배치를 왔다갔다 하게 만들면 안 된다 (실기기에서
+  //    옆 칸이 안 생기고 버튼이 다시 잘렸다). **항상** 오른쪽에 버튼 칸을
+  //    떼어 놓고, 당구대는 남는 자리에 맞춘다. 버튼이 당구대를 덮지 않는다.
+  const panelW = Math.max(w * 0.155, 96);         // 오른쪽 버튼 칸 (화면 폭의 15.5%)
+  const sc = Math.min((w - 10 - panelW)/ow, (h-8)/oh);
   const rw = ow*sc, rh = oh*sc;
-  const rl = SIDE ? 4 : (w-rw)/2, rt = (h-rh)/2;
-  PANEL = SIDE ? {x: rl+rw+6, y: rt, w: w-(rl+rw)-10, h: rh} : null;
+  const rl = Math.max(4, (w - panelW - rw)/2), rt = (h-rh)/2;
+  PANEL = {x: w - panelW + 4, y: rt, w: panelW - 8, h: rh};
   const px = T.rail_x*sc, py = T.rail_y*sc;
   L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
        cloth:{x:rl+px, y:rt+py, w:T.width*sc, h:T.height*sc},
@@ -234,13 +235,13 @@ function buttonRects(){
 function sideButtons(){
   // 오른쪽 칸에 두 줄(보정 4개 / 배치 5개)을 세로로 세운다
   const p = PANEL, n = 5;
-  const bw = Math.min(p.w/2 - 8, (p.h - 6*(n-1)) / n);
-  const gap = (p.h - bw*n) / (n-1);
+  const bw = Math.min((p.w - 6)/2, (p.h - 6*(n-1)) / n);
+  const gap = n > 1 ? (p.h - bw*n) / (n-1) : 0;
   const out = [];
   ['-','0','+','cam'].forEach((lb,i) =>
     out.push({x:p.x, y:p.y + i*(bw+gap), w:bw, h:bw, lb}));
   ['swap','white','yellow','red','reset'].forEach((lb,i) =>
-    out.push({x:p.x + bw + 8, y:p.y + i*(bw+gap), w:bw, h:bw, lb}));
+    out.push({x:p.x + bw + 6, y:p.y + i*(bw+gap), w:bw, h:bw, lb}));
   BW = BH = bw;
   return out;
 }
