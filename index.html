@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 10;
+const MOBILE_VER = 11;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -163,15 +163,23 @@ let L = {};
 // 세로로 든 화면에서는 당구대를 눕혀서 그린다. 당구대가 2:1 이라 세로 화면에
 // 그대로 넣으면 절반이 빈다. 그리기 좌표계를 90도 돌리고, 손가락 좌표는
 // 되돌려서 받는다.
-let ROT = false;
+let ROT = false, SIDE = false, PANEL = null;
 function layout(){
   ROT = cv.height > cv.width;
   const w = ROT ? cv.height : cv.width, h = ROT ? cv.width : cv.height;
   const ow = T.outer_width, oh = T.outer_height;
   // 화면을 가득 채운다. 세로로 들면 눕혀서 그린다 (당구대는 2:1 이라
   // 세로 화면에 그대로 넣으면 절반이 빈다).
-  const sc = Math.min((w-8)/ow, (h-8)/oh);
-  const rw = ow*sc, rh = oh*sc, rl = (w-rw)/2, rt = (h-rh)/2;
+  // ⚠️ 가로 화면에서 당구대(2:1)를 가운데 놓으면 좌우가 남고, 버튼은 당구대 위를
+  //    덮는다. 남는 폭이 충분하면 당구대를 **왼쪽으로 밀고 오른쪽을 버튼 칸**으로
+  //    쓴다 (사용자 제안). 그러면 버튼이 당구대를 하나도 안 가린다.
+  const sc0 = Math.min((w-8)/ow, (h-8)/oh);
+  const want = sc0*oh*0.40;                       // 버튼 칸에 필요한 폭
+  SIDE = (w - sc0*ow) >= want*0.85;               // 남는 폭이 그만하면 옆에 붙인다
+  const sc = SIDE ? Math.min((w-8-want)/ow, (h-8)/oh) : sc0;
+  const rw = ow*sc, rh = oh*sc;
+  const rl = SIDE ? 4 : (w-rw)/2, rt = (h-rh)/2;
+  PANEL = SIDE ? {x: rl+rw+6, y: rt, w: w-(rl+rw)-10, h: rh} : null;
   const px = T.rail_x*sc, py = T.rail_y*sc;
   L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
        cloth:{x:rl+px, y:rt+py, w:T.width*sc, h:T.height*sc},
@@ -196,6 +204,7 @@ function sizeButtons(){
 let BTN = [];
 function buttonRects(){
   sizeButtons();
+  if (PANEL) return sideButtons();
   const w = BW*5 + BG*4 + GRPG, h = BH*2 + ROWG, pad = 12, c = L.cloth;
   // 좌상단은 당점 자리라 마지막 후보로 둔다
   const spots = [[c.x+c.w-pad-w, c.y+c.h-pad-h], [c.x+pad, c.y+c.h-pad-h],
@@ -214,7 +223,7 @@ function buttonRects(){
   //    반드시 천 안쪽으로 밀어 넣는다.
   let [x,y] = best;
   x = Math.min(Math.max(x, c.x + pad), c.x + c.w - pad - w);
-  y = Math.min(Math.max(y, c.y + pad), c.y + c.h - pad - h);
+  y = Math.min(Math.max(y, c.y + pad), c.y + c.h - pad*3 - h);   // 3쿠션 숫자를 피해 조금 위로
   const out = [];
   ['-','0','+','cam'].forEach((lb,i) => out.push({x:x+i*(BW+BG), y, w:BW, h:BH, lb}));
   const y2 = y + BH + ROWG;
@@ -222,6 +231,20 @@ function buttonRects(){
     out.push({x:x + i*(BW+BG) + (i ? GRPG : 0), y:y2, w:BW, h:BH, lb}));
   return out;
 }
+function sideButtons(){
+  // 오른쪽 칸에 두 줄(보정 4개 / 배치 5개)을 세로로 세운다
+  const p = PANEL, n = 5;
+  const bw = Math.min(p.w/2 - 8, (p.h - 6*(n-1)) / n);
+  const gap = (p.h - bw*n) / (n-1);
+  const out = [];
+  ['-','0','+','cam'].forEach((lb,i) =>
+    out.push({x:p.x, y:p.y + i*(bw+gap), w:bw, h:bw, lb}));
+  ['swap','white','yellow','red','reset'].forEach((lb,i) =>
+    out.push({x:p.x + bw + 8, y:p.y + i*(bw+gap), w:bw, h:bw, lb}));
+  BW = BH = bw;
+  return out;
+}
+
 const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
 // ⚠️ 여기서 BTN(버튼 자리)을 보면 안 된다. buttonRects() 가 clockCenter() 를
 //    부르므로 서로 물고 도는 순환이 되고, const 화살표 함수라 선언 전에
@@ -436,7 +459,7 @@ function drawButtons(){
     g.strokeStyle = armed ? '#ffec96' : '#bcc4d2'; g.lineWidth = armed ? 4 : 2; g.stroke();
     if (b.lb === 'cam'){ camIcon(cx,cy,b.h); continue; }
     if (b.lb === 'reset'){
-      g.fillStyle = '#e8968c'; g.font = 'bold ' + Math.round(BH*0.34) + 'px sans-serif';
+      g.fillStyle = '#f0a89e'; g.font = '900 ' + Math.round(BH*0.52) + 'px sans-serif';
       g.fillText(R_LABELS[S.rMode], cx, cy); continue;
     }
     if (b.lb === 'swap'){
