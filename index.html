@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 32;
+const MOBILE_VER = 33;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -227,8 +227,8 @@ function findTable(img){
   if (!best || best.n < W*H*0.02) return null;
 
   const k = img.width / W;                       // 원본 크기로 되돌리는 배율
-  return {hull: convexHull(best.pts).map(q => [q[0]*k, q[1]*k]),
-          area: best.n / (W*H)};
+  const hull = convexHull(best.pts).map(q => [q[0]*k, q[1]*k]);
+  return {hull, quad: hullToQuad(hull), area: best.n / (W*H)};
 }
 
 function convexHull(pts){
@@ -240,6 +240,35 @@ function convexHull(pts){
     while (up.length>1 && cross(up[up.length-2],up[up.length-1],q)<=0) up.pop(); up.push(q); }
   lo.pop(); up.pop();
   return lo.concat(up);
+}
+
+
+// 볼록껍질 → 사각형 4점. 넓이가 가장 큰 네 점을 고른다.
+// ⚠️ 파이썬은 approxPolyDP 를 썼지만 여기선 직접 짠다. 껍질 점이 수백 개라
+//    4중 반복은 느리므로, 먼저 껍질을 성기게 줄인 뒤(최대 40점) 고른다.
+function hullToQuad(hull){
+  let h = hull;
+  if (h.length > 40){
+    const step = h.length / 40, out = [];
+    for (let i = 0; i < 40; i++) out.push(h[Math.floor(i*step)]);
+    h = out;
+  }
+  const n = h.length;
+  if (n < 4) return null;
+  const area2 = (a,b,c) => Math.abs((b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0]));
+  let best = null, bestA = 0;
+  for (let i = 0; i < n-3; i++)
+   for (let j = i+1; j < n-2; j++)
+    for (let k = j+1; k < n-1; k++)
+     for (let l = k+1; l < n; l++){
+       const A = area2(h[i],h[j],h[k]) + area2(h[i],h[k],h[l]);
+       if (A > bestA){ bestA = A; best = [h[i],h[j],h[k],h[l]]; }
+     }
+  if (!best) return null;
+  // 무게중심 기준 각도로 순환 정렬 (스스로 교차하지 않는 사각형이 된다)
+  const c = best.reduce((a,q) => [a[0]+q[0]/4, a[1]+q[1]/4], [0,0]);
+  return best.slice().sort((a,b) =>
+    Math.atan2(a[1]-c[1], a[0]-c[0]) - Math.atan2(b[1]-c[1], b[0]-c[0]));
 }
 
 // ---------------------------------------------------------------- 상태
@@ -481,7 +510,27 @@ function draw(){
         const X = ox + hx*k, Y = oy + hy*k;
         i ? g.lineTo(X, Y) : g.moveTo(X, Y);
       });
-      g.closePath(); g.stroke(); g.restore();
+      g.closePath(); g.stroke();
+      if (TABLE_HULL.quad){                       // 2단계 — 코너 4점
+        g.strokeStyle = '#ff5aa8'; g.lineWidth = Math.max(2, pw*0.008);
+        g.beginPath();
+        TABLE_HULL.quad.forEach(([hx,hy], i) => {
+          const X = ox + hx*k, Y = oy + hy*k;
+          i ? g.lineTo(X, Y) : g.moveTo(X, Y);
+        });
+        g.closePath(); g.stroke();
+        g.fillStyle = '#ff5aa8';
+        TABLE_HULL.quad.forEach(([hx,hy], i) => {
+          const X = ox + hx*k, Y = oy + hy*k, r = Math.max(5, pw*0.013);
+          g.beginPath(); g.arc(X, Y, r, 0, 7); g.fill();
+          g.fillStyle = '#101014';
+          g.font = 'bold ' + Math.round(r*1.6) + 'px sans-serif';
+          g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.fillText(String(i+1), X, Y);
+          g.fillStyle = '#ff5aa8';
+        });
+      }
+      g.restore();
     }
   }
   drawDiamonds(); drawNumbers(); drawPath(); drawBalls(); drawClock(); drawButtons();
