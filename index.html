@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 35;
+const MOBILE_VER = 36;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -578,7 +578,14 @@ function draw(){
   g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
   g.fillStyle = '#264 abe'; g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
 
-  if (WARPED){
+  if (CAMLIVE && VID.videoWidth){
+    // 카메라 미리보기 — 천 자리에 비율을 지켜 채운다
+    const c = L.cloth, k2 = Math.max(c.w/VID.videoWidth, c.h/VID.videoHeight);
+    const vw = VID.videoWidth*k2, vh = VID.videoHeight*k2;
+    g.save(); g.beginPath(); g.rect(c.x,c.y,c.w,c.h); g.clip();
+    g.drawImage(VID, c.x+(c.w-vw)/2, c.y+(c.h-vh)/2, vw, vh);
+    g.restore();
+  } else if (WARPED){
     // 3단계 — 원근보정한 사진을 천 자리에 정확히 겹친다.
     // ⚠️ 코너는 '천 경계'라 쿠션 날과 조금 다를 수 있다. 편 그림에서 다이아몬드가
     //    8등분·4등분 자리에 오는지 보고 오차를 잰다 (다이아몬드가 진실 원천).
@@ -815,41 +822,60 @@ function camIcon(cx,cy,h){
 }
 
 // ---------------------------------------------------------------- 카메라 (임시)
-// ⚠️ 카메라를 화면 안에 띄우지 않는다. <input capture> 로 폰 기본 카메라를 열면
-//    촬영 후 저절로 돌아온다 — 확인 버튼이나 물음이 없다 (사용자 지시).
-//    마음에 안 들면 카메라 버튼을 다시 누르면 된다.
-let PHOTO = null, WARPED = null;                                 // 찍은 사진 (배경으로 깔아 둔다)
-const CAMIN = document.createElement('input');
-CAMIN.type = 'file';
-CAMIN.accept = 'image/*';
-CAMIN.capture = 'environment';                    // 뒷면 카메라
-CAMIN.style.display = 'none';
-document.body.appendChild(CAMIN);
-CAMIN.addEventListener('change', () => {
-  const f = CAMIN.files && CAMIN.files[0];
-  CAMIN.value = '';                               // 같은 사진을 다시 찍어도 반응하게
-  if (!f) return;
+// ⚠️ <input capture> 로 폰 기본 카메라를 쓰면 '확인 / 다시촬영' 을 물어본다
+//    (사용자 지적). 그래서 **화면 안에서 직접 촬영**한다 — 누르는 순간 찍히고
+//    바로 돌아온다. 물음이 없다.
+let PHOTO = null, WARPED = null;
+let CAMSTREAM = null, CAMLIVE = false;
+const VID = document.createElement('video');
+VID.playsInline = true; VID.muted = true;
+
+async function shoot(){
+  if (CAMLIVE) { capture(); return; }             // 미리보기 중이면 찍는다
+  try{
+    CAMSTREAM = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode: {ideal: 'environment'},
+              width: {ideal: 1920}, height: {ideal: 1080}}, audio: false});
+    VID.srcObject = CAMSTREAM;
+    await VID.play();
+    CAMLIVE = true;
+    msg.style.display = 'block';
+    msg.textContent = '카메라 버튼을 다시 누르면 찍힙니다';
+    setTimeout(() => { if (CAMLIVE) { msg.textContent=''; msg.style.display='none'; } }, 2500);
+  }catch(e){
+    msg.style.display = 'block';
+    msg.textContent = '카메라를 못 열었습니다: ' + e.name;
+  }
+}
+
+function capture(){
+  const cn = document.createElement('canvas');
+  cn.width = VID.videoWidth; cn.height = VID.videoHeight;
+  cn.getContext('2d').drawImage(VID, 0, 0);
+  stopCam();
   const img = new Image();
-  img.onload = () => {
-    PHOTO = img;
-    const t0 = performance.now();
-    TABLE_HULL = findTable(img);
-    WARPED = (TABLE_HULL && TABLE_HULL.quad)
-      ? warpPhoto(img, TABLE_HULL.quad, 700, 350) : null;
-    msg.style.display = 'block';
-    msg.textContent = TABLE_HULL
-      ? '당구대 찾음 (천 ' + Math.round(TABLE_HULL.area*100) + '%, '
-        + Math.round(performance.now()-t0) + 'ms)'
-      : '★당구대를 못 찾음';
-    setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2500);
-  };
-  img.onerror = () => {
-    msg.style.display = 'block';
-    msg.textContent = '사진을 못 읽었습니다';
-  };
-  img.src = URL.createObjectURL(f);
-});
-function shoot(){ CAMIN.click(); }
+  img.onload = () => usePhoto(img);
+  img.src = cn.toDataURL('image/jpeg', 0.9);
+}
+
+function stopCam(){
+  CAMLIVE = false;
+  if (CAMSTREAM){ CAMSTREAM.getTracks().forEach(t => t.stop()); CAMSTREAM = null; }
+}
+
+function usePhoto(img){
+  PHOTO = img;
+  const t0 = performance.now();
+  TABLE_HULL = findTable(img);
+  WARPED = (TABLE_HULL && TABLE_HULL.quad)
+    ? warpPhoto(img, TABLE_HULL.quad, 700, 350) : null;
+  msg.style.display = 'block';
+  msg.textContent = TABLE_HULL
+    ? '당구대 찾음 (천 ' + Math.round(TABLE_HULL.area*100) + '%, 코너 '
+      + (TABLE_HULL.quad ? '4점' : '실패') + ', ' + Math.round(performance.now()-t0) + 'ms)'
+    : '★당구대를 못 찾음';
+  setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 2500);
+}
 
 // ---------------------------------------------------------------- 시작
 function resize(){
