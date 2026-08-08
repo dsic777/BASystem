@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 31;
+const MOBILE_VER = 32;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -156,6 +156,90 @@ function pathFromAim(cue, aim, shift){
   }
   const out = roll(cue, d, 5, (lo+hi)/2);
   return out.length >= 2 ? out : base;
+}
+
+
+// ---------------------------------------------------------------- 당구대 찾기
+// 파이썬(vision/table_detect.py)에서 검증된 방식을 그대로 옮긴다.
+//   천 색으로 영역을 따고 → 가장 큰 덩어리 → 볼록껍질 → 사각형 4점
+// 1단계: 찾은 영역 테두리를 화면에 그려 제대로 잡는지 눈으로 확인한다.
+const CLOTH_LO = [85, 90, 90], CLOTH_HI = [110, 255, 255];   // data/vision.json 과 같은 값
+let TABLE_HULL = null;          // 찾은 당구대 외곽 (사진 픽셀 좌표)
+
+function rgb2hsv(r, g_, b){
+  const mx = Math.max(r,g_,b), mn = Math.min(r,g_,b), d = mx - mn;
+  let h = 0;
+  if (d){
+    if (mx === r) h = ((g_-b)/d + (g_ < b ? 6 : 0));
+    else if (mx === g_) h = (b-r)/d + 2;
+    else h = (r-g_)/d + 4;
+    h *= 30;                                    // OpenCV 는 0~179
+  }
+  return [h, mx ? d/mx*255 : 0, mx];
+}
+
+function findTable(img){
+  // 사진을 작게 줄여서 훑는다 (폰에서 원본 그대로 돌리면 느리다)
+  const W = 240, H = Math.max(1, Math.round(img.height / img.width * W));
+  const cn = document.createElement('canvas');
+  cn.width = W; cn.height = H;
+  const cg = cn.getContext('2d', {willReadFrequently:true});
+  cg.drawImage(img, 0, 0, W, H);
+  const px = cg.getImageData(0, 0, W, H).data;
+
+  const m = new Uint8Array(W*H);
+  for (let i = 0, j = 0; i < m.length; i++, j += 4){
+    const [h,s,v] = rgb2hsv(px[j], px[j+1], px[j+2]);
+    m[i] = (h >= CLOTH_LO[0] && h <= CLOTH_HI[0] &&
+            s >= CLOTH_LO[1] && v >= CLOTH_LO[2]) ? 1 : 0;
+  }
+  // 잡티 제거 (열기) — 가느다란 연결을 끊는다
+  const er = new Uint8Array(W*H);
+  for (let y = 1; y < H-1; y++) for (let x = 1; x < W-1; x++){
+    let ok = 1;
+    for (let dy = -1; dy <= 1 && ok; dy++) for (let dx = -1; dx <= 1; dx++)
+      if (!m[(y+dy)*W + x+dx]) { ok = 0; break; }
+    er[y*W+x] = ok;
+  }
+
+  // 가장 큰 덩어리
+  const lab = new Int32Array(W*H).fill(-1);
+  let best = null, id = 0;
+  const qx = new Int32Array(W*H), qy = new Int32Array(W*H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    if (!er[y*W+x] || lab[y*W+x] >= 0) continue;
+    let head = 0, tail = 0, n = 0;
+    qx[tail] = x; qy[tail] = y; tail++; lab[y*W+x] = id;
+    const pts = [];
+    while (head < tail){
+      const cx = qx[head], cy = qy[head]; head++; n++;
+      pts.push([cx, cy]);
+      for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx = cx+dx, ny = cy+dy;
+        if (nx<0||ny<0||nx>=W||ny>=H) continue;
+        if (!er[ny*W+nx] || lab[ny*W+nx] >= 0) continue;
+        lab[ny*W+nx] = id; qx[tail] = nx; qy[tail] = ny; tail++;
+      }
+    }
+    if (!best || n > best.n) best = {n, pts};
+    id++;
+  }
+  if (!best || best.n < W*H*0.02) return null;
+
+  const k = img.width / W;                       // 원본 크기로 되돌리는 배율
+  return {hull: convexHull(best.pts).map(q => [q[0]*k, q[1]*k]),
+          area: best.n / (W*H)};
+}
+
+function convexHull(pts){
+  const p = pts.slice().sort((a,b) => a[0]-b[0] || a[1]-b[1]);
+  const cross = (o,a,b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+  const lo = [], up = [];
+  for (const q of p){ while (lo.length>1 && cross(lo[lo.length-2],lo[lo.length-1],q)<=0) lo.pop(); lo.push(q); }
+  for (let i=p.length-1;i>=0;i--){ const q=p[i];
+    while (up.length>1 && cross(up[up.length-2],up[up.length-1],q)<=0) up.pop(); up.push(q); }
+  lo.pop(); up.pop();
+  return lo.concat(up);
 }
 
 // ---------------------------------------------------------------- 상태
@@ -385,9 +469,20 @@ function draw(){
     const cw = ROT ? cv.height : cv.width, ch = ROT ? cv.width : cv.height;
     const k = Math.min(cw / PHOTO.width, ch / PHOTO.height);
     const pw = PHOTO.width*k, ph = PHOTO.height*k;
+    const ox = (cw-pw)/2, oy = (ch-ph)/2;
     g.save(); g.globalAlpha = 0.5;
-    g.drawImage(PHOTO, (cw-pw)/2, (ch-ph)/2, pw, ph);
+    g.drawImage(PHOTO, ox, oy, pw, ph);
     g.restore();
+    if (TABLE_HULL){                              // 찾은 당구대 외곽 (1단계 확인용)
+      g.save();
+      g.strokeStyle = '#39ff7f'; g.lineWidth = Math.max(2, pw*0.006);
+      g.beginPath();
+      TABLE_HULL.hull.forEach(([hx,hy], i) => {
+        const X = ox + hx*k, Y = oy + hy*k;
+        i ? g.lineTo(X, Y) : g.moveTo(X, Y);
+      });
+      g.closePath(); g.stroke(); g.restore();
+    }
   }
   drawDiamonds(); drawNumbers(); drawPath(); drawBalls(); drawClock(); drawButtons();
   requestAnimationFrame(draw);
@@ -586,8 +681,13 @@ CAMIN.addEventListener('change', () => {
   const img = new Image();
   img.onload = () => {
     PHOTO = img;
+    const t0 = performance.now();
+    TABLE_HULL = findTable(img);
     msg.style.display = 'block';
-    msg.textContent = '사진 적용됨 ' + img.width + 'x' + img.height;
+    msg.textContent = TABLE_HULL
+      ? '당구대 찾음 (천 ' + Math.round(TABLE_HULL.area*100) + '%, '
+        + Math.round(performance.now()-t0) + 'ms)'
+      : '★당구대를 못 찾음';
     setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2500);
   };
   img.onerror = () => {
