@@ -22,6 +22,10 @@ from core import five_half
 from core.english import EnglishSpec
 from core.table import BOTTOM, LEFT, RAILS, RIGHT, TOP, Table
 
+# ⚠️ 버전 관리 — jbpro2.2 와 같은 방식. 코드를 고치면 이 값과
+#    version.json 의 win 값을 같이 N+1 한다. (모바일은 index.html 의 MOBILE_VER)
+WIN_VER = 1
+
 WINDOW_SIZE = (1440, 940)
 FPS = 60
 
@@ -151,7 +155,7 @@ class Layout:
 class App:
     def __init__(self):
         pygame.init()
-        pygame.display.set_caption("파이브앤하프 계산기 — 번호표 검증")
+        pygame.display.set_caption(f"BASystem — 당구 어시스턴트  v{WIN_VER}")
 
         self.table = Table.load()
         self.scales = five_half.load_scales()

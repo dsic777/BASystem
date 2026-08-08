@@ -16,7 +16,18 @@
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
 <script>
-const VERSION = '1.0.0';   // ⚠️ 고칠 때마다 올린다. sw.js 의 VERSION 과 같이 맞춘다.
+// ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
+//    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
+//    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
+const MOBILE_VER = 1;
+function checkVersion(){
+  fetch('version.json?t=' + Date.now())
+    .then(r => r.json())
+    .then(v => { if (v.mobile > MOBILE_VER) location.reload(true); })
+    .catch(() => {});
+}
+checkVersion();
+setInterval(checkVersion, 60000);
 // 파이브앤하프 모바일 — 윈도우판(ui/app.py)과 같은 두뇌를 쓴다.
 // 값(규격·번호표·실측 반사표)은 data/ 를 그대로 읽는다. 두 벌로 나누지 않는다.
 // ⚠️ 저장소 뿌리에 둔다. 서버가 /basystem/ 을 이 폴더로 바로 서비스하므로
@@ -413,9 +424,6 @@ const pos = e => {
 cv.addEventListener('pointerdown', e => { down(...pos(e)); });
 cv.addEventListener('pointermove', e => { move(...pos(e)); });
 addEventListener('pointerup', up);
-
-if ('serviceWorker' in navigator)
-  addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
 
 (async () => {
   try{
