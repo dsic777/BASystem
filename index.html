@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 60;
+const MOBILE_VER = 61;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1042,9 +1042,15 @@ function draw(){
   for (let i = 0; i < SHADE; i++){
     g.strokeStyle = 'rgba(0,0,0,' + (0.34 * (1 - i/SHADE)).toFixed(3) + ')';
     g.lineWidth = 1;
-    g.strokeRect(c.x - 6.5 - i, c.y - 6.5 - i, c.w + 13 + i*2, c.h + 13 + i*2);
+    const e = T.cushion_width * L.sc + 0.5 + i;
+    g.strokeRect(c.x - e, c.y - e, c.w + e*2, c.h + e*2);
   }
-  g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
+  // ⚠️ 쿠션 띠를 6px 고정으로 그리면 안 된다. 실제는 노즈에서 cushion_width(37mm)
+  //    까지이고, 그 바깥이 나무다. 6px 로 두면 나무가 실제보다 넓어 보여서
+  //    **프레임 포인트가 나무 한가운데가 아닌 것처럼 보인다** (사용자 지적).
+  const cwPx = T.cushion_width * L.sc;
+  g.fillStyle = '#1e3c9e';
+  g.fillRect(c.x-cwPx, c.y-cwPx, c.w+cwPx*2, c.h+cwPx*2);
   g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
 
   const PREVIEW = TEST.img ? TEST.img : (CAMLIVE && VID.videoWidth ? VID : null);
