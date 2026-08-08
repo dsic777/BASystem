@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 65;
+const MOBILE_VER = 66;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1305,6 +1305,17 @@ function frameParam(mm){
   return null;
 }
 
+// 쿠션 날(노즈) 위의 한 점 → 그 레일 위 위치 t. 3쿠션 눈금은 프레임이 아니라
+// **쿠션 위**에 있다 (five_half_numbers.json 의 reference = rail).
+function railParam(mm){
+  const e = 2.0;
+  if (Math.abs(mm[1]) < e)            return {rail:'bottom', t: mm[0]/T.width};
+  if (Math.abs(mm[1]-T.height) < e)   return {rail:'top',    t: mm[0]/T.width};
+  if (Math.abs(mm[0]) < e)            return {rail:'left',   t: mm[1]/T.height};
+  if (Math.abs(mm[0]-T.width) < e)    return {rail:'right',  t: mm[1]/T.height};
+  return null;
+}
+
 // 번호표에서 그 자리의 값을 읽는다 (점 사이는 직선 보간).
 // 레일의 t 끝(0/1)에서 맞닿는 이웃 레일과 그쪽 끝
 //   bottom t: 0=좌하 1=우하   right t: 0=우하 1=우상
@@ -1380,7 +1391,17 @@ function systemNumbers(){
       if (f) start = readScale('start', f.rail, f.t, true);   // 코너 = 50
     }
   }
-  const third = (start !== null && first !== null) ? start - first : null;
+  // ⚠️ 3쿠션수를 '수구수 − 1쿠션수' 로 계산하면 안 된다 (사용자 지적).
+  //    그건 시스템이 **예상하는** 값이고, 화면에 안내해야 하는 것은 공이 실제로
+  //    도착하는 자리다. 실측 반사표로 굴린 궤적의 3쿠션 접점을 쿠션 위 눈금
+  //    (third_cushion, reference=rail) 에서 읽는다.
+  let third = null;
+  let hits = null;
+  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
+  if (hits && hits.length >= 3){
+    const r = railParam(fold(o, hits[2].p));
+    if (r) third = readScale('third_cushion', r.rail, r.t);
+  }
   return {start, first, third};
 }
 
