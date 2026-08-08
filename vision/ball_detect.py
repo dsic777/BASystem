@@ -213,6 +213,8 @@ def detect_photo(photo: np.ndarray, top, cfg: dict | None = None,
     ball_full = ball_mm / table_mm * (right - left)          # 상단뷰에서의 공 지름
 
     hsv = cv2.cvtColor(photo, cv2.COLOR_BGR2HSV)
+    # ⚠️ 여유를 넓히면 쿠션 나무가 더 들어와 빨간공 자리를 뺏는다
+    #    (0.06 으로 키웠더니 15장 중 15→13 으로 나빠졌다).
     inside = _quad_mask(photo.shape, top.quad, 0.02)
     k = np.ones((5, 5), np.uint8)
     ih, iw = top.image.shape[:2]
@@ -270,11 +272,12 @@ def detect_photo(photo: np.ndarray, top, cfg: dict | None = None,
         fx, fy = v[0] / v[2], v[1] / v[2]
         if not (margin < fx < iw - margin and margin < fy < ih - margin):
             continue
-        # 공 중심은 쿠션 날에서 최소 반지름만큼 안쪽에 있다. 그보다 밖이면 공이 아니라
-        # 쿠션 나무다 (2026-08-08 사진에서 나무가 빨간공으로 잡혔다).
+        # 공 중심은 쿠션 날에서 최소 반지름만큼 안쪽에 있다. 그보다 밖이면 쿠션 나무다.
+        # ⚠️ 여기를 지름만큼 풀고 안으로 끌어당겨 봤더니 나무가 통과해 코너에
+        #    공으로 붙었다 (2026-08-09). 밖으로 나간 것은 그냥 버린다.
         tx = (fx - left) / max(right - left, 1)
         ty = (fy - up) / max(down - up, 1)
-        rx = ball_mm / 2 / table_mm * 0.2   # 코너 오차를 감안해 넉넉히
+        rx = ball_mm / 2 / table_mm * 0.2
         ry = rx * (right - left) / max(down - up, 1)
         if not (rx < tx < 1 - rx and ry < ty < 1 - ry):
             continue

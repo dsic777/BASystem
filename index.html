@@ -60,7 +60,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 47;
+const MOBILE_VER = 48;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -434,6 +434,17 @@ function refineQuad(img, quad){
   const Y0 = PAD + H*gy0, Y1 = PAD + H*gy1;
   DIAMOND_FIT = {nx: found.top.length + found.bottom.length,
                  ny: found.left.length + found.right.length};
+  // ⚠️ 다이아몬드는 천 평면이 아니라 **레일 윗면**에 있다. 호모그래피 하나로는
+  //    두 평면을 같이 못 맞추므로 이 보정은 크게 틀릴 수 있다 (2026-08-08 확인).
+  //    많이 옮기자고 하면 믿지 않는다 — 당구대가 줄어들면 쿠션에 붙은 공이
+  //    사각형 밖으로 밀려나 통째로 사라진다 (사용자 지적: 가장자리 공을 못 찾는다).
+  const MOVE = 0.04;                              // 변 길이의 이 비율까지만 허용
+  if (Math.abs(gx0) > MOVE || Math.abs(gx1-1) > MOVE ||
+      Math.abs(gy0) > MOVE || Math.abs(gy1-1) > MOVE){
+    DIAMOND_FIT = null;
+    log('다이아몬드 보정 무시 (' + [gx0,gx1,gy0,gy1].map(v=>v.toFixed(3)).join(' ') + ')');
+    return quad;
+  }
   return [inv(X0, Y1), inv(X1, Y1), inv(X1, Y0), inv(X0, Y0)];   // 좌하,우하,우상,좌상
 }
 let DIAMOND_FIT = null;
@@ -513,7 +524,10 @@ const BALL_RULES = [
   {name:'yellow', h_min:10,  h_max:45,  s_min:85},
   {name:'red',    h_min:0,   h_max:9,   s_min:85},
   {name:'red',    h_min:160, h_max:179, s_min:85}];
-const RED_LO = 9, RED_HI = 160;                  // 이 밖이면 빨강 (vision.json 과 동일)
+const RED_LO = 9, RED_HI = 160;   // 이 밖이면 빨강 (vision.json 과 동일)
+// 사각형을 이 비율만큼 넓혀서 훑는다. ⚠️ 넓히면 쿠션 나무가 더 들어와
+// 빨간공 자리를 뺏는다 — 0.06 으로 키웠더니 15장 중 15→13 으로 나빠졌다.
+const QUAD_PAD = 0.02;
 
 function hitRule(h, s, v, r){
   return s >= (r.s_min ?? 0) && s <= (r.s_max ?? 255)
@@ -558,7 +572,7 @@ function ballsFromPixels(px, sw, sh, quad, tw, th, ballMm){
   const mm  = [[0,0],[tw,0],[tw,th],[0,th]];
   const Hf = homography(src, mm), Hi = homography(mm, src);
   if (!Hf || !Hi) return [];
-  const inside = quadInside(src, 0.02);
+  const inside = quadInside(src, QUAD_PAD);
 
   // ★ 색깔별로 따로 찾는다. 한 마스크에 다 넣으면 빨간공과 노란공이 닿아 있을 때
   //   (특히 초점이 나간 사진) 한 덩어리가 되어 크기 조건에 걸려 둘 다 사라진다.
@@ -603,6 +617,8 @@ function ballsFromPixels(px, sw, sh, quad, tw, th, ballMm){
       if (bw/bh < 0.5 || bw/bh > 2.0) continue;    // 사진 속 공은 동그랗다
       const p = applyH(Hf, cx, cy);
       // 공 중심은 쿠션 날에서 최소 반지름만큼 안쪽에 있다. 그보다 밖이면 쿠션 나무다.
+      // ⚠️ 여기를 지름만큼 풀고 안으로 끌어당겨 봤더니, 나무 덩어리가 통과해서
+      //    코너에 공으로 붙었다 (2026-08-09). 밖으로 나간 것은 그냥 버린다.
       const m = ballMm/2*0.2;
       if (p[0] < m || p[0] > tw-m || p[1] < m || p[1] > th-m) continue;
       const [hh,ss,vv] = rgb2hsv(sr/n, sg/n, sb/n);
