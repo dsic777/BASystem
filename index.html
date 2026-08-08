@@ -16,10 +16,18 @@
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
 <script>
+// 폰에는 개발자도구가 없다. 오류를 화면에 그대로 띄워 원인을 본다.
+addEventListener('error', e => {
+  document.getElementById('msg').textContent =
+    'ERR ' + e.message + ' @' + (e.lineno||'?') + ':' + (e.colno||'?');
+});
+addEventListener('unhandledrejection', e => {
+  document.getElementById('msg').textContent = 'REJ ' + e.reason;
+});
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 6;
+const MOBILE_VER = 7;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -276,9 +284,9 @@ const up = () => { S.drag = null; S.aiming = false; };
 
 // ---------------------------------------------------------------- 그리기
 function draw(){
-  const r = cv.getBoundingClientRect();
-  if (Math.abs(cv.width - r.width*devicePixelRatio) > 2 ||
-      Math.abs(cv.height - r.height*devicePixelRatio) > 2) resize();
+  const box = cv.getBoundingClientRect();          // ⚠️ 아래에 const r 이 또 있다
+  if (Math.abs(cv.width - box.width*devicePixelRatio) > 2 ||
+      Math.abs(cv.height - box.height*devicePixelRatio) > 2) resize();
   layout(); BTN = buttonRects();
   g.setTransform(1,0,0,1,0,0);
   g.fillStyle = '#16181c'; g.fillRect(0,0,cv.width,cv.height);
