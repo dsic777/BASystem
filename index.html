@@ -60,7 +60,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 49;
+const MOBILE_VER = 50;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -820,12 +820,13 @@ function clockCenter(){
                 [c.x + c.w - r - m, c.y + c.h - r - m]];
   const put = Object.keys(S.balls).map(k => toPx(...S.balls[k].p));
   if (!put.length) return spot[0];
-  const clear = r + ballR() * 1.2;                          // 이만큼 떨어지면 안 겹친다
+  // ⚠️ '기준치를 넘으면 바로 그 자리'로 하면 안 된다. 기준을 아슬아슬하게 넘긴
+  //    왼쪽 위가 계속 뽑혀 공을 덮는다 (사용자 지적, 6.jpg — 54px 떨어졌는데
+  //    기준이 52px 이라 통과했다). **제일 빈 모서리**를 고른다.
   let best = spot[0], bestD = -1;
   for (const s of spot){
     const d = Math.min(...put.map(p => Math.hypot(p[0]-s[0], p[1]-s[1])));
-    if (d >= clear) return s;                               // 넉넉한 자리가 있으면 바로
-    if (d > bestD){ bestD = d; best = s; }
+    if (d > bestD){ bestD = d; best = s; }                  // 같으면 앞쪽(왼쪽 위) 유지
   }
   return best;
 }
