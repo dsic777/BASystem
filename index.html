@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 30;
+const MOBILE_VER = 31;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -380,11 +380,13 @@ function draw(){
   g.fillStyle = '#264 abe'; g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
 
   if (PHOTO){
-    // 찍은 사진을 천 자리에 맞춰 깔아 둔다. 아직 공 자동 검출은 없으므로
-    // 사진을 보고 손으로 공을 놓으면 된다.
-    const c = L.cloth;
-    g.save(); g.globalAlpha = 0.55;
-    g.drawImage(PHOTO, c.x, c.y, c.w, c.h);
+    // ⚠️ 천 자리에만 깔면 원근 때문에 어디가 어딘지 알기 어렵다. 아직 원근보정이
+    //    없으므로 **화면 전체**에 비율을 지켜 깔아 둔다. 그걸 보고 손으로 공을 놓는다.
+    const cw = ROT ? cv.height : cv.width, ch = ROT ? cv.width : cv.height;
+    const k = Math.min(cw / PHOTO.width, ch / PHOTO.height);
+    const pw = PHOTO.width*k, ph = PHOTO.height*k;
+    g.save(); g.globalAlpha = 0.5;
+    g.drawImage(PHOTO, (cw-pw)/2, (ch-ph)/2, pw, ph);
     g.restore();
   }
   drawDiamonds(); drawNumbers(); drawPath(); drawBalls(); drawClock(); drawButtons();
@@ -582,8 +584,16 @@ CAMIN.addEventListener('change', () => {
   CAMIN.value = '';                               // 같은 사진을 다시 찍어도 반응하게
   if (!f) return;
   const img = new Image();
-  img.onload = () => { PHOTO = img; msg.textContent = ''; };
-  img.onerror = () => { msg.textContent = '사진을 못 읽었습니다'; };
+  img.onload = () => {
+    PHOTO = img;
+    msg.style.display = 'block';
+    msg.textContent = '사진 적용됨 ' + img.width + 'x' + img.height;
+    setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2500);
+  };
+  img.onerror = () => {
+    msg.style.display = 'block';
+    msg.textContent = '사진을 못 읽었습니다';
+  };
   img.src = URL.createObjectURL(f);
 });
 function shoot(){ CAMIN.click(); }
