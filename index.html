@@ -13,6 +13,8 @@
   canvas{display:block;width:100%;height:100%}
   #msg{position:fixed;left:8px;top:8px;color:#ffd; font:14px/1.4 sans-serif;
        background:#0008;padding:6px 10px;border-radius:8px;max-width:70vw}
+  /* ⚠️ 글자만 지우면 배경과 여백이 남아 검은 알약처럼 보인다 (사용자 지적) */
+  #msg:empty{display:none;padding:0}
 </style>
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
@@ -60,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 58;
+const MOBILE_VER = 59;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -850,7 +852,8 @@ function sideButtons(){
   const totalW = bw*2 + colGap;
   const totalH = bw*(3 + CAM_H) + rowGap*3;
   const x0 = p.x + lead + (p.w - lead - totalW) / 2;
-  const y0 = p.y + (p.h - totalH) / 2;
+  // ⚠️ 가운데 정렬이면 위 이름 자리가 좁다. 아래쪽으로 내린다 (사용자 지시).
+  const y0 = p.y + (p.h - totalH) * 0.78;
   const out = [];
   [['swap','reset'], ['white','yellow'], ['red','exit']].forEach((row,i) =>
     row.forEach((lb,j) => out.push({x:x0 + j*(bw+colGap), y:y0 + i*(bw+rowGap),
@@ -1015,7 +1018,7 @@ function draw(){
   if (ROT){ g.translate(0, cv.height); g.rotate(-Math.PI/2); }
   if (ROT && !S.rotHinted){ S.rotHinted = 1; setTimeout(() => {
     msg.textContent = '폰을 가로로 돌려주세요';
-    setTimeout(() => { if (!ROT) msg.textContent = ''; }, 4000);
+    setTimeout(() => { if (!ROT){ msg.textContent = ''; msg.style.display='none'; } }, 4000);
   }, 300); }
   const r = L.rail, c = L.cloth;
   // 원목 니스 느낌 — 위에서 아래로 밝기를 주고 결을 아주 옅게 넣는다.
@@ -1220,15 +1223,24 @@ function drawBrand(){
   if (!PANEL || !BTN.length) return;
   const top = Math.min(...BTN.filter(b => b.x >= PANEL.x).map(b => b.y));
   const room = top - PANEL.y;
-  const fs = Math.min(room / 3.6, PANEL.w * 0.20);
-  if (fs < 9) return;                              // 자리가 없으면 안 그린다
+  const words = ['BILLIARDS', 'ASSISTANT', 'SYSTEM'];
+  let fs = Math.min(room / 4.2, PANEL.w * 0.15);
   g.save();
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = 'italic 700 ' + Math.round(fs) + 'px Georgia, "Times New Roman", serif';
-  g.fillStyle = 'rgba(214,220,231,0.62)';
+  const face = 'px Georgia, "Times New Roman", serif';
+  // ⚠️ 칸 폭을 넘으면 글자가 잘린다 (사용자 지적). 재서 줄인다.
+  const fit = PANEL.w * 0.84;
+  for (let k = 0; k < 12; k++){
+    g.font = 'italic 700 ' + Math.round(fs) + face;
+    if (Math.max(...words.map(w => g.measureText(w).width)) <= fit || fs < 9) break;
+    fs *= 0.92;
+  }
+  if (fs < 9){ g.restore(); return; }              // 자리가 없으면 안 그린다
+  g.font = 'italic 700 ' + Math.round(fs) + face;
+  g.fillStyle = 'rgba(214,220,231,0.58)';
   const cx = PANEL.x + PANEL.w / 2;
-  ['BILLIARDS', 'ASSISTANT', 'SYSTEM'].forEach((t, i) =>
-    g.fillText(t, cx, PANEL.y + room/2 + (i - 1) * fs * 1.18));
+  const cy = PANEL.y + room * 0.60;                // 조금 아래로 (사용자 지시)
+  words.forEach((t, i) => g.fillText(t, cx, cy + (i - 1) * fs * 1.16));
   g.restore();
 }
 function drawButtons(){
@@ -1497,7 +1509,7 @@ addEventListener('pointerup', up);
       color: 'rgb(' + (s.color || [255,255,255]).join(',') + ')',
       points: s.points}));
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
-    msg.textContent = '';
+    msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
     const mA = location.search.match(/[?&]a=(\d{2})/);
     if (mA && LAYOUTS[mA[1]]){
