@@ -19,7 +19,7 @@
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 3;
+const MOBILE_VER = 4;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -152,7 +152,7 @@ function sizeButtons(){
   // ⚠️ 기준은 **당구대 짧은 변(천 높이)** 하나로 통일한다. cv.width 같은 물리 화소를
   //    쓰면 폰마다 제각각이고, 당점(천 기준)과 버튼(화소 기준)이 따로 논다.
   const base = L.cloth.h;
-  BW = BH = Math.round(base * 0.185);      // 천 높이의 18.5%
+  BW = BH = Math.round(base * 0.145);      // 천 높이의 14.5%
   BG   = Math.round(BW * 0.14);
   ROWG = Math.round(BW * 0.16);
   GRPG = Math.round(BW * 0.30);
@@ -173,7 +173,12 @@ function buttonRects(){
   const hit = (a,b) => a[0] < b[0]+b[2] && b[0] < a[0]+a[2] && a[1] < b[1]+b[3] && b[1] < a[1]+a[3];
   let best = spots[0];
   for (const s of spots) if (!busy.some(b => hit([s[0],s[1],w,h], b))) { best = s; break; }
-  const [x,y] = best, out = [];
+  // ⚠️ 자리 고르기만 하면 화면 밖으로 나간다 (실기기에서 아랫줄이 잘렸다).
+  //    반드시 천 안쪽으로 밀어 넣는다.
+  let [x,y] = best;
+  x = Math.min(Math.max(x, c.x + pad), c.x + c.w - pad - w);
+  y = Math.min(Math.max(y, c.y + pad), c.y + c.h - pad - h);
+  const out = [];
   ['-','0','+','cam'].forEach((lb,i) => out.push({x:x+i*(BW+BG), y, w:BW, h:BH, lb}));
   const y2 = y + BH + ROWG;
   ['swap','white','yellow','red','reset'].forEach((lb,i) =>
@@ -181,7 +186,12 @@ function buttonRects(){
   return out;
 }
 const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
-const clockCenter = () => [L.cloth.x + L.cloth.w - clockR() - 16, L.cloth.y + L.cloth.h/2];
+const clockCenter = () => {
+  // 당점은 버튼 묶음 반대쪽 위 구석에 둔다. 가운데 두면 수구와 겹쳐 안 보인다.
+  const r = clockR(), m = r * 0.5;
+  const right = !BTN.length || BTN[0].x < L.cloth.x + L.cloth.w/2;
+  return [right ? L.cloth.x + L.cloth.w - r - m : L.cloth.x + r + m, L.cloth.y + r + m];
+};
 const ballR = () => Math.max(5, T.ball_diameter/2*L.sc);
 
 const R_LABELS = ['L','A','R'];   // Line 만 / All 전부 / Restore 되돌리기
