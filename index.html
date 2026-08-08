@@ -15,26 +15,43 @@
 </style>
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
+<div id="diag" style="position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;
+  background:#000d;color:#7fff9f;font:12px/1.45 monospace;padding:8px;z-index:9999;
+  white-space:pre-wrap;word-break:break-all"></div>
 <script>
-// 폰에는 개발자도구가 없다. 오류를 화면에 그대로 띄워 원인을 본다.
-addEventListener('error', e => {
-  document.getElementById('msg').textContent =
-    'ERR ' + e.message + ' @' + (e.lineno||'?') + ':' + (e.colno||'?');
+// 진단 패널 — 본 스크립트가 죽어도 이건 살아 있어야 하므로 따로 둔다.
+var D = document.getElementById('diag');
+function log(t){ D.textContent += t + String.fromCharCode(10); }
+log('BASystem 진단 v8');
+log('URL ' + location.href);
+log('화면 ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio);
+addEventListener('error', function(e){
+  log('★ERR ' + (e.message||e.type) + ' @' + (e.filename||'').split('/').pop() +
+      ':' + (e.lineno||'?') + ':' + (e.colno||'?'));
 });
-addEventListener('unhandledrejection', e => {
-  document.getElementById('msg').textContent = 'REJ ' + e.reason;
-});
-// ⚠️ v1 에서 넣었다 뺀 서비스워커가 폰에 남아 옛 화면을 물고 있었다.
-//    서버에서 sw.js 를 지워도 폰에 등록된 것은 안 없어진다. 직접 지운다.
+addEventListener('unhandledrejection', function(e){ log('★REJ ' + e.reason); });
 if ('serviceWorker' in navigator)
-  navigator.serviceWorker.getRegistrations()
-    .then(rs => rs.forEach(r => r.unregister()))
-    .catch(() => {});
-if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+  navigator.serviceWorker.getRegistrations().then(function(rs){
+    log('서비스워커 ' + rs.length + '개' + (rs.length ? ' → 삭제' : ''));
+    rs.forEach(function(r){ r.unregister(); });
+    if (rs.length) log('※ 삭제됨. 한 번 더 새로고침 하세요');
+  });
+if (window.caches)
+  caches.keys().then(function(ks){
+    log('캐시 ' + ks.length + '개' + (ks.length ? ' → 삭제' : ''));
+    ks.forEach(function(k){ caches.delete(k); });
+  });
+['data/table_medium.json','data/five_half_numbers.json','data/measured_bounce.json','data/english.json']
+  .forEach(function(u){
+    fetch(u + '?t=' + Date.now()).then(function(r){ log('fetch ' + u + ' → ' + r.status); })
+      .catch(function(e){ log('★fetch ' + u + ' 실패 ' + e); });
+  });
+</script>
+<script>
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 8;
+const MOBILE_VER = 9;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -495,9 +512,12 @@ addEventListener('pointerup', up);
       points: s.points}));
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
     msg.textContent = '';
+    log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
     resize(); draw();
+    log('그리기 시작 · 캔버스 ' + cv.width + 'x' + cv.height);
   }catch(e){
-    msg.textContent = '데이터를 못 읽었습니다 — 웹서버로 여세요: ' + e;
+    msg.textContent = '데이터를 못 읽었습니다: ' + e;
+    log('★데이터 실패 ' + e);
   }
 })();
 </script>
