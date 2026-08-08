@@ -255,8 +255,12 @@ class App:
         self.ball_color = {}
         self.aim = None
         self.frozen_aim = None
+        # ⚠️ 원근변환은 노즈(천 이음새) 평면 것인데 공 중심은 그보다 9mm 아래다.
+        #    카메라가 낮으면 그 9mm 가 먼 쪽에서 수십 mm 로 벌어진다 (2026-08-09).
+        cam = table_detect.camera_position(top.quad, self.table, image.shape)
         for key, ball in found.items():
             x, y = top.to_mm(ball.nx, ball.ny, self.table.width, self.table.height)
+            x, y = table_detect.drop_to_ball_plane((x, y), cam)
             self.positions[key] = self.table.clamp_ball_center(x, y)
             self.ball_color[key] = BALL_TONE.get(ball.name, BALL_CUE[2])
 

@@ -240,6 +240,68 @@ def cushion_from_aspect(quad: np.ndarray, table, shape) -> float | None:
     return (table.width - table.height * r) / (2 * (r - 1))
 
 
+def camera_position(quad: np.ndarray, table, shape) -> np.ndarray | None:
+    """노즈 사각형 → 카메라 위치 (다이 좌하단 원점, mm). 못 구하면 None.
+
+    직사각형의 사진이라는 사실만으로 초점거리가 풀리고 (_rect_aspect 와 같은 방법),
+    거기서 카메라 자세가 나온다. 주점은 화면 중앙, 픽셀은 정사각형으로 본다.
+    """
+    p = np.asarray(quad, np.float64)
+    c = p.mean(axis=0)
+    p = p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))]
+    u0, v0 = shape[1] / 2.0, shape[0] / 2.0
+    m1 = np.array([p[0][0], p[0][1], 1.0])
+    m2 = np.array([p[1][0], p[1][1], 1.0])
+    m3 = np.array([p[3][0], p[3][1], 1.0])
+    m4 = np.array([p[2][0], p[2][1], 1.0])
+    d2 = float(np.dot(np.cross(m2, m4), m3))
+    d3 = float(np.dot(np.cross(m3, m4), m2))
+    if abs(d2) < 1e-9 or abs(d3) < 1e-9:
+        return None
+    n2 = np.dot(np.cross(m1, m4), m3) / d2 * m2 - m1
+    n3 = np.dot(np.cross(m1, m4), m2) / d3 * m3 - m1
+    den = n2[2] * n3[2]
+    if abs(den) < 1e-12:
+        return None
+    f2 = -((n2[0] - n2[2] * u0) * (n3[0] - n3[2] * u0)
+           + (n2[1] - n2[2] * v0) * (n3[1] - n3[2] * v0)) / den
+    if not np.isfinite(f2) or f2 <= 1.0:
+        return None
+
+    f = float(np.sqrt(f2))
+    obj = np.array([[0, 0], [table.width, 0],
+                    [table.width, table.height], [0, table.height]], np.float32)
+    H = cv2.getPerspectiveTransform(obj, np.asarray(quad, np.float32))
+    Ki = np.array([[1 / f, 0, -u0 / f], [0, 1 / f, -v0 / f], [0, 0, 1.0]])
+    A = Ki @ H
+    s = 2.0 / (np.linalg.norm(A[:, 0]) + np.linalg.norm(A[:, 1]))
+    r1, r2, tv = A[:, 0] * s, A[:, 1] * s, A[:, 2] * s
+    R = np.stack([r1, r2, np.cross(r1, r2)], axis=1)
+    C = -R.T @ tv
+    return C if C[2] > 100 else None
+
+
+# 공 중심이 노즈 평면보다 얼마나 아래인가 (mm, 음수).
+#   노즈(천 이음새) = 바닥에서 40mm (사용자 제공: 쿠션 높이)
+#   공 중심        = 바닥에서 지름의 절반
+PLANE_DROP = 30.75 - 40.0
+
+
+def drop_to_ball_plane(p_mm, C, drop: float = PLANE_DROP):
+    """노즈 평면에서 읽은 좌표를 **공 중심 평면**으로 되쏜다.
+
+    ⚠️ 우리가 만든 원근변환은 노즈(천 이음새) 평면 것이다. 그런데 공 중심은 그보다
+       9mm 아래다. 카메라가 낮으면 그 9mm 가 먼 쪽에서 수십 mm 로 벌어지고,
+       **각도가 바뀌면 벌어지는 방향도 바뀐다** — 같은 배치를 다른 각도로 찍으면
+       좌표가 안 맞던 원인이 이것이다 (2026-08-09 확인: 흩어짐 16.6 → 12.5mm).
+       맞춘 값이 아니라 규격에서 나오는 값이다.
+    """
+    if C is None:
+        return p_mm
+    k = (C[2] - drop) / C[2]
+    return (C[0] + (p_mm[0] - C[0]) * k, C[1] + (p_mm[1] - C[1]) * k)
+
+
 def _roundness(img: np.ndarray, quad: np.ndarray, cfg: dict) -> float:
     """이 코너 순서로 펴면 공이 얼마나 동그랗게 나오나. 작을수록 좋다.
 
