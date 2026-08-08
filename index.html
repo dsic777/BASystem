@@ -24,10 +24,17 @@ addEventListener('error', e => {
 addEventListener('unhandledrejection', e => {
   document.getElementById('msg').textContent = 'REJ ' + e.reason;
 });
+// ⚠️ v1 에서 넣었다 뺀 서비스워커가 폰에 남아 옛 화면을 물고 있었다.
+//    서버에서 sw.js 를 지워도 폰에 등록된 것은 안 없어진다. 직접 지운다.
+if ('serviceWorker' in navigator)
+  navigator.serviceWorker.getRegistrations()
+    .then(rs => rs.forEach(r => r.unregister()))
+    .catch(() => {});
+if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 7;
+const MOBILE_VER = 8;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
