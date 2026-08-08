@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 21;
+const MOBILE_VER = 22;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -236,17 +236,24 @@ function buttonRects(){
   return out;
 }
 function sideButtons(){
-  // 오른쪽 칸에 두 줄(보정 4개 / 배치 5개)을 세로로 세운다
-  // ⚠️ 5개가 세로로 다 들어가야 한다 (L 이 잘렸다). 칸 높이를 먼저 나누고,
-  //    그 값이 칸 폭의 절반보다 크면 폭에 맞춘다.
-  const p = PANEL, n = 5, g0 = 6;
-  const bw = Math.max(12, Math.min((p.w - g0)/2, (p.h - g0*(n-1)) / n));
-  const gap = n > 1 ? (p.h - bw*n) / (n-1) : 0;
+  // 오른쪽 칸에 두 줄(보정 4개 / 배치 5개)을 세로로 세운다.
+  // ⚠️ 5개가 세로로 다 들어가야 한다 (전에 L 이 잘렸다).
+  //    가로는 여백을 넉넉히 주고 칸 **가운데**로 모아, 검은 바탕에서 덩어리로 보이게 한다.
+  //    세로 여백은 줄여 버튼을 키운다 (사용자 지시).
+  const p = PANEL, n = 5;
+  const colGap = Math.max(6, p.w * 0.10);         // 두 줄 사이 가로 여백
+  const rowGap = Math.max(3, p.h * 0.012);        // 위아래 여백 (좁게)
+  const bw = Math.max(12, Math.min((p.w - colGap) / 2,
+                                   (p.h - rowGap*(n-1)) / n));
+  const totalW = bw*2 + colGap;
+  const totalH = bw*n + rowGap*(n-1);
+  const x0 = p.x + (p.w - totalW) / 2;            // 칸 가운데로
+  const y0 = p.y + (p.h - totalH) / 2;
   const out = [];
   ['-','0','+','cam'].forEach((lb,i) =>
-    out.push({x:p.x, y:p.y + i*(bw+gap), w:bw, h:bw, lb}));
+    out.push({x:x0, y:y0 + i*(bw+rowGap), w:bw, h:bw, lb}));
   ['swap','white','yellow','red','reset'].forEach((lb,i) =>
-    out.push({x:p.x + bw + 6, y:p.y + i*(bw+gap), w:bw, h:bw, lb}));
+    out.push({x:x0 + bw + colGap, y:y0 + i*(bw+rowGap), w:bw, h:bw, lb}));
   BW = BH = bw;
   return out;
 }
@@ -478,7 +485,7 @@ function drawButtons(){
   for (const b of BTN){
     const cx = b.x+b.w/2, cy = b.y+b.h/2;
     const armed = S.place === b.lb;
-    g.fillStyle = armed ? '#3c608f' : '#2c3038';
+    g.fillStyle = armed ? '#3c608f' : '#3a4048';   // 검은 바탕에서 뜨게 조금 밝게
     round(b.x,b.y,b.w,b.h,BW*0.18); g.fill();
     g.strokeStyle = armed ? '#ffec96' : '#bcc4d2'; g.lineWidth = armed ? 4 : 2; g.stroke();
     if (b.lb === 'cam'){ camIcon(cx,cy,b.h); continue; }
@@ -506,6 +513,7 @@ function drawButtons(){
     }
   }
 }
+function bwLine(){ return Math.round(BW * 0.05); }
 function round(x,y,w,h,r){
   r = Math.max(0, Math.min(r, w/2, h/2));   // ⚠️ 음수·과대 반지름이면 arcTo 가 죽는다
   g.beginPath(); g.moveTo(x+r,y);
