@@ -19,7 +19,7 @@
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 1;
+const MOBILE_VER = 2;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -145,9 +145,19 @@ const toPx = (x,y) => [L.ox + x*L.sc, L.oy - y*L.sc];
 const toMm = (px,py) => [(px-L.ox)/L.sc, (L.oy-py)/L.sc];
 
 // ---------------------------------------------------------------- 버튼
-const BW = 58, BH = 58, BG = 8, ROWG = 12, GRPG = 18;
+// ⚠️ 고정 픽셀로 두면 안 된다. 폰은 화소밀도가 높아 58px 가 손톱만하게 나온다
+//    (사용자 지적). 화면 짧은 변에 비례시켜 손가락에 맞춘다.
+let BW = 58, BH = 58, BG = 8, ROWG = 12, GRPG = 18;
+function sizeButtons(){
+  const base = Math.min(cv.width, cv.height);
+  BW = BH = Math.round(base * 0.115);      // 짧은 변의 11.5%
+  BG   = Math.round(BW * 0.16);
+  ROWG = Math.round(BW * 0.20);
+  GRPG = Math.round(BW * 0.32);
+}
 let BTN = [];
 function buttonRects(){
+  sizeButtons();
   const w = BW*5 + BG*4 + GRPG, h = BH*2 + ROWG, pad = 12, c = L.cloth;
   const spots = [[c.x+c.w-pad-w, c.y+c.h-pad-h], [c.x+pad, c.y+c.h-pad-h],
                  [c.x+c.w-pad-w, c.y+pad], [c.x+pad, c.y+pad]];
@@ -168,7 +178,7 @@ function buttonRects(){
     out.push({x:x + i*(BW+BG) + (i ? GRPG : 0), y:y2, w:BW, h:BH, lb}));
   return out;
 }
-const clockR = () => Math.max(26, L.cloth.h*0.12);
+const clockR = () => Math.max(18, L.cloth.h*0.075);   // 0.12 → 0.075 (너무 컸다)
 const clockCenter = () => [L.cloth.x + L.cloth.w - clockR() - 16, L.cloth.y + L.cloth.h/2];
 const ballR = () => Math.max(5, T.ball_diameter/2*L.sc);
 
@@ -286,16 +296,18 @@ function drawNumbers(){
   const o = orientation();
   for (const sc of SCALES){
     const third = sc.name === 'third_cushion';
-    g.font = (third ? 'bold 17px' : 'bold 20px') + ' sans-serif';
+    // 숫자도 화면에 비례시킨다. 17/20px 고정이면 폰에서 안 보인다.
+    const fs = Math.max(13, Math.round(Math.min(cv.width, cv.height) * (third ? 0.036 : 0.044)));
+    g.font = 'bold ' + fs + 'px sans-serif';
     g.fillStyle = sc.color; g.textAlign = 'center'; g.textBaseline = 'middle';
     const seen = [];
     for (const pt of sc.points){
       let mm = railPoint(sc, pt.rail, pt.index);
       mm = fold(o, mm);
       const [x,y] = toPx(...mm);
-      if (seen.some(s => s.n === pt.number && Math.hypot(s.x-x, s.y-y) < 120)) continue;
+      if (seen.some(s => s.n === pt.number && Math.hypot(s.x-x, s.y-y) < fs*6)) continue;
       seen.push({n:pt.number, x, y});
-      g.strokeStyle = '#101014'; g.lineWidth = 4;
+      g.strokeStyle = '#101014'; g.lineWidth = Math.max(3, fs * 0.28);
       g.strokeText(String(pt.number), x, y); g.fillText(String(pt.number), x, y);
     }
   }
@@ -362,11 +374,11 @@ function drawButtons(){
     const cx = b.x+b.w/2, cy = b.y+b.h/2;
     const armed = S.place === b.lb;
     g.fillStyle = armed ? '#3c608f' : '#2c3038';
-    round(b.x,b.y,b.w,b.h,10); g.fill();
-    g.strokeStyle = armed ? '#ffec96' : '#bcc4d2'; g.lineWidth = armed ? 3 : 2; g.stroke();
+    round(b.x,b.y,b.w,b.h,BW*0.18); g.fill();
+    g.strokeStyle = armed ? '#ffec96' : '#bcc4d2'; g.lineWidth = armed ? 4 : 2; g.stroke();
     if (b.lb === 'cam'){ camIcon(cx,cy,b.h); continue; }
     if (b.lb === 'reset'){
-      g.fillStyle = '#e8968c'; g.font = 'bold 18px sans-serif';
+      g.fillStyle = '#e8968c'; g.font = 'bold ' + Math.round(BH*0.34) + 'px sans-serif';
       g.fillText(R_LABELS[S.rMode], cx, cy); continue;
     }
     if (b.lb === 'swap'){
@@ -381,10 +393,10 @@ function drawButtons(){
     }
     if (b.lb === '0'){
       g.fillStyle = S.corr > 0 ? '#f6f8fc' : S.corr < 0 ? '#ff78be' : '#969ca6';
-      g.font = 'bold 30px sans-serif';
+      g.font = 'bold ' + Math.round(BH*0.5) + 'px sans-serif';
       g.fillText(String(Math.abs(S.corr)), cx, cy);
     } else {
-      g.fillStyle = '#dee4ee'; g.font = 'bold 32px sans-serif';
+      g.fillStyle = '#dee4ee'; g.font = 'bold ' + Math.round(BH*0.55) + 'px sans-serif';
       g.fillText(b.lb, cx, cy);
     }
   }
