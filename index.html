@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 37;
+const MOBILE_VER = 38;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -590,9 +590,9 @@ function draw(){
     g.drawImage(VID, c.x+(c.w-vw)/2, c.y+(c.h-vh)/2, vw, vh);
     g.restore();
     // ⚠️ 촬영 버튼이 어디인지 몰라 못 찍는다 (사용자 지적).
-    //    미리보기 위에 큰 셔터를 그리고, 그 자리를 눌러도 찍히게 한다.
+    //    가로로 든 폰에서 **오른손 엄지가 닿는 자리** = 오른쪽 가운데에 둔다.
     const R = Math.max(22, c.h*0.13);
-    SHUTTER = {x: c.x + c.w/2, y: c.y + c.h - R*1.35, r: R};
+    SHUTTER = {x: c.x + c.w - R*1.5, y: c.y + c.h/2, r: R};
     g.save();
     g.fillStyle = 'rgba(0,0,0,0.35)';
     g.beginPath(); g.arc(SHUTTER.x, SHUTTER.y, R*1.18, 0, 7); g.fill();
@@ -864,7 +864,7 @@ async function shoot(){
     await VID.play();
     CAMLIVE = true;
     msg.style.display = 'block';
-    msg.textContent = '가운데 흰 버튼을 누르면 찍힙니다';
+    msg.textContent = '오른쪽 흰 버튼을 누르면 찍힙니다';
     setTimeout(() => { if (CAMLIVE) { msg.textContent=''; msg.style.display='none'; } }, 2500);
   }catch(e){
     msg.style.display = 'block';
