@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 45;
+const MOBILE_VER = 46;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -787,10 +787,25 @@ const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
 // ⚠️ 여기서 BTN(버튼 자리)을 보면 안 된다. buttonRects() 가 clockCenter() 를
 //    부르므로 서로 물고 도는 순환이 되고, const 화살표 함수라 선언 전에
 //    불려 화면이 통째로 죽는다 (실기기에서 확인).
-//    당점은 버튼과 무관하게 **천 왼쪽 위**로 고정한다. 버튼은 알아서 피한다.
+//    당점은 버튼과 무관하게 **천 네 모서리 중 하나**에 둔다. 버튼은 알아서 피한다.
+// ⚠️ 한 자리에 고정하면 그 모서리에 공이 있을 때 덮어버린다 (사용자 지적).
+//    공에서 제일 먼 모서리를 고른다. 공이 없으면 왼쪽 위 그대로.
 function clockCenter(){
-  const r = clockR(), m = r * 0.5;
-  return [L.cloth.x + r + m, L.cloth.y + r + m];
+  const r = clockR(), m = r * 0.5, c = L.cloth;
+  const spot = [[c.x + r + m,       c.y + r + m],          // 왼쪽 위 (기본)
+                [c.x + c.w - r - m, c.y + r + m],
+                [c.x + r + m,       c.y + c.h - r - m],
+                [c.x + c.w - r - m, c.y + c.h - r - m]];
+  const put = Object.keys(S.balls).map(k => toPx(...S.balls[k].p));
+  if (!put.length) return spot[0];
+  const clear = r + ballR() * 1.2;                          // 이만큼 떨어지면 안 겹친다
+  let best = spot[0], bestD = -1;
+  for (const s of spot){
+    const d = Math.min(...put.map(p => Math.hypot(p[0]-s[0], p[1]-s[1])));
+    if (d >= clear) return s;                               // 넉넉한 자리가 있으면 바로
+    if (d > bestD){ bestD = d; best = s; }
+  }
+  return best;
 }
 const ballR = () => Math.max(5, T.ball_diameter/2*L.sc);
 
