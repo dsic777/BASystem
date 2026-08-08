@@ -24,7 +24,7 @@ from core.table import BOTTOM, LEFT, RAILS, RIGHT, TOP, Table
 
 # ⚠️ 버전 관리 — jbpro2.2 와 같은 방식. 코드를 고치면 이 값과
 #    version.json 의 win 값을 같이 N+1 한다. (모바일은 index.html 의 MOBILE_VER)
-WIN_VER = 1
+WIN_VER = 2
 
 WINDOW_SIZE = (1440, 940)
 FPS = 60
@@ -516,11 +516,14 @@ class App:
         if self.shot is not None:
             return self.shot.orientation
         cue = self.positions.get(BALL_CUE[0])
-        if cue is None:
+        if cue is None or self.aim is None:
             return five_half.Orientation()
-        # 기준(7.jpg)은 수구수 50 이 우하단 코너다. 수구가 있는 모서리로 접는다.
-        return five_half.Orientation(flip_x=cue[0] < self.table.width / 2,
-                                     flip_y=cue[1] > self.table.height / 2)
+        # ⚠️ 수구가 **어디 있는지**로 정하면 안 된다. 공을 조금만 옮겨도 번호표가
+        #    통째로 뒤집힌다 (사용자 지적: 39→40 으로 옮기니 포인트가 바뀜).
+        #    기준은 **수구가 어느 쪽으로 향하는가** 다 (사용자 확정):
+        #      위로 향하면 상단이 100,  아래로 향하면 상단이 50
+        return five_half.Orientation(flip_x=self.aim[0] > cue[0],
+                                     flip_y=self.aim[1] <= cue[1])
 
     def draw_numbers(self, layout: Layout) -> None:
         """파이브앤하프 번호표. 수구 위치에 따라 좌우/상하가 통째로 뒤집힌다.
