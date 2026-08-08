@@ -19,7 +19,7 @@
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 4;
+const MOBILE_VER = 5;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -152,7 +152,7 @@ function sizeButtons(){
   // ⚠️ 기준은 **당구대 짧은 변(천 높이)** 하나로 통일한다. cv.width 같은 물리 화소를
   //    쓰면 폰마다 제각각이고, 당점(천 기준)과 버튼(화소 기준)이 따로 논다.
   const base = L.cloth.h;
-  BW = BH = Math.round(base * 0.145);      // 천 높이의 14.5%
+  BW = BH = Math.round(base * 0.125);      // 천 높이의 12.5% (두 줄이 들어가야 한다)
   BG   = Math.round(BW * 0.14);
   ROWG = Math.round(BW * 0.16);
   GRPG = Math.round(BW * 0.30);
@@ -273,6 +273,9 @@ const up = () => { S.drag = null; S.aiming = false; };
 
 // ---------------------------------------------------------------- 그리기
 function draw(){
+  const r = cv.getBoundingClientRect();
+  if (Math.abs(cv.width - r.width*devicePixelRatio) > 2 ||
+      Math.abs(cv.height - r.height*devicePixelRatio) > 2) resize();
   layout(); BTN = buttonRects();
   g.setTransform(1,0,0,1,0,0);
   g.fillStyle = '#16181c'; g.fillRect(0,0,cv.width,cv.height);
@@ -435,10 +438,16 @@ function shoot(){
 
 // ---------------------------------------------------------------- 시작
 function resize(){
-  cv.width = innerWidth * devicePixelRatio;
-  cv.height = innerHeight * devicePixelRatio;
+  // ⚠️ innerWidth/innerHeight 로 잡으면 안 된다. 폰 브라우저는 주소창이 접혔다
+  //    폈다 하면서 실제 보이는 높이가 달라져 당구대가 화면 밖으로 잘린다.
+  //    캔버스가 **실제로 차지한 크기**를 재서 쓴다.
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.round(r.width * devicePixelRatio);
+  cv.height = Math.round(r.height * devicePixelRatio);
   g.setTransform(1,0,0,1,0,0);
 }
+addEventListener('orientationchange', () => setTimeout(resize, 200));
+if (window.visualViewport) visualViewport.addEventListener('resize', resize);
 addEventListener('resize', resize);
 const pos = e => {
   const t = e.touches ? e.touches[0] : e;
