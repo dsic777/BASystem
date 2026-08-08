@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 18;
+const MOBILE_VER = 19;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -177,7 +177,7 @@ function layout(){
   //    어긋나 당구대와 버튼이 겹친다 (실기기에서 확인).
   // 여백을 최소로. 위·아래 각 1px 만 남긴다.
   const fit = Math.min((w - 2)/ow, (h - 2)/oh);   // 당구대만 놓았을 때
-  const need = Math.max(h * 0.26, 80);            // 버튼 칸에 꼭 필요한 폭
+  const need = Math.max(h * 0.20, 66);            // 버튼 칸에 꼭 필요한 폭
   const panelW = Math.max(w - 2 - ow*fit, need);
   const sc = Math.min((w - 3 - panelW)/ow, (h - 2)/oh);
 
