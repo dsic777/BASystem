@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 22;
+const MOBILE_VER = 23;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -243,11 +243,14 @@ function sideButtons(){
   const p = PANEL, n = 5;
   const colGap = Math.max(6, p.w * 0.10);         // 두 줄 사이 가로 여백
   const rowGap = Math.max(3, p.h * 0.012);        // 위아래 여백 (좁게)
-  const bw = Math.max(12, Math.min((p.w - colGap) / 2,
+  const bw = Math.max(12, Math.min((p.w - colGap - Math.max(6, p.w*0.12)) / 2,
                                    (p.h - rowGap*(n-1)) / n));
   const totalW = bw*2 + colGap;
   const totalH = bw*n + rowGap*(n-1);
-  const x0 = p.x + (p.w - totalW) / 2;            // 칸 가운데로
+  // ⚠️ 당구대 우측 숫자와 버튼이 붙어 보인다. 왼쪽에 여백을 준다 (사용자 지시).
+  //    당구대 크기는 건드리지 않는다 — 버튼 묶음만 오른쪽으로 민다.
+  const lead = Math.max(6, p.w * 0.12);          // 숫자와 버튼 사이 여백
+  const x0 = p.x + lead + (p.w - lead - totalW) / 2;
   const y0 = p.y + (p.h - totalH) / 2;
   const out = [];
   ['-','0','+','cam'].forEach((lb,i) =>
