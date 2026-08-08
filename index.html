@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 12;
+const MOBILE_VER = 13;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -176,10 +176,10 @@ function layout(){
   // ⚠️ 조건에 따라 두 가지 배치를 왔다갔다 하게 만들면 안 된다 (실기기에서
   //    옆 칸이 안 생기고 버튼이 다시 잘렸다). **항상** 오른쪽에 버튼 칸을
   //    떼어 놓고, 당구대는 남는 자리에 맞춘다. 버튼이 당구대를 덮지 않는다.
-  const panelW = Math.max(w * 0.155, 96);         // 오른쪽 버튼 칸 (화면 폭의 15.5%)
+  const panelW = Math.max(w * 0.20, 120);         // 오른쪽 버튼 칸 (화면 폭의 20%)
   const sc = Math.min((w - 10 - panelW)/ow, (h-8)/oh);
   const rw = ow*sc, rh = oh*sc;
-  const rl = Math.max(4, (w - panelW - rw)/2), rt = (h-rh)/2;
+  const rl = 4, rt = (h-rh)/2;      // 왼쪽에 붙여 오른쪽 눈금이 버튼 칸을 안 침범하게
   PANEL = {x: w - panelW + 4, y: rt, w: panelW - 8, h: rh};
   const px = T.rail_x*sc, py = T.rail_y*sc;
   L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
@@ -234,8 +234,10 @@ function buttonRects(){
 }
 function sideButtons(){
   // 오른쪽 칸에 두 줄(보정 4개 / 배치 5개)을 세로로 세운다
-  const p = PANEL, n = 5;
-  const bw = Math.min((p.w - 6)/2, (p.h - 6*(n-1)) / n);
+  // ⚠️ 5개가 세로로 다 들어가야 한다 (L 이 잘렸다). 칸 높이를 먼저 나누고,
+  //    그 값이 칸 폭의 절반보다 크면 폭에 맞춘다.
+  const p = PANEL, n = 5, g0 = 6;
+  const bw = Math.min((p.w - g0)/2, (p.h - g0*(n-1)) / n);
   const gap = n > 1 ? (p.h - bw*n) / (n-1) : 0;
   const out = [];
   ['-','0','+','cam'].forEach((lb,i) =>
