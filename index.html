@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 38;
+const MOBILE_VER = 39;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -301,19 +301,7 @@ function homography(src, dst){
 // 사진을 당구대 모양으로 편다. 결과는 캔버스로 들고 있다가 천 자리에 그린다.
 function warpPhoto(img, quad, outW, outH){
   // quad 는 순환 순서. 좌하 → 우하 → 우상 → 좌상 으로 맞춘다.
-  const c = quad.reduce((a,q) => [a[0]+q[0]/4, a[1]+q[1]/4], [0,0]);
-  const byAng = quad.slice().sort((a,b) =>
-    Math.atan2(a[1]-c[1], a[0]-c[0]) - Math.atan2(b[1]-c[1], b[0]-c[0]));
-  // 화면 좌표는 아래가 +y 다. 가장 아래 두 점이 '아래 변'.
-  let base = 0, bestY = -Infinity;
-  for (let i = 0; i < 4; i++){
-    const m = (byAng[i][1] + byAng[(i+1)%4][1]) / 2;
-    if (m > bestY){ bestY = m; base = i; }
-  }
-  const idx = byAng[base][0] > byAng[(base+1)%4][0]
-    ? [(base+1)%4, base, (base+3)%4, (base+2)%4]
-    : [base, (base+1)%4, (base+2)%4, (base+3)%4];
-  const src = idx.map(i => byAng[i]);             // 좌하, 우하, 우상, 좌상
+  const src = orderQuad(quad);                    // 좌하, 우하, 우상, 좌상
   const dst = [[0,outH],[outW,outH],[outW,0],[0,0]];
   const H = homography(dst, src);                 // 결과 픽셀 → 원본 픽셀
   if (!H) return null;
@@ -344,6 +332,111 @@ function warpPhoto(img, quad, outW, outH){
   }
   cg.putImageData(out, 0, 0);
   return cn;
+}
+
+
+// ---------------------------------------------------------------- 코너 보정
+// ⚠️ 천 색으로 찾은 코너는 **천 경계**라 쿠션 날과 다르다. 그대로 쓰면 좌표가 밀린다.
+//    다이아몬드(레일 위 흰 점)는 규격상 장쿠션 8등분·단쿠션 4등분 자리에 있으므로
+//    그것을 자로 삼아 코너를 밀어 맞춘다. 파이썬에서도 다이아몬드가 진실 원천이었다.
+function refineQuad(img, quad){
+  const W = 900, H = 450, PAD = 90;               // 편 그림 + 레일이 보이도록 여백
+  const cn = document.createElement('canvas');
+  cn.width = W + PAD*2; cn.height = H + PAD*2;
+  const cg = cn.getContext('2d', {willReadFrequently:true});
+
+  const src = orderQuad(quad);
+  const dst = [[PAD, H+PAD],[W+PAD, H+PAD],[W+PAD, PAD],[PAD, PAD]];
+  const Hm = homography(dst, src);
+  if (!Hm) return quad;
+
+  const sw = Math.min(img.width, 1280), sh = Math.round(img.height/img.width*sw);
+  const tmp = document.createElement('canvas');
+  tmp.width = sw; tmp.height = sh;
+  const tg = tmp.getContext('2d', {willReadFrequently:true});
+  tg.drawImage(img, 0, 0, sw, sh);
+  const sp = tg.getImageData(0,0,sw,sh).data, kx = sw/img.width;
+
+  // 레일 띠에서 밝은 점(다이아몬드)을 찾는다
+  const found = {top:[], bottom:[], left:[], right:[]};
+  const probe = (rail) => {
+    const list = [];
+    const N = 260;
+    for (let i = 0; i <= N; i++){
+      const t = i/N;
+      let x, y;
+      if (rail === 'top')    { x = PAD + W*t; y = PAD - PAD*0.45; }
+      else if (rail==='bottom'){ x = PAD + W*t; y = H+PAD + PAD*0.45; }
+      else if (rail === 'left'){ x = PAD - PAD*0.45; y = PAD + H*t; }
+      else                   { x = W+PAD + PAD*0.45; y = PAD + H*t; }
+      const w2 = Hm[6]*x + Hm[7]*y + Hm[8];
+      const sx = Math.round((Hm[0]*x + Hm[1]*y + Hm[2])/w2*kx);
+      const sy = Math.round((Hm[3]*x + Hm[4]*y + Hm[5])/w2*kx);
+      if (sx<0||sy<0||sx>=sw||sy>=sh){ list.push(0); continue; }
+      const q = (sy*sw+sx)*4;
+      list.push((sp[q]+sp[q+1]+sp[q+2])/3);
+    }
+    // 국소 최대 = 흰 점
+    const peaks = [];
+    const avg = list.reduce((a,b)=>a+b,0)/list.length;
+    for (let i = 3; i < list.length-3; i++){
+      if (list[i] < avg*1.20) continue;
+      let top = true;
+      for (let d = -3; d <= 3; d++) if (list[i+d] > list[i]) { top = false; break; }
+      if (top && (!peaks.length || i - peaks[peaks.length-1] > 5)) peaks.push(i);
+    }
+    return peaks.map(i => i/N);                   // 0~1 위치
+  };
+  ['top','bottom','left','right'].forEach(r => found[r] = probe(r));
+
+  // 찾은 점들이 n등분 자리와 얼마나 어긋나는지 → 양끝을 늘이거나 줄인다
+  const fix = (pts, n) => {
+    if (pts.length < 3) return null;
+    // 가장 잘 맞는 (a, b): t' = a + b*t 가 되도록 최소제곱
+    const ideal = pts.map(t => Math.round(t*n)/n);
+    let sx=0, sy=0, sxx=0, sxy=0;
+    for (let i = 0; i < pts.length; i++){
+      sx += pts[i]; sy += ideal[i]; sxx += pts[i]*pts[i]; sxy += pts[i]*ideal[i];
+    }
+    const m = pts.length, den = m*sxx - sx*sx;
+    if (Math.abs(den) < 1e-9) return null;
+    const b = (m*sxy - sx*sy)/den, a = (sy - b*sx)/m;
+    if (!isFinite(a) || !isFinite(b) || b < 0.7 || b > 1.4) return null;
+    return {a, b};                                 // 이상적 위치 = a + b*관측
+  };
+  const fx = fix(found.top.concat(found.bottom), 8);
+  const fy = fix(found.left.concat(found.right), 4);
+  if (!fx && !fy) return quad;
+
+  // 편 그림 좌표에서 사각형을 늘였다 줄인 뒤, 원본으로 되돌린다
+  const inv = (u,v) => {
+    const w2 = Hm[6]*u + Hm[7]*v + Hm[8];
+    return [(Hm[0]*u + Hm[1]*v + Hm[2])/w2, (Hm[3]*u + Hm[4]*v + Hm[5])/w2];
+  };
+  // t=0,1 이 어디로 가야 하는지 (역함수: 관측 = (이상 - a)/b)
+  const gx0 = fx ? (0 - fx.a)/fx.b : 0, gx1 = fx ? (1 - fx.a)/fx.b : 1;
+  const gy0 = fy ? (0 - fy.a)/fy.b : 0, gy1 = fy ? (1 - fy.a)/fy.b : 1;
+  const X0 = PAD + W*gx0, X1 = PAD + W*gx1;
+  const Y0 = PAD + H*gy0, Y1 = PAD + H*gy1;
+  DIAMOND_FIT = {nx: found.top.length + found.bottom.length,
+                 ny: found.left.length + found.right.length};
+  return [inv(X0, Y1), inv(X1, Y1), inv(X1, Y0), inv(X0, Y0)];   // 좌하,우하,우상,좌상
+}
+let DIAMOND_FIT = null;
+
+function orderQuad(quad){
+  const c = quad.reduce((a,q)=>[a[0]+q[0]/4, a[1]+q[1]/4],[0,0]);
+  const by = quad.slice().sort((a,b) =>
+    Math.atan2(a[1]-c[1], a[0]-c[0]) - Math.atan2(b[1]-c[1], b[0]-c[0]));
+  let base = 0, bestY = -Infinity;
+  for (let i = 0; i < 4; i++){
+    const m = (by[i][1] + by[(i+1)%4][1])/2;
+    if (m > bestY){ bestY = m; base = i; }
+  }
+  const idx = by[base][0] > by[(base+1)%4][0]
+    ? [(base+1)%4, base, (base+3)%4, (base+2)%4]
+    : [base, (base+1)%4, (base+2)%4, (base+3)%4];
+  return idx.map(i => by[i]);
 }
 
 // ---------------------------------------------------------------- 상태
@@ -891,8 +984,11 @@ function usePhoto(img){
   PHOTO = img;
   const t0 = performance.now();
   TABLE_HULL = findTable(img);
-  WARPED = (TABLE_HULL && TABLE_HULL.quad)
-    ? warpPhoto(img, TABLE_HULL.quad, 700, 350) : null;
+  DIAMOND_FIT = null;
+  if (TABLE_HULL && TABLE_HULL.quad){
+    TABLE_HULL.quad = refineQuad(img, TABLE_HULL.quad);   // 다이아몬드로 코너 보정
+    WARPED = warpPhoto(img, TABLE_HULL.quad, 700, 350);
+  } else WARPED = null;
   msg.style.display = 'block';
   msg.textContent = TABLE_HULL
     ? '당구대 찾음 (천 ' + Math.round(TABLE_HULL.area*100) + '%, 코너 '
