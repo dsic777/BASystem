@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 28;
+const MOBILE_VER = 29;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -371,6 +371,14 @@ function draw(){
   g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
   g.fillStyle = '#264 abe'; g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
 
+  if (PHOTO){
+    // 찍은 사진을 천 자리에 맞춰 깔아 둔다. 아직 공 자동 검출은 없으므로
+    // 사진을 보고 손으로 공을 놓으면 된다.
+    const c = L.cloth;
+    g.save(); g.globalAlpha = 0.55;
+    g.drawImage(PHOTO, c.x, c.y, c.w, c.h);
+    g.restore();
+  }
   drawDiamonds(); drawNumbers(); drawPath(); drawBalls(); drawClock(); drawButtons();
   requestAnimationFrame(draw);
 }
@@ -551,10 +559,26 @@ function camIcon(cx,cy,h){
 }
 
 // ---------------------------------------------------------------- 카메라 (임시)
-function shoot(){
-  msg.textContent = '카메라는 다음 단계입니다 (사진에서 공 찾기 붙이는 중)';
-  setTimeout(() => msg.textContent = '', 2500);
-}
+// ⚠️ 카메라를 화면 안에 띄우지 않는다. <input capture> 로 폰 기본 카메라를 열면
+//    촬영 후 저절로 돌아온다 — 확인 버튼이나 물음이 없다 (사용자 지시).
+//    마음에 안 들면 카메라 버튼을 다시 누르면 된다.
+let PHOTO = null;                                 // 찍은 사진 (배경으로 깔아 둔다)
+const CAMIN = document.createElement('input');
+CAMIN.type = 'file';
+CAMIN.accept = 'image/*';
+CAMIN.capture = 'environment';                    // 뒷면 카메라
+CAMIN.style.display = 'none';
+document.body.appendChild(CAMIN);
+CAMIN.addEventListener('change', () => {
+  const f = CAMIN.files && CAMIN.files[0];
+  CAMIN.value = '';                               // 같은 사진을 다시 찍어도 반응하게
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => { PHOTO = img; msg.textContent = ''; };
+  img.onerror = () => { msg.textContent = '사진을 못 읽었습니다'; };
+  img.src = URL.createObjectURL(f);
+});
+function shoot(){ CAMIN.click(); }
 
 // ---------------------------------------------------------------- 시작
 function resize(){
