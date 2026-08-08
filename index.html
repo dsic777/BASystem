@@ -55,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 20;
+const MOBILE_VER = 21;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -378,6 +378,14 @@ function orientation(){
   if (!cue) return {fx:false, fy:false};
   return {fx: cue.p[0] < T.width/2, fy: cue.p[1] > T.height/2};
 }
+function foldRail(o, rail){
+  // 좌표를 접으면 레일도 같이 바뀐다 (좌↔우, 상↔하)
+  if (o.fx && rail === 'left')  return 'right';
+  if (o.fx && rail === 'right') return 'left';
+  if (o.fy && rail === 'top')    return 'bottom';
+  if (o.fy && rail === 'bottom') return 'top';
+  return rail;
+}
 function fold(o,p){ return [o.fx ? T.width-p[0] : p[0], o.fy ? T.height-p[1] : p[1]]; }
 function drawNumbers(){
   const o = orientation();
@@ -390,8 +398,18 @@ function drawNumbers(){
     const seen = [];
     for (const pt of sc.points){
       let mm = railPoint(sc, pt.rail, pt.index);
+      const rail = foldRail(o, pt.rail);
       mm = fold(o, mm);
-      const [x,y] = toPx(...mm);
+      let [x,y] = toPx(...mm);
+      // ⚠️ 단쿠션(좌·우) 숫자는 레일 **가운데**에 정렬한다. 프레임 포인트 자리에
+      //    그대로 두면 레일 한쪽에 치우쳐 보인다 (사용자 지적).
+      //    화면이 좌우로 뒤집혀도(fold) 같이 따라가야 하므로 접은 뒤의 레일로 판단한다.
+      if (rail === 'left' || rail === 'right'){
+        const railMid = rail === 'right'
+          ? (L.cloth.x + L.cloth.w + L.rail.x + L.rail.w) / 2
+          : (L.rail.x + L.cloth.x) / 2;
+        x = railMid;
+      }
       if (seen.some(s => s.n === pt.number && Math.hypot(s.x-x, s.y-y) < fs*6)) continue;
       seen.push({n:pt.number, x, y});
       g.strokeStyle = '#101014'; g.lineWidth = Math.max(3, fs * 0.28);
