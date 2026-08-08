@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 34;
+const MOBILE_VER = 35;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -445,7 +445,7 @@ function sideButtons(){
   const x0 = p.x + lead + (p.w - lead - totalW) / 2;
   const y0 = p.y + (p.h - totalH) / 2;
   const out = [];
-  ['-','0','+','cam'].forEach((lb,i) =>
+  ['-','0','+','cam','exit'].forEach((lb,i) =>
     out.push({x:x0, y:y0 + i*(bw+rowGap), w:bw, h:bw, lb}));
   ['swap','white','yellow','red','reset'].forEach((lb,i) =>
     out.push({x:x0 + bw + colGap, y:y0 + i*(bw+rowGap), w:bw, h:bw, lb}));
@@ -472,6 +472,17 @@ function tapButton(px,py){
     else if (b.lb === '-') S.corr -= 0.5;
     else if (b.lb === '0') S.corr = 0;
     else if (b.lb === 'cam') shoot();
+    else if (b.lb === 'exit'){
+      // 설치한 앱(PWA)이면 창이 닫히고, 브라우저 탭이면 못 닫는 경우가 있다.
+      // 그때는 사진과 공을 지워 처음 상태로 돌린다.
+      window.close();
+      setTimeout(() => {
+        PHOTO = WARPED = TABLE_HULL = null;
+        S.balls = {}; S.aim = null; S.corr = 0;
+        msg.style.display = 'block'; msg.textContent = '처음 상태로 돌렸습니다';
+        setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2000);
+      }, 300);
+    }
     else if (b.lb === 'swap'){
       // ⚠️ S.cueWhite 만 뒤집으면 안 된다. 공은 역할(cue/obj1)로 담겨 있어서
       //    깃발만 바꾸면 화면의 노란 링이 엉뚱한 공에 남는다 (사용자 지적).
@@ -754,6 +765,15 @@ function drawButtons(){
     round(b.x,b.y,b.w,b.h,BW*0.18); g.fill();
     g.strokeStyle = armed ? '#ffec96' : '#bcc4d2'; g.lineWidth = armed ? 4 : 2; g.stroke();
     if (b.lb === 'cam'){ camIcon(cx,cy,b.h); continue; }
+    if (b.lb === 'exit'){                          // 종료 — X 표시
+      g.strokeStyle = '#ff8a80'; g.lineCap = 'round';
+      g.lineWidth = Math.max(3, b.h*0.11);
+      const d = b.h*0.22;
+      g.beginPath();
+      g.moveTo(cx-d, cy-d); g.lineTo(cx+d, cy+d);
+      g.moveTo(cx+d, cy-d); g.lineTo(cx-d, cy+d);
+      g.stroke(); continue;
+    }
     if (b.lb === 'reset'){
       g.fillStyle = '#f0a89e'; g.font = '900 ' + Math.round(BH*0.52) + 'px sans-serif';
       g.fillText(R_LABELS[S.rMode], cx, cy); continue;
