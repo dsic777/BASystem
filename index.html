@@ -19,7 +19,7 @@
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 5;
+const MOBILE_VER = 6;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -161,6 +161,7 @@ let BTN = [];
 function buttonRects(){
   sizeButtons();
   const w = BW*5 + BG*4 + GRPG, h = BH*2 + ROWG, pad = 12, c = L.cloth;
+  // 좌상단은 당점 자리라 마지막 후보로 둔다
   const spots = [[c.x+c.w-pad-w, c.y+c.h-pad-h], [c.x+pad, c.y+c.h-pad-h],
                  [c.x+c.w-pad-w, c.y+pad], [c.x+pad, c.y+pad]];
   const busy = [];
@@ -186,12 +187,14 @@ function buttonRects(){
   return out;
 }
 const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
-const clockCenter = () => {
-  // 당점은 버튼 묶음 반대쪽 위 구석에 둔다. 가운데 두면 수구와 겹쳐 안 보인다.
+// ⚠️ 여기서 BTN(버튼 자리)을 보면 안 된다. buttonRects() 가 clockCenter() 를
+//    부르므로 서로 물고 도는 순환이 되고, const 화살표 함수라 선언 전에
+//    불려 화면이 통째로 죽는다 (실기기에서 확인).
+//    당점은 버튼과 무관하게 **천 왼쪽 위**로 고정한다. 버튼은 알아서 피한다.
+function clockCenter(){
   const r = clockR(), m = r * 0.5;
-  const right = !BTN.length || BTN[0].x < L.cloth.x + L.cloth.w/2;
-  return [right ? L.cloth.x + L.cloth.w - r - m : L.cloth.x + r + m, L.cloth.y + r + m];
-};
+  return [L.cloth.x + r + m, L.cloth.y + r + m];
+}
 const ballR = () => Math.max(5, T.ball_diameter/2*L.sc);
 
 const R_LABELS = ['L','A','R'];   // Line 만 / All 전부 / Restore 되돌리기
