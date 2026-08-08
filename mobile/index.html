@@ -1,0 +1,422 @@
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>파이브앤하프 — 모바일</title>
+<style>
+  html,body{margin:0;height:100%;background:#16181c;overflow:hidden;
+            -webkit-user-select:none;user-select:none;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+  #msg{position:fixed;left:8px;top:8px;color:#ffd; font:14px/1.4 sans-serif;
+       background:#0008;padding:6px 10px;border-radius:8px;max-width:70vw}
+</style>
+<canvas id="c"></canvas>
+<div id="msg">데이터 읽는 중…</div>
+<script>
+// 파이브앤하프 모바일 — 윈도우판(ui/app.py)과 같은 두뇌를 쓴다.
+// 값(규격·번호표·실측 반사표)은 ../data/ 를 그대로 읽는다. 두 벌로 나누지 않는다.
+const cv = document.getElementById('c'), g = cv.getContext('2d');
+const msg = document.getElementById('msg');
+let T, SCALES, BOUNCE;
+
+const RAILS = {bottom:[0,1], right:[-1,0], top:[0,-1], left:[1,0]};   // 안쪽 법선
+const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa'};
+const TONE = {white:'#f6f5ee', yellow:'#f0be28', red:'#d6342c'};
+
+// ---------------------------------------------------------------- 실측 반사표
+function reflect(a){
+  const t = BOUNCE, x = Math.abs(a);
+  if (t.length < 2) return x;
+  let p, q;
+  if (x <= t[0][0]) { p = t[0]; q = t[1]; }
+  else if (x >= t[t.length-1][0]) { p = t[t.length-2]; q = t[t.length-1]; }
+  else for (let i = 0; i < t.length-1; i++)
+    if (t[i][0] <= x && x <= t[i+1][0]) { p = t[i]; q = t[i+1]; break; }
+  const y = p[1] + (q[1]-p[1]) * (x-p[0]) / (q[0]-p[0] || 1);
+  return Math.max(x, Math.min(y, 89.9));
+}
+
+function nextRail(p, d, w, h){
+  const e = 1e-6;
+  let best = null;
+  const cand = [['right', d[0] > e ? (w-p[0])/d[0] : null],
+                ['left',  d[0] < -e ? (0-p[0])/d[0] : null],
+                ['top',   d[1] > e ? (h-p[1])/d[1] : null],
+                ['bottom',d[1] < -e ? (0-p[1])/d[1] : null]];
+  for (const [r,t] of cand) if (t !== null && t > e && (!best || t < best[1])) best = [r,t];
+  if (!best) return null;
+  return [best[0], [p[0]+d[0]*best[1], p[1]+d[1]*best[1]]];
+}
+
+function bend(d, rail, k){
+  const n = RAILS[rail], tg = [-n[1], n[0]];
+  const dn = d[0]*n[0] + d[1]*n[1], dt = d[0]*tg[0] + d[1]*tg[1];
+  const ain = Math.atan2(Math.abs(dt), Math.abs(dn)) * 180/Math.PI;
+  const aout = Math.max(ain, Math.min(reflect(ain) + (k||0), 89.9));
+  const r = aout * Math.PI/180, s = dt >= 0 ? 1 : -1;
+  return [[n[0]*Math.cos(r) + tg[0]*s*Math.sin(r),
+           n[1]*Math.cos(r) + tg[1]*s*Math.sin(r)], ain, aout];
+}
+
+function roll(start, d, cushions, k){
+  const n = Math.hypot(d[0], d[1]);
+  if (n < 1e-9) return [];
+  let p = start.slice(), dir = [d[0]/n, d[1]/n], out = [];
+  for (let i = 0; i < cushions; i++){
+    const nx = nextRail(p, dir, T.width, T.height);
+    if (!nx) break;
+    const [rail, q] = nx;
+    const [nd] = bend(dir, rail, k);
+    out.push({rail, p: q});
+    dir = nd; p = q;
+  }
+  return out;
+}
+
+const STEP_MM = 30.6;   // 보정 한 눈금. 단쿠션 1224/40 = 장쿠션 2448/80
+
+// 보정은 **모든 쿠션의 반사각**에 같은 양(k도)을 더한다. 실측표가 이 당구대에서
+// 안 맞는 것이라면 한 쿠션만 안 맞을 리가 없다 (윈도우판과 같은 방식).
+function pathFromAim(cue, aim, shift){
+  const d = [aim[0]-cue[0], aim[1]-cue[1]];
+  const base = roll(cue, d, 5, 0);
+  if (!shift || base.length < 2) return base;
+  const rail = base[1].rail, n = RAILS[rail], tg = [-n[1], n[0]];
+  const v = [base[1].p[0]-base[0].p[0], base[1].p[1]-base[0].p[1]];
+  const up = (v[0]*tg[0] + v[1]*tg[1]) >= 0 ? -1 : 1;   // + 는 진행 반대쪽 = 긴각
+  const axis = [tg[0]*up, tg[1]*up], p0 = base[1].p, want = shift * STEP_MM;
+  const off = k => {
+    const h = roll(cue, d, 5, k);
+    if (h.length < 2 || h[1].rail !== rail) return null;
+    return (h[1].p[0]-p0[0])*axis[0] + (h[1].p[1]-p0[1])*axis[1];
+  };
+  let lo = -12, hi = 12;
+  if ((off(lo) ?? 0) > (off(hi) ?? 0)) [lo, hi] = [hi, lo];
+  for (let i = 0; i < 40; i++){
+    const mid = (lo+hi)/2, got = off(mid);
+    if (got === null) break;
+    if (got < want) lo = mid; else hi = mid;
+  }
+  const out = roll(cue, d, 5, (lo+hi)/2);
+  return out.length >= 2 ? out : base;
+}
+
+// ---------------------------------------------------------------- 상태
+const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
+           corr:0, rMode:0, backup:null, drag:null, lastAim:null};
+
+// ---------------------------------------------------------------- 화면 좌표
+let L = {};
+function layout(){
+  const w = cv.width, h = cv.height;
+  const ow = T.outer_width, oh = T.outer_height;
+  const sc = Math.min((w-12)/ow, (h-12)/oh);
+  const rw = ow*sc, rh = oh*sc, rl = (w-rw)/2, rt = (h-rh)/2;
+  const px = T.rail_x*sc, py = T.rail_y*sc;
+  L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
+       cloth:{x:rl+px, y:rt+py, w:T.width*sc, h:T.height*sc},
+       ox: rl+px, oy: rt+py+T.height*sc};
+}
+const toPx = (x,y) => [L.ox + x*L.sc, L.oy - y*L.sc];
+const toMm = (px,py) => [(px-L.ox)/L.sc, (L.oy-py)/L.sc];
+
+// ---------------------------------------------------------------- 버튼
+const BW = 58, BH = 58, BG = 8, ROWG = 12, GRPG = 18;
+let BTN = [];
+function buttonRects(){
+  const w = BW*5 + BG*4 + GRPG, h = BH*2 + ROWG, pad = 12, c = L.cloth;
+  const spots = [[c.x+c.w-pad-w, c.y+c.h-pad-h], [c.x+pad, c.y+c.h-pad-h],
+                 [c.x+c.w-pad-w, c.y+pad], [c.x+pad, c.y+pad]];
+  const busy = [];
+  for (const k in S.balls){                       // 궤적은 덮어도 되고 공만 피한다
+    const [bx,by] = toPx(...S.balls[k].p), r = ballR()+6;
+    busy.push([bx-r, by-r, r*2, r*2]);
+  }
+  const [ex,ey] = clockCenter(), CR = clockR();
+  busy.push([ex-CR-8, ey-CR-8, CR*2+16, CR*2+16]);
+  const hit = (a,b) => a[0] < b[0]+b[2] && b[0] < a[0]+a[2] && a[1] < b[1]+b[3] && b[1] < a[1]+a[3];
+  let best = spots[0];
+  for (const s of spots) if (!busy.some(b => hit([s[0],s[1],w,h], b))) { best = s; break; }
+  const [x,y] = best, out = [];
+  ['-','0','+','cam'].forEach((lb,i) => out.push({x:x+i*(BW+BG), y, w:BW, h:BH, lb}));
+  const y2 = y + BH + ROWG;
+  ['swap','white','yellow','red','reset'].forEach((lb,i) =>
+    out.push({x:x + i*(BW+BG) + (i ? GRPG : 0), y:y2, w:BW, h:BH, lb}));
+  return out;
+}
+const clockR = () => Math.max(26, L.cloth.h*0.12);
+const clockCenter = () => [L.cloth.x + L.cloth.w - clockR() - 16, L.cloth.y + L.cloth.h/2];
+const ballR = () => Math.max(5, T.ball_diameter/2*L.sc);
+
+const R_LABELS = ['L','A','R'];   // Line 만 / All 전부 / Restore 되돌리기
+function tapButton(px,py){
+  for (const b of BTN){
+    if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
+    if (b.lb === '+') S.corr += 0.5;
+    else if (b.lb === '-') S.corr -= 0.5;
+    else if (b.lb === '0') S.corr = 0;
+    else if (b.lb === 'cam') shoot();
+    else if (b.lb === 'swap') { S.cueWhite = !S.cueWhite; }
+    else if (['white','yellow','red'].includes(b.lb))
+      S.place = S.place === b.lb ? null : b.lb;
+    else if (b.lb === 'reset') doReset();
+    return true;
+  }
+  return false;
+}
+function doReset(){
+  if (S.rMode === 0) S.aim = null;
+  else if (S.rMode === 1){ S.backup = {b:{...S.balls}, aim:S.lastAim}; S.balls = {}; S.aim = null; }
+  else if (S.backup){ S.balls = {...S.backup.b}; S.aim = S.backup.aim; }
+  S.place = null;
+  S.rMode = (S.rMode+1) % 3;
+}
+function roleOf(c){
+  if (c === 'red') return 'obj2';
+  return c === (S.cueWhite ? 'white' : 'yellow') ? 'cue' : 'obj1';
+}
+
+// ---------------------------------------------------------------- 입력
+function frameAt(px,py){
+  const c = L.cloth, r = L.rail;
+  if (px > c.x && px < c.x+c.w && py > c.y && py < c.y+c.h) return null;
+  if (px < r.x || px > r.x+r.w || py < r.y || py > r.y+r.h) return null;
+  const off = T.frame_offset;
+  let [x,y] = toMm(px,py);
+  const cl = (v,m) => Math.min(Math.max(v,0), m);
+  const cand = [[Math.abs(y-(T.height+off)), [cl(x,T.width), T.height+off]],
+                [Math.abs(y+off),            [cl(x,T.width), -off]],
+                [Math.abs(x+off),            [-off, cl(y,T.height)]],
+                [Math.abs(x-(T.width+off)),  [T.width+off, cl(y,T.height)]]];
+  cand.sort((a,b) => a[0]-b[0]);
+  return cand[0][1];
+}
+function ballAt(px,py){
+  const r = ballR()+8;
+  for (const k of ['obj2','obj1','cue']){
+    const b = S.balls[k]; if (!b) continue;
+    const [bx,by] = toPx(...b.p);
+    if ((bx-px)**2 + (by-py)**2 <= r*r) return k;
+  }
+  return null;
+}
+function down(px,py){
+  if (tapButton(px,py)) return;
+  if (S.place){
+    const [x,y] = toMm(px,py);
+    if (x >= 0 && x <= T.width && y >= 0 && y <= T.height){
+      S.balls[roleOf(S.place)] = {p:[x,y], color:S.place};
+      S.place = null;                          // 궤적은 그대로 둔다 (따라온다)
+    }
+    return;
+  }
+  const gb = ballAt(px,py);
+  if (gb){ S.drag = gb; return; }
+  const f = frameAt(px,py);
+  if (f){ S.aim = S.lastAim = f; S.aiming = true; }
+}
+function move(px,py){
+  if (S.drag){
+    const [x,y] = toMm(px,py);
+    S.balls[S.drag].p = [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)];
+  } else if (S.aiming){
+    const f = frameAt(px,py); if (f) S.aim = S.lastAim = f;
+  }
+}
+const up = () => { S.drag = null; S.aiming = false; };
+
+// ---------------------------------------------------------------- 그리기
+function draw(){
+  layout(); BTN = buttonRects();
+  g.fillStyle = '#16181c'; g.fillRect(0,0,cv.width,cv.height);
+  const r = L.rail, c = L.cloth;
+  g.fillStyle = '#96703e'; g.fillRect(r.x,r.y,r.w,r.h);
+  g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
+  g.fillStyle = '#264 abe'; g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
+
+  drawDiamonds(); drawNumbers(); drawPath(); drawBalls(); drawClock(); drawButtons();
+  requestAnimationFrame(draw);
+}
+function drawDiamonds(){
+  g.fillStyle = '#f2eee0';
+  for (const [rail,n] of [['bottom',8],['top',8],['left',4],['right',4]])
+    for (let i = 0; i <= n; i++){
+      const t = i/n;
+      const mm = rail === 'bottom' ? [T.width*t, -T.frame_offset]
+              : rail === 'top'     ? [T.width*t, T.height+T.frame_offset]
+              : rail === 'left'    ? [-T.frame_offset, T.height*t]
+                                   : [T.width+T.frame_offset, T.height*t];
+      const [x,y] = toPx(...mm);
+      g.beginPath(); g.arc(x,y,3,0,7); g.fill();
+    }
+}
+function orientation(){
+  const cue = S.balls.cue;
+  if (!cue) return {fx:false, fy:false};
+  return {fx: cue.p[0] < T.width/2, fy: cue.p[1] > T.height/2};
+}
+function fold(o,p){ return [o.fx ? T.width-p[0] : p[0], o.fy ? T.height-p[1] : p[1]]; }
+function drawNumbers(){
+  const o = orientation();
+  for (const sc of SCALES){
+    const third = sc.name === 'third_cushion';
+    g.font = (third ? 'bold 17px' : 'bold 20px') + ' sans-serif';
+    g.fillStyle = sc.color; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const seen = [];
+    for (const pt of sc.points){
+      let mm = railPoint(sc, pt.rail, pt.index);
+      mm = fold(o, mm);
+      const [x,y] = toPx(...mm);
+      if (seen.some(s => s.n === pt.number && Math.hypot(s.x-x, s.y-y) < 120)) continue;
+      seen.push({n:pt.number, x, y});
+      g.strokeStyle = '#101014'; g.lineWidth = 4;
+      g.strokeText(String(pt.number), x, y); g.fillText(String(pt.number), x, y);
+    }
+  }
+}
+function railPoint(sc, rail, idx){
+  const off = sc.reference === 'rail' ? 0 : T.frame_offset;
+  const n = (rail === 'bottom' || rail === 'top') ? 8 : 4;
+  const t = idx/n;
+  if (rail === 'bottom') return [T.width*t, -off];
+  if (rail === 'top')    return [T.width*t, T.height+off];
+  if (rail === 'left')   return [-off, T.height*t];
+  return [T.width+off, T.height*t];
+}
+function drawPath(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return;
+  const hits = pathFromAim(cue.p, S.aim, S.corr);
+  if (!hits.length) return;
+  const pts = [cue.p, ...hits.map(h => h.p)];
+  const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
+  const bw = Math.max(3, T.ball_diameter*L.sc);
+  for (let i = 0; i < pts.length-1; i++){
+    const a = toPx(...pts[i]), b = toPx(...pts[i+1]);
+    g.strokeStyle = cols[Math.min(i,cols.length-1)];
+    g.globalAlpha = 0.28; g.lineWidth = bw; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+    g.globalAlpha = 1; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+  }
+  for (const h of hits){
+    const [x,y] = toPx(...h.p);
+    g.fillStyle = COL.c23; g.beginPath(); g.arc(x,y,6,0,7); g.fill();
+    g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
+  }
+}
+function drawBalls(){
+  for (const k in S.balls){
+    const b = S.balls[k], [x,y] = toPx(...b.p);
+    g.fillStyle = TONE[b.color] || '#fff';
+    g.beginPath(); g.arc(x,y,ballR(),0,7); g.fill();
+    g.strokeStyle = k === 'cue' ? '#ffec96' : '#14141a';
+    g.lineWidth = k === 'cue' ? 3 : 2; g.stroke();
+  }
+}
+function drawClock(){
+  const [x,y] = clockCenter(), R = clockR();
+  const left = goingLeft();
+  g.fillStyle = '#f0f0ea'; g.beginPath(); g.arc(x,y,R,0,7); g.fill();
+  g.strokeStyle = '#3c3e46'; g.lineWidth = 2; g.stroke();
+  const ang = (left ? 9.5 : 2.5)/12*2*Math.PI - Math.PI/2;
+  const d = R*0.62;
+  g.fillStyle = '#de342c';
+  g.beginPath(); g.arc(x + Math.cos(ang)*d, y + Math.sin(ang)*d, R*0.22, 0, 7); g.fill();
+}
+function goingLeft(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return false;
+  const h = pathFromAim(cue.p, S.aim, S.corr);
+  return h.length ? h[0].p[0] < cue.p[0] : false;
+}
+function drawButtons(){
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const b of BTN){
+    const cx = b.x+b.w/2, cy = b.y+b.h/2;
+    const armed = S.place === b.lb;
+    g.fillStyle = armed ? '#3c608f' : '#2c3038';
+    round(b.x,b.y,b.w,b.h,10); g.fill();
+    g.strokeStyle = armed ? '#ffec96' : '#bcc4d2'; g.lineWidth = armed ? 3 : 2; g.stroke();
+    if (b.lb === 'cam'){ camIcon(cx,cy,b.h); continue; }
+    if (b.lb === 'reset'){
+      g.fillStyle = '#e8968c'; g.font = 'bold 18px sans-serif';
+      g.fillText(R_LABELS[S.rMode], cx, cy); continue;
+    }
+    if (b.lb === 'swap'){
+      g.fillStyle = TONE[S.cueWhite ? 'white' : 'yellow'];
+      g.beginPath(); g.arc(cx,cy,b.h*0.28,0,7); g.fill();
+      g.strokeStyle = '#ffec96'; g.lineWidth = 3; g.stroke(); continue;
+    }
+    if (['white','yellow','red'].includes(b.lb)){
+      g.fillStyle = TONE[b.lb];
+      g.beginPath(); g.arc(cx,cy,b.h*0.28,0,7); g.fill();
+      g.strokeStyle = '#1c1e24'; g.lineWidth = 2; g.stroke(); continue;
+    }
+    if (b.lb === '0'){
+      g.fillStyle = S.corr > 0 ? '#f6f8fc' : S.corr < 0 ? '#ff78be' : '#969ca6';
+      g.font = 'bold 30px sans-serif';
+      g.fillText(String(Math.abs(S.corr)), cx, cy);
+    } else {
+      g.fillStyle = '#dee4ee'; g.font = 'bold 32px sans-serif';
+      g.fillText(b.lb, cx, cy);
+    }
+  }
+}
+function round(x,y,w,h,r){
+  g.beginPath(); g.moveTo(x+r,y);
+  g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath();
+}
+function camIcon(cx,cy,h){
+  const w = h*0.52, bh = h*0.36;
+  g.fillStyle = '#dee4ee';
+  round(cx-w/2, cy-bh/2+2, w, bh, 5); g.fill();
+  round(cx-w*0.32, cy-bh/2-h*0.09, w*0.3, h*0.11, 3); g.fill();
+  g.fillStyle = '#2c3038';
+  g.beginPath(); g.arc(cx, cy+2, bh*0.3, 0, 7); g.fill();
+}
+
+// ---------------------------------------------------------------- 카메라 (임시)
+function shoot(){
+  msg.textContent = '카메라는 다음 단계입니다 (사진에서 공 찾기 붙이는 중)';
+  setTimeout(() => msg.textContent = '', 2500);
+}
+
+// ---------------------------------------------------------------- 시작
+function resize(){
+  cv.width = innerWidth * devicePixelRatio;
+  cv.height = innerHeight * devicePixelRatio;
+  g.setTransform(1,0,0,1,0,0);
+}
+addEventListener('resize', resize);
+const pos = e => {
+  const t = e.touches ? e.touches[0] : e;
+  return [t.clientX*devicePixelRatio, t.clientY*devicePixelRatio];
+};
+cv.addEventListener('pointerdown', e => { down(...pos(e)); });
+cv.addEventListener('pointermove', e => { move(...pos(e)); });
+addEventListener('pointerup', up);
+
+(async () => {
+  try{
+    const [tb, num, bo] = await Promise.all([
+      fetch('../data/table_medium.json').then(r => r.json()),
+      fetch('../data/five_half_numbers.json').then(r => r.json()),
+      fetch('../data/measured_bounce.json').then(r => r.json())]);
+    const pf = tb.playfield || tb;
+    T = {width: pf.width ?? tb.width, height: pf.height ?? tb.height,
+         outer_width: (tb.outer?.width) ?? tb.outer_width,
+         outer_height: (tb.outer?.height) ?? tb.outer_height,
+         frame_offset: tb.frame_offset, ball_diameter: tb.ball_diameter};
+    T.rail_x = (T.outer_width - T.width)/2;
+    T.rail_y = (T.outer_height - T.height)/2;
+    SCALES = Object.entries(num.scales).map(([name,s]) => ({
+      name, reference: s.reference || 'frame',
+      color: 'rgb(' + (s.color || [255,255,255]).join(',') + ')',
+      points: s.points}));
+    BOUNCE = bo.table.map(r => [r[0], r[1]]);
+    msg.textContent = '';
+    resize(); draw();
+  }catch(e){
+    msg.textContent = '데이터를 못 읽었습니다 — 웹서버로 여세요: ' + e;
+  }
+})();
+</script>

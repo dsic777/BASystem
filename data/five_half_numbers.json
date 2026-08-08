@@ -1,0 +1,97 @@
+{
+  "_status": "Claude 판독 — 사용자 검증 대기",
+  "_source": "C:/sc/7.jpg (큐찾사 / 쫑프로식 파이브앤하프 시스템 통합본)",
+
+  "_orientation": {
+    "_desc": "7.jpg 기준 방향. 좌표계는 core/table.py 와 동일 (원점 = 좌하단).",
+    "cue_corner": "우하단 코너 = 수구수 50",
+    "note": "4.jpg 는 이것의 좌우 대칭. 대칭 처리는 아직 미구현."
+  },
+
+  "formula": "수구수 − 1쿠션수 = 3쿠션수   (= 수구수 − 3쿠션수 = 1쿠션수)",
+
+  "_reference_lines": {
+    "_desc": "눈금마다 기준선이 다르다 (사용자 확정, 8.jpg)",
+    "frame": "프레임 포인트 = 레일 위 흰 점. 쿠션 노즈에서 frame_offset 만큼 바깥.",
+    "rail": "레일 포인트 = 쿠션 날. 공이 실제로 닿는 면.",
+    "note": "수구수·1쿠션수 = frame / 3쿠션수 = rail. 7.jpg 에서 연두색만 쿠션 날에 붙어 있는 것과 일치."
+  },
+
+  "_index_meaning": [
+    "index = core/table.py 의 다이아몬드 인덱스",
+    "장쿠션(bottom/top): 0=좌코너 … 8=우코너",
+    "단쿠션(left/right): 0=아래코너 … 4=위코너",
+    "0.5 단위는 반다이아 위치"
+  ],
+
+  "scales": {
+    "start": {
+      "_desc": "수구수(출발 포인트) — 흰색. 하단 장쿠션 + 우측 단쿠션이 하나로 이어진다.",
+      "reference": "frame",
+      "color": [248, 248, 248],
+      "points": [
+        { "rail": "bottom", "index": 0, "number": 0 },
+        { "rail": "bottom", "index": 1, "number": 15 },
+        { "rail": "bottom", "index": 2, "number": 20 },
+        { "rail": "bottom", "index": 3, "number": 25 },
+        { "rail": "bottom", "index": 4, "number": 30 },
+        { "rail": "bottom", "index": 5, "number": 35 },
+        { "rail": "bottom", "index": 6, "number": 40 },
+        { "rail": "bottom", "index": 7, "number": 45 },
+        { "rail": "bottom", "index": 8, "number": 50 },
+
+        { "rail": "right", "index": 0, "number": 50 },
+        { "rail": "right", "index": 1, "number": 60 },
+        { "rail": "right", "index": 2, "number": 70 },
+        { "rail": "right", "index": 2.5, "number": 80 },
+        { "rail": "right", "index": 3, "number": 90 },
+        { "rail": "right", "index": 3.5, "number": 100 }
+      ]
+    },
+
+    "first_cushion": {
+      "_desc": "1쿠션수 — 노란색. 상단 장쿠션. 조준 목표라 프레임 포인트 기준.",
+      "reference": "frame",
+      "color": [255, 214, 0],
+      "points": [
+        { "rail": "top", "index": 0, "number": 0 },
+        { "rail": "top", "index": 1, "number": 10 },
+        { "rail": "top", "index": 2, "number": 20 },
+        { "rail": "top", "index": 3, "number": 30 },
+        { "rail": "top", "index": 4, "number": 40 },
+        { "rail": "top", "index": 5, "number": 50 },
+        { "rail": "top", "index": 5.5, "number": 60 },
+        { "rail": "top", "index": 6, "number": 70 },
+        { "rail": "top", "index": 6.5, "number": 80 },
+        { "rail": "top", "index": 7, "number": 90 },
+        { "rail": "top", "index": 7.5, "number": 100 }
+      ]
+    },
+
+    "third_cushion": {
+      "_desc": "3쿠션수 — 연두색. 하단 장쿠션. 공이 실제로 도착하는 곳이라 레일 포인트(쿠션 날) 기준.",
+      "reference": "rail",
+      "color": [110, 235, 90],
+      "points": [
+        { "rail": "bottom", "index": 0, "number": 0 },
+        { "rail": "bottom", "index": 1, "number": 10 },
+        { "rail": "bottom", "index": 2, "number": 20 },
+        { "rail": "bottom", "index": 3, "number": 30 },
+        { "rail": "bottom", "index": 4, "number": 40 },
+        { "rail": "bottom", "index": 4.5, "number": 50 },
+        { "rail": "bottom", "index": 5, "number": 60 },
+        { "rail": "bottom", "index": 5.5, "number": 70 },
+        { "rail": "bottom", "index": 6, "number": 80 },
+        { "rail": "bottom", "index": 6.5, "number": 90 },
+        { "rail": "bottom", "index": 7, "number": 100 }
+      ]
+    }
+  },
+
+  "_open_questions": [
+    "수구수: 우상단 코너(right index 4) 번호 미표기 — 110 인지, 안 쓰는지 미확인",
+    "1쿠션수: 우상단 코너(top index 8) 번호 미표기 — 110 인지 미확인",
+    "3쿠션수: top index 7 초과 구간(7.5, 8) 번호 미표기",
+    "수구수 하단: index 1 이 15 인데 index 0 이 10 이 아니라 0 — 원본에서 0 으로 확인했으나 의미 미확인"
+  ]
+}

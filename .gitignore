@@ -1,0 +1,33 @@
+# 영상 — 원본은 수 GB 라 저장소에 넣지 않는다. 여기서 뽑은 **실측 반사표**
+# (data/measured_bounce.json) 가 결과물이고, 그건 공개한다.
+*.mp4
+*.avi
+*.mov
+
+# 추출 결과물 — 영상만 있으면 track.py 로 다시 만들 수 있다
+0806_*
+0807_*
+0808_*
+*_track.json
+*_track.csv
+*_track.png
+*_log.txt
+*_shots/
+shots/
+balls/
+peek/
+
+# 작업용 임시 스크립트 (계속 덮어쓰는 것)
+analyze.py
+
+# 사람이 찍어 둔 코너 좌표 — 영상마다 다르다
+corners/
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
