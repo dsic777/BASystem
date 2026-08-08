@@ -15,12 +15,16 @@
 </style>
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
+<!-- 진단 패널 — 평소엔 숨긴다. 주소 뒤에 ?debug 를 붙이면 나온다.
+     ⚠️ 폰에는 개발자도구가 없다. 화면이 안 뜨면 이걸로만 원인을 볼 수 있으므로
+        지우지 말고 남겨둔다 (실제로 이것 덕에 캐시 문제를 찾았다). -->
 <div id="diag" style="position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;
   background:#000d;color:#7fff9f;font:12px/1.45 monospace;padding:8px;z-index:9999;
-  white-space:pre-wrap;word-break:break-all"></div>
+  white-space:pre-wrap;word-break:break-all;display:none"></div>
 <script>
 // 진단 패널 — 본 스크립트가 죽어도 이건 살아 있어야 하므로 따로 둔다.
 var D = document.getElementById('diag');
+if (location.search.indexOf('debug') >= 0) D.style.display = 'block';
 function log(t){ D.textContent += t + String.fromCharCode(10); }
 log('BASystem 진단 v8');
 log('URL ' + location.href);
@@ -51,7 +55,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 9;
+const MOBILE_VER = 10;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -152,7 +156,7 @@ function pathFromAim(cue, aim, shift){
 
 // ---------------------------------------------------------------- 상태
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
-           corr:0, rMode:0, backup:null, drag:null, lastAim:null};
+           corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0};
 
 // ---------------------------------------------------------------- 화면 좌표
 let L = {};
@@ -315,6 +319,10 @@ function draw(){
   g.setTransform(1,0,0,1,0,0);
   g.fillStyle = '#16181c'; g.fillRect(0,0,cv.width,cv.height);
   if (ROT){ g.translate(0, cv.height); g.rotate(-Math.PI/2); }
+  if (ROT && !S.rotHinted){ S.rotHinted = 1; setTimeout(() => {
+    msg.textContent = '폰을 가로로 돌려주세요';
+    setTimeout(() => { if (!ROT) msg.textContent = ''; }, 4000);
+  }, 300); }
   const r = L.rail, c = L.cloth;
   g.fillStyle = '#96703e'; g.fillRect(r.x,r.y,r.w,r.h);
   g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
