@@ -59,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 44;
+const MOBILE_VER = 45;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -934,53 +934,15 @@ function draw(){
     g.strokeStyle = '#e8484a'; g.lineWidth = Math.max(3, R*0.16);
     g.beginPath(); g.arc(SHUTTER.x, SHUTTER.y, R*0.72, 0, 7); g.stroke();
     g.restore();
-  } else if (WARPED){
-    // 3단계 — 원근보정한 사진을 천 자리에 정확히 겹친다.
-    // ⚠️ 코너는 '천 경계'라 쿠션 날과 조금 다를 수 있다. 편 그림에서 다이아몬드가
-    //    8등분·4등분 자리에 오는지 보고 오차를 잰다 (다이아몬드가 진실 원천).
-    const c = L.cloth;
-    g.save(); g.globalAlpha = 0.75;
-    g.drawImage(WARPED, c.x, c.y, c.w, c.h);
-    g.restore();
-  } else if (PHOTO){
-    // 당구대를 못 찾으면 원본을 화면 전체에 깔아 둔다 (손으로 놓을 수 있게)
+  } else if (PHOTO && !TABLE_HULL){
+    // 당구대를 못 찾았을 때만 원본을 깔아 둔다 (손으로 놓을 수 있게).
+    // ⚠️ 찾았으면 사진을 안 겹친다 — 판독한 공만 보여야 맞는지 눈에 들어온다 (사용자 확정).
     const cw = ROT ? cv.height : cv.width, ch = ROT ? cv.width : cv.height;
     const k = Math.min(cw / PHOTO.width, ch / PHOTO.height);
     const pw = PHOTO.width*k, ph = PHOTO.height*k;
-    const ox = (cw-pw)/2, oy = (ch-ph)/2;
     g.save(); g.globalAlpha = 0.5;
-    g.drawImage(PHOTO, ox, oy, pw, ph);
+    g.drawImage(PHOTO, (cw-pw)/2, (ch-ph)/2, pw, ph);
     g.restore();
-    if (TABLE_HULL){                              // 찾은 당구대 외곽 (1단계 확인용)
-      g.save();
-      g.strokeStyle = '#39ff7f'; g.lineWidth = Math.max(2, pw*0.006);
-      g.beginPath();
-      TABLE_HULL.hull.forEach(([hx,hy], i) => {
-        const X = ox + hx*k, Y = oy + hy*k;
-        i ? g.lineTo(X, Y) : g.moveTo(X, Y);
-      });
-      g.closePath(); g.stroke();
-      if (TABLE_HULL.quad){                       // 2단계 — 코너 4점
-        g.strokeStyle = '#ff5aa8'; g.lineWidth = Math.max(2, pw*0.008);
-        g.beginPath();
-        TABLE_HULL.quad.forEach(([hx,hy], i) => {
-          const X = ox + hx*k, Y = oy + hy*k;
-          i ? g.lineTo(X, Y) : g.moveTo(X, Y);
-        });
-        g.closePath(); g.stroke();
-        g.fillStyle = '#ff5aa8';
-        TABLE_HULL.quad.forEach(([hx,hy], i) => {
-          const X = ox + hx*k, Y = oy + hy*k, r = Math.max(5, pw*0.013);
-          g.beginPath(); g.arc(X, Y, r, 0, 7); g.fill();
-          g.fillStyle = '#101014';
-          g.font = 'bold ' + Math.round(r*1.6) + 'px sans-serif';
-          g.textAlign = 'center'; g.textBaseline = 'middle';
-          g.fillText(String(i+1), X, Y);
-          g.fillStyle = '#ff5aa8';
-        });
-      }
-      g.restore();
-    }
   }
   drawDiamonds(); drawNumbers(); drawAnswer(); drawPath(); drawBalls(); drawClock(); drawButtons();
   requestAnimationFrame(draw);
@@ -1275,10 +1237,11 @@ function usePhoto(img){
   let found = null;
   if (TABLE_HULL && TABLE_HULL.quad){
     TABLE_HULL.quad = refineQuad(img, TABLE_HULL.quad);   // 다이아몬드로 코너 보정
-    WARPED = warpPhoto(img, TABLE_HULL.quad, 700, 350);
+    // 편 사진은 이제 안 그리므로 만들지도 않는다 (700x350 픽셀 반복이라 폰에서 느리다)
     try { found = ballsFromPhoto(img, TABLE_HULL.quad); }
     catch(e){ log('공 찾기 실패 ' + e); }
-  } else WARPED = null;
+  }
+  WARPED = null;
 
   // ⚠️ 사진을 읽어와도 궤적은 만들지 않는다 (사용자 확정). 공만 놓는다.
   let n = 0;
