@@ -30,8 +30,12 @@ log('BASystem 진단 v8');
 log('URL ' + location.href);
 log('화면 ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio);
 addEventListener('error', function(e){
-  log('★ERR ' + (e.message||e.type) + ' @' + (e.filename||'').split('/').pop() +
-      ':' + (e.lineno||'?') + ':' + (e.colno||'?'));
+  var t = '★ERR ' + (e.message||e.type) + ' @' + (e.lineno||'?') + ':' + (e.colno||'?');
+  log(t);
+  // ⚠️ 진단 패널은 평소 숨겨져 있다. 오류만은 **항상 보이는 곳**에도 띄운다.
+  //    폰에서는 주소를 칠 수 없어 ?debug 를 붙일 방법이 없다.
+  var m = document.getElementById('msg');
+  if (m) { m.style.display = 'block'; m.textContent = t; }
 });
 addEventListener('unhandledrejection', function(e){ log('★REJ ' + e.reason); });
 if ('serviceWorker' in navigator)
@@ -55,7 +59,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 25;
+const MOBILE_VER = 26;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
