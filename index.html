@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 66;
+const MOBILE_VER = 67;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -81,6 +81,15 @@ let T, SCALES, BOUNCE;
 
 const RAILS = {bottom:[0,1], right:[-1,0], top:[0,-1], left:[1,0]};   // 안쪽 법선
 const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa'};
+// 다이 색 — 파란 천에서 **차콜**로 (design.png 방향). 배경을 무채색으로 내리면
+// 남는 색이 전부 정보가 된다 (궤적·눈금·공).
+const FELT = '#24272c', FELT_HI = '#31353c', FELT_EDGE = '#15171a';
+// #rrggbb 를 k 배로 어둡게
+function shade(hex, k){
+  const n = parseInt(hex.slice(1), 16);
+  const f = v => Math.round(v*k);
+  return 'rgb(' + f(n>>16 & 255) + ',' + f(n>>8 & 255) + ',' + f(n & 255) + ')';
+}
 const TONE = {white:'#f6f5ee', yellow:'#f0be28', red:'#d6342c'};
 
 // ---------------------------------------------------------------- 실측 반사표
@@ -846,12 +855,16 @@ function sideButtons(){
   const colGap = Math.max(3, p.w * 0.05);          // 버튼 사이 (전의 절반)
   const rowGap = colGap;
   const lead   = Math.max(2, p.w * 0.036);         // 숫자와 버튼 사이 (전의 30%)
-  const CAM_H  = 1.6;                              // 카메라 높이 배수
+  // 카메라는 **원**이다 (design.png). 칸을 정사각형으로 잡아야 원이 나온다 —
+  // 가로로 긴 칸에 반지름만 크게 주면 알약 모양이 된다.
   const RO_H   = 0.82;                             // 판독창 높이 배수 (카메라 위)
+  const CAM_D  = 1.6;                              // 카메라 지름 배수
+  // ⚠️ 두 칸 폭(2.05)을 그대로 지름으로 쓰면 칸을 다 먹어 제품명 자리가 사라진다.
   const bw = Math.max(12, Math.min((p.w - colGap - lead) / 2,
-                                   (p.h - rowGap*4) / (3 + RO_H + CAM_H)));
+                                   (p.h - rowGap*4) / (3 + RO_H + CAM_D)));
   const totalW = bw*2 + colGap;
-  const totalH = bw*(3 + RO_H + CAM_H) + rowGap*4;
+  const camD = bw*CAM_D;
+  const totalH = bw*(3 + RO_H) + camD + rowGap*4;
   const x0 = p.x + lead + (p.w - lead - totalW) / 2;
   // ⚠️ 가운데 정렬이면 위 이름 자리가 좁다. 아래쪽으로 내린다 (사용자 지시).
   const y0 = p.y + (p.h - totalH) * 0.78;
@@ -862,7 +875,8 @@ function sideButtons(){
   // 판독창(누르는 것 아님) 자리를 잡아두고, 카메라는 그 아래에 둔다 (사용자 지시).
   const roY = y0 + 3*(bw+rowGap);
   READOUT = {x:x0, y:roY, w:totalW, h:bw*RO_H};
-  out.push({x:x0, y:roY + bw*RO_H + rowGap, w:totalW, h:bw*CAM_H, lb:'cam'});
+  out.push({x:x0 + (totalW-camD)/2, y:roY + bw*RO_H + rowGap,
+            w:camD, h:camD, lb:'cam'});
   BW = BH = bw;
   return out;
 }
@@ -1060,21 +1074,21 @@ function draw(){
     setTimeout(() => { if (!ROT){ msg.textContent = ''; msg.style.display='none'; } }, 4000);
   }, 300); }
   const r = L.rail, c = L.cloth;
-  // 원목 니스 느낌 — 위에서 아래로 밝기를 주고 결을 아주 옅게 넣는다.
-  // ⚠️ 결을 세게 넣으면 다이아몬드·눈금 숫자가 안 보인다.
-  const wood = g.createLinearGradient(0, r.y, 0, r.y + r.h);
-  wood.addColorStop(0,    '#d3a066');
-  wood.addColorStop(0.42, '#c08a4e');
-  wood.addColorStop(1,    '#9a6c39');
-  g.fillStyle = wood; g.fillRect(r.x,r.y,r.w,r.h);
+  // 레일 — 검은 브러시드 메탈. ⚠️ 결을 세게 넣으면 다이아몬드·눈금이 안 보인다.
+  const rail = g.createLinearGradient(0, r.y, 0, r.y + r.h);
+  rail.addColorStop(0,    '#4a4e55');
+  rail.addColorStop(0.16, '#2b2e34');
+  rail.addColorStop(0.84, '#212429');
+  rail.addColorStop(1,    '#3a3e45');
+  g.fillStyle = rail; g.fillRect(r.x,r.y,r.w,r.h);
   g.save();
-  g.globalAlpha = 0.10; g.strokeStyle = '#6b4520'; g.lineWidth = 1;
-  for (let i = 1; i < 26; i++){
-    const yy = r.y + r.h * i / 26;
+  g.globalAlpha = 0.07; g.strokeStyle = '#c9d2e0'; g.lineWidth = 1;
+  for (let i = 1; i < 34; i++){
+    const yy = r.y + r.h * i / 34;
     g.beginPath(); g.moveTo(r.x, yy); g.lineTo(r.x + r.w, yy); g.stroke();
   }
   g.restore();
-  g.strokeStyle = '#6b4520'; g.lineWidth = 2;
+  g.strokeStyle = '#0d0f12'; g.lineWidth = 2;
   g.strokeRect(r.x+1, r.y+1, r.w-2, r.h-2);
   // 프레임 안쪽 · 천 바깥쪽에 그림자를 둘러 입체감을 준다 (사용자 지시).
   const SHADE = 14;
@@ -1088,9 +1102,24 @@ function draw(){
   //    까지이고, 그 바깥이 나무다. 6px 로 두면 나무가 실제보다 넓어 보여서
   //    **프레임 포인트가 나무 한가운데가 아닌 것처럼 보인다** (사용자 지적).
   const cwPx = T.cushion_width * L.sc;
-  g.fillStyle = '#1e3c9e';
+  g.fillStyle = FELT_EDGE;
   g.fillRect(c.x-cwPx, c.y-cwPx, c.w+cwPx*2, c.h+cwPx*2);
-  g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
+  // 쿠션 끝은 모따기 되어 있다 (실제 캐롬대 모양)
+  const ch = Math.min(c.w, c.h) * 0.055;
+  g.save();
+  g.beginPath();
+  g.moveTo(c.x+ch, c.y);          g.lineTo(c.x+c.w-ch, c.y);
+  g.lineTo(c.x+c.w, c.y+ch);      g.lineTo(c.x+c.w, c.y+c.h-ch);
+  g.lineTo(c.x+c.w-ch, c.y+c.h);  g.lineTo(c.x+ch, c.y+c.h);
+  g.lineTo(c.x, c.y+c.h-ch);      g.lineTo(c.x, c.y+ch);
+  g.closePath(); g.clip();
+  const felt = g.createRadialGradient(c.x+c.w/2, c.y+c.h*0.42, 0,
+                                      c.x+c.w/2, c.y+c.h*0.42, c.w*0.62);
+  felt.addColorStop(0,   FELT_HI);
+  felt.addColorStop(0.55, FELT);
+  felt.addColorStop(1,   FELT_EDGE);
+  g.fillStyle = felt; g.fillRect(c.x,c.y,c.w,c.h);
+  g.restore();
 
   const PREVIEW = TEST.img ? TEST.img : (CAMLIVE && VID.videoWidth ? VID : null);
   if (PREVIEW){
@@ -1144,8 +1173,8 @@ function drawDiamonds(){
                                    : [T.width+T.frame_offset, T.height*t];
       const [x,y] = toPx(...mm);
       g.beginPath(); g.arc(x,y,rd,0,7);
-      g.fillStyle = '#fbf7ea'; g.fill();
-      g.strokeStyle = '#5c3d1c'; g.stroke();
+      g.fillStyle = '#fdfdfa'; g.fill();
+      g.strokeStyle = '#0d0f12'; g.stroke();
     }
 }
 function orientation(){
@@ -1236,9 +1265,19 @@ function drawPath(){
 }
 function drawBalls(){
   for (const k in S.balls){
-    const b = S.balls[k], [x,y] = toPx(...b.p);
-    g.fillStyle = TONE[b.color] || '#fff';
-    g.beginPath(); g.arc(x,y,ballR(),0,7); g.fill();
+    const b = S.balls[k], [x,y] = toPx(...b.p), rr = ballR();
+    // ⚠️ 검은 천에서는 검은 테두리가 안 보인다. 하이라이트와 접지 그림자로 띄운다.
+    g.save();
+    g.fillStyle = 'rgba(0,0,0,0.45)';
+    g.beginPath(); g.ellipse(x+rr*0.12, y+rr*0.30, rr*0.95, rr*0.42, 0, 0, 7); g.fill();
+    g.restore();
+    const base = TONE[b.color] || '#fff';
+    const sph = g.createRadialGradient(x-rr*0.34, y-rr*0.38, rr*0.05, x, y, rr*1.06);
+    sph.addColorStop(0,   '#ffffff');
+    sph.addColorStop(0.30, base);
+    sph.addColorStop(1,   shade(base, 0.42));
+    g.fillStyle = sph;
+    g.beginPath(); g.arc(x,y,rr,0,7); g.fill();
     // ⚠️ 폰에서 공이 작아 얇은 테두리는 안 보인다. 수구는 **공 바깥에 굵은 링**을
     //    따로 그려 확실히 구분한다 (사용자 지적: 수구 테두리가 안 보인다).
     const r = ballR();
@@ -1411,25 +1450,25 @@ function drawReadout(){
   const r = READOUT, n = systemNumbers();
   // ⚠️ 어두우면 안 보인다 (사용자 지적). 버튼과 같은 무게로 띄운다.
   const bg = g.createLinearGradient(0, r.y, 0, r.y + r.h);
-  bg.addColorStop(0, '#5d4a22'); bg.addColorStop(1, '#33280f');
+  bg.addColorStop(0, '#2a2e35'); bg.addColorStop(1, '#15181c');
   g.fillStyle = bg;
   round(r.x, r.y, r.w, r.h, r.h*0.14); g.fill();
-  g.strokeStyle = '#14161a'; g.lineWidth = Math.max(2, r.h*0.055); g.stroke();
-  g.strokeStyle = '#e6c878'; g.lineWidth = Math.max(1.5, r.h*0.028); g.stroke();
+  g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, r.h*0.06); g.stroke();
+  g.strokeStyle = 'rgba(214,222,234,0.55)'; g.lineWidth = Math.max(1, r.h*0.022); g.stroke();
   const cols = [['수구수', n && n.start], ['1쿠션', n && n.first], ['3쿠션', n && n.third]];
   g.textAlign = 'center';
   cols.forEach(([lb, v], i) => {
     const cx = r.x + r.w*(i + 0.5)/3;
     g.textBaseline = 'top';
-    g.fillStyle = '#f5e3ae';
+    g.fillStyle = 'rgba(214,222,234,0.75)';
     g.font = '700 ' + Math.round(r.h*0.24) + 'px system-ui, sans-serif';
     g.fillText(lb, cx, r.y + r.h*0.10);
     g.textBaseline = 'bottom';
-    g.fillStyle = v === null || v === undefined ? '#9a8a60' : '#fff3cf';
+    g.fillStyle = v === null || v === undefined ? '#5b636e' : '#f4f7fb';
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
     g.fillText(v === null || v === undefined ? '—' : Math.round(v), cx, r.y + r.h*0.95);
     if (i < 2){
-      g.strokeStyle = 'rgba(255,240,200,0.40)'; g.lineWidth = Math.max(1, r.h*0.02);
+      g.strokeStyle = 'rgba(214,222,234,0.30)'; g.lineWidth = Math.max(1, r.h*0.02);
       g.beginPath();
       g.moveTo(r.x + r.w*(i+1)/3, r.y + r.h*0.18);
       g.lineTo(r.x + r.w*(i+1)/3, r.y + r.h*0.82); g.stroke();
@@ -1439,6 +1478,18 @@ function drawReadout(){
 
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
+  // 보정(- 0 +) 은 한 덩어리 금속 바로 보이게 뒤판을 먼저 깐다 (design.png 방향)
+  const cb = BTN.filter(b => ['-','0','+'].includes(b.lb));
+  if (cb.length === 3){
+    const x0 = Math.min(...cb.map(b => b.x)), x1 = Math.max(...cb.map(b => b.x+b.w));
+    const y0 = cb[0].y, hh = cb[0].h, pad = hh*0.14;
+    const bar = g.createLinearGradient(0, y0-pad, 0, y0+hh+pad);
+    bar.addColorStop(0, '#e9edf3'); bar.addColorStop(0.5, '#b9c0cb');
+    bar.addColorStop(1, '#8f97a4');
+    g.fillStyle = bar;
+    round(x0-pad, y0-pad, x1-x0+pad*2, hh+pad*2, hh*0.30); g.fill();
+    g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, hh*0.07); g.stroke();
+  }
   // ⚠️ 글자에 검은 테두리를 덧그려 굵게 보이게 한다. 캔버스 폰트 굵기는 900 이 최대라
   //    '1100' 같은 값을 쓰면 폰트 지정이 통째로 무효가 된다 (사용자 요청 반영 방식).
   const heavy = (txt, cx, cy, size, fill) => {
@@ -1451,10 +1502,23 @@ function drawButtons(){
   for (const b of BTN){
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
     const armed = S.place === b.lb;
-    g.fillStyle = armed ? '#ffe9a8' : '#d8dce3';   // 밝은 회색 (사용자 지시)
-    round(b.x,b.y,b.w,b.h,u*0.18); g.fill();
-    g.strokeStyle = '#14161a'; g.lineWidth = Math.max(2, u*0.055); g.stroke();
-    if (armed){ g.strokeStyle = '#c8931a'; g.lineWidth = Math.max(2, u*0.03); g.stroke(); }
+    const onBar = ['-','0','+'].includes(b.lb);
+    const rnd = b.lb === 'cam' ? Math.max(b.w,b.h)*0.5 : u*0.22;   // 카메라는 원형
+    if (onBar){                                    // 바 위 칸 — 살짝 눌린 느낌만
+      g.fillStyle = 'rgba(255,255,255,0.55)';
+      round(b.x,b.y,b.w,b.h,u*0.26); g.fill();
+      g.strokeStyle = 'rgba(15,17,20,0.55)'; g.lineWidth = Math.max(1.5, u*0.035); g.stroke();
+    } else {
+      const face = g.createLinearGradient(0, b.y, 0, b.y+b.h);
+      if (b.lb === 'cam'){ face.addColorStop(0,'#f2f5f9'); face.addColorStop(0.5,'#c6cdd8');
+                           face.addColorStop(1,'#98a1af'); }
+      else if (armed)    { face.addColorStop(0,'#ffeeb4'); face.addColorStop(1,'#e8c46a'); }
+      else               { face.addColorStop(0,'#f4f6fa'); face.addColorStop(1,'#cfd5df'); }
+      g.fillStyle = face;
+      round(b.x,b.y,b.w,b.h,rnd); g.fill();
+      g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, u*0.06); g.stroke();
+      if (armed){ g.strokeStyle = '#c8931a'; g.lineWidth = Math.max(2, u*0.03); g.stroke(); }
+    }
 
     if (b.lb === 'cam'){
       if (CAMLIVE){                               // 미리보기 중 — 셔터 모양
@@ -1463,7 +1527,12 @@ function drawButtons(){
         g.strokeStyle = '#14161a'; g.lineWidth = Math.max(2, u*0.05); g.stroke();
         g.strokeStyle = '#e8484a'; g.lineWidth = Math.max(2, u*0.07);
         g.beginPath(); g.arc(cx, cy, u*0.20, 0, 7); g.stroke();
-      } else camIcon(cx, cy, u);
+      } else {
+        camIcon(cx, cy, u*0.86);
+        g.fillStyle = '#d8322b';                   // 셔터 표시 (design.png)
+        g.beginPath(); g.arc(cx, cy + u*0.40, u*0.075, 0, 7); g.fill();
+        g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(1.5, u*0.02); g.stroke();
+      }
       continue;
     }
     if (b.lb === 'exit'){                          // 종료 — L 과 같은 글씨체 (사용자 지시)
