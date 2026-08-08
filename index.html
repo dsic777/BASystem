@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#16181c">
 <meta name="mobile-web-app-capable" content="yes">
@@ -59,7 +60,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 46;
+const MOBILE_VER = 47;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -959,7 +960,11 @@ function draw(){
     g.drawImage(PHOTO, (cw-pw)/2, (ch-ph)/2, pw, ph);
     g.restore();
   }
-  drawDiamonds(); drawNumbers(); drawAnswer(); drawPath(); drawBalls(); drawClock(); drawButtons();
+  drawDiamonds(); drawNumbers();
+  // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
+  //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
+  if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
+  drawButtons();
   requestAnimationFrame(draw);
 }
 function drawDiamonds(){
