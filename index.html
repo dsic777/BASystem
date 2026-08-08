@@ -60,7 +60,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 57;
+const MOBILE_VER = 58;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1034,8 +1034,15 @@ function draw(){
   g.restore();
   g.strokeStyle = '#6b4520'; g.lineWidth = 2;
   g.strokeRect(r.x+1, r.y+1, r.w-2, r.h-2);
+  // 프레임 안쪽 · 천 바깥쪽에 그림자를 둘러 입체감을 준다 (사용자 지시, 10px).
+  const SHADE = 10;
+  for (let i = 0; i < SHADE; i++){
+    g.strokeStyle = 'rgba(0,0,0,' + (0.30 * (1 - i/SHADE)).toFixed(3) + ')';
+    g.lineWidth = 1;
+    g.strokeRect(c.x - 6.5 - i, c.y - 6.5 - i, c.w + 13 + i*2, c.h + 13 + i*2);
+  }
   g.fillStyle = '#1e3c9e'; g.fillRect(c.x-6,c.y-6,c.w+12,c.h+12);
-  g.fillStyle = '#264 abe'; g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
+  g.fillStyle = '#264abe'; g.fillRect(c.x,c.y,c.w,c.h);
 
   const PREVIEW = TEST.img ? TEST.img : (CAMLIVE && VID.videoWidth ? VID : null);
   if (PREVIEW){
@@ -1072,7 +1079,7 @@ function draw(){
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
-  drawButtons();
+  drawButtons(); drawBrand();
   requestAnimationFrame(draw);
 }
 function drawDiamonds(){
@@ -1126,6 +1133,10 @@ function drawNumbers(){
       // ⚠️ 단쿠션(좌·우) 숫자는 레일 **가운데**에 정렬한다. 프레임 포인트 자리에
       //    그대로 두면 레일 한쪽에 치우쳐 보인다 (사용자 지적).
       //    화면이 좌우로 뒤집혀도(fold) 같이 따라가야 하므로 접은 뒤의 레일로 판단한다.
+      // ⚠️ 위쪽 레일 숫자는 화면 맨 위에 붙어 잘려 보인다 (사용자 지적).
+      //    글자 높이의 20% 만큼 안쪽으로 내린다.
+      if (rail === 'top')    y += fs * 0.20;
+      if (rail === 'bottom') y -= fs * 0.06;
       if (rail === 'left' || rail === 'right'){
         const railMid = rail === 'right'
           ? (L.cloth.x + L.cloth.w + L.rail.x + L.rail.w) / 2
@@ -1202,6 +1213,24 @@ function goingLeft(){
   const h = pathFromAim(cue.p, S.aim, S.corr);
   return h.length ? h[0].p[0] < cue.p[0] : false;
 }
+
+// 오른쪽 칸 위 빈 자리에 이름을 넣는다 (사용자 지시, ss.jpg 자리).
+// 버튼 묶음이 세로 가운데 정렬이라 위아래에 빈 공간이 남는다.
+function drawBrand(){
+  if (!PANEL || !BTN.length) return;
+  const top = Math.min(...BTN.filter(b => b.x >= PANEL.x).map(b => b.y));
+  const room = top - PANEL.y;
+  const fs = Math.min(room / 3.6, PANEL.w * 0.20);
+  if (fs < 9) return;                              // 자리가 없으면 안 그린다
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = 'italic 700 ' + Math.round(fs) + 'px Georgia, "Times New Roman", serif';
+  g.fillStyle = 'rgba(214,220,231,0.62)';
+  const cx = PANEL.x + PANEL.w / 2;
+  ['BILLIARDS', 'ASSISTANT', 'SYSTEM'].forEach((t, i) =>
+    g.fillText(t, cx, PANEL.y + room/2 + (i - 1) * fs * 1.18));
+  g.restore();
+}
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   // ⚠️ 글자에 검은 테두리를 덧그려 굵게 보이게 한다. 캔버스 폰트 굵기는 900 이 최대라
@@ -1231,14 +1260,9 @@ function drawButtons(){
       } else camIcon(cx, cy, u);
       continue;
     }
-    if (b.lb === 'exit'){                          // 종료 — 작게 (자주 안 쓴다)
-      g.strokeStyle = '#c2352e'; g.lineCap = 'round';
-      g.lineWidth = Math.max(3, u*0.09);
-      const d = u*0.15;
-      g.beginPath();
-      g.moveTo(cx-d, cy-d); g.lineTo(cx+d, cy+d);
-      g.moveTo(cx+d, cy-d); g.lineTo(cx-d, cy+d);
-      g.stroke(); continue;
+    if (b.lb === 'exit'){                          // 종료 — L 과 같은 글씨체 (사용자 지시)
+      heavy('X', cx, cy, u*0.60, '#e05a52');
+      continue;
     }
     if (b.lb === 'reset'){                         // L / A / R — 색 그대로, 굵고 크게
       heavy(R_LABELS[S.rMode], cx, cy, u*0.66, '#e8607f');
@@ -1255,8 +1279,9 @@ function drawButtons(){
       continue;
     }
     if (b.lb === '0'){                             // 보정 값 — 부호를 색으로 (사용자 확정)
+      // 0 일 때는 부호가 없으므로 - + 와 같은 색으로 둔다 (사용자 지시).
       heavy(String(Math.abs(S.corr)), cx, cy, u*0.58,
-            S.corr > 0 ? '#ffffff' : S.corr < 0 ? '#ff5fa8' : '#5b626d');
+            S.corr < 0 ? '#ff5fa8' : '#f2f4f8');
     } else {
       heavy(b.lb, cx, cy, u*0.62, '#f2f4f8');
     }
