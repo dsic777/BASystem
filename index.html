@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 92;
+const MOBILE_VER = 93;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1686,10 +1686,16 @@ function goingLeft(){
 // ⚠️ 아무 데나 찍히게 하지 않는다. 당점은 1·2·3팁 단위이고 data/separation.json 도
 //    그 단위로만 있다. 사이를 찍게 하면 표에 없는 값을 지어내 쓰게 된다.
 //    가까운 팁 자리로 붙인다.
-const TIP_R = 6.0 / 30.75;   // 1팁이 공 반지름의 얼마인가.
-                             // 큐 팁 지름 12mm 의 절반 = 6mm, 공 반지름 30.75mm
-                             // (data/separation.json 의 tip_size)
-const TIP_MAX = 3.05;        // 3팁 = 18mm = 반지름의 0.585. 그 밖은 삑사리 구역.
+// 1팁이 공 반지름의 얼마인가. ★ 2026-08-10 사용자 지시로 6mm → 8mm.
+//   '팁수 원반경이 좀 좁은 것 같다' + '3팁을 주면 삑사리가 난다'
+//   C:/sc/9.jpg 에 기준이 두 개 있다 —  일반 3등분 1팁 6mm(3팁 18mm)
+//                                      변형 3등분 1팁 8mm(3팁 24mm)  ← 이것
+//   같은 그림이 '바깥 7mm 는 칠 수 없는 구역' 이라 한다. 30.75 − 7 = 23.75mm.
+//   변형 기준이면 **3팁이 곧 칠 수 있는 한계**라 삑사리 경험과 맞아떨어진다.
+// ⚠️ 이 값은 **그림만 바꾼다.** 분리각·반사각 표는 팁 '개수'로 찾으므로 계산은 그대로다.
+//    되돌리려면 이 숫자 하나만 6.0 으로 고치면 된다.
+const TIP_R = 8.0 / 30.75;   // 1팁 8mm / 공 반지름 30.75mm = 0.260
+const TIP_MAX = 3.05;        // 3팁 = 24mm = 반지름의 0.78. 그 밖 7mm 는 큐가 미끄러진다.
 // ★ 사용자 데이터에 실제로 적혀 있는 당점만 넣는다. 내가 만든 조합은 없다.
 // ⚠️ 좌우 팁을 h 라고 부르면 안 된다. 버튼 사각형의 h(높이)와 부딪혀 프리셋이
 //    통째로 깨진다 (하네스에서 tipH=100 으로 잡았다). 점과 같은 이름 s 를 쓴다.
@@ -1752,9 +1758,13 @@ function drawTipPanel(){
 
   // 3팁 바깥 = 삑사리 구역. 선수는 치지만 우리는 미끄러진다 (사용자 확인).
   // ⚠️ 진하게 칠하면 공 전체가 붉어져 당점이 안 보인다 (7.jpg). 옅게 + 경계선.
+  // ⚠️ 도넛을 그릴 때 두 arc 를 그냥 이어 붙이면 3시 방향에 쐐기 자국이 남는다
+  //    (10.jpg 오른쪽에 밝은 삼각형). 안쪽 원 앞에 moveTo 를 넣고 정확히 2파이를 쓴다.
   g.save();
-  g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7);
-  g.arc(q.cx,q.cy,q.unit*3,0,7,true);
+  g.beginPath();
+  g.arc(q.cx, q.cy, q.R, 0, Math.PI*2);
+  g.moveTo(q.cx + q.unit*3, q.cy);
+  g.arc(q.cx, q.cy, q.unit*3, 0, Math.PI*2, true);
   g.fillStyle = 'rgba(190,40,32,0.16)'; g.fill();
   g.restore();
   g.strokeStyle = 'rgba(222,52,44,0.75)'; g.lineWidth = Math.max(1.5, q.unit*0.08);
