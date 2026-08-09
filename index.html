@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 101;
+const MOBILE_VER = 102;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1590,30 +1590,42 @@ function drawPath(){
 
   // ⚠️ 현장 보정(S.corr)은 아직 충돌 뒤 구간에 안 걸린다. 보정은 조준선 기준으로
   //    풀린 값이라 여기에 그대로 못 쓴다 — 필요해지면 따로 풀어야 한다.
-  // ★ 사용자 지시 2026-08-10 (뒤돌리기/우라마우시 예시):
-  //   '수구는 괘적으로 **5쿠션까지** 표시하고, 라인으로 6쿠션 방향으로 **50%만**'
-  //   전에는 3쿠션까지였다.
-  // ⚠️ 여기도 두께 띠를 넣는다 — 어디로 지나가는지 폭까지 봐야 키스가 보인다.
-  const later = roll(P, a.dir, 6, 0);
-  const post = cutAtBall([P, ...later.slice(0,5).map(h => h.p)], cut.obj);
+  // ★ 사용자 확정 2026-08-10 — **두께로 자르지 않고 굵기·진하기로 가른다.**
+  //   1~5쿠션   궤적 띠 + 선   진하게 (지금까지와 같다)
+  //   6~7쿠션   얇은 선만      흐리게, 띠 없음
+  //   8쿠션 방향 더 흐리게 절반
+  //   보통 배치는 5쿠션까지가 눈에 들어오고 그 뒤는 배경처럼 깔린다.
+  //   대회전(28.jpg)은 흐린 선을 따라가면 7쿠션까지 보인다.
+  // ⚠️ 지저분해 보이는 것은 결국 **띠(공 두께 폭)** 때문이다. 6쿠션부터 띠를 빼면 된다.
+  //   두께 30% 규칙·버튼은 사용자가 접었다 — 다시 꺼내지 말 것.
+  // ⚠️ 1~5쿠션에 띠를 넣는 이유: 어디로 지나가는지 폭까지 봐야 키스가 보인다.
+  const BAND_UPTO = 5;              // 여기까지 띠를 그린다
+  const DRAW_UPTO = 7;              // 여기까지 선을 그린다
+  const later = roll(P, a.dir, DRAW_UPTO + 1, 0);
+  const post = cutAtBall([P, ...later.slice(0, DRAW_UPTO).map(h => h.p)], cut.obj);
   const pts2 = post.pts;
   // ★ 사용자 지시 2026-08-10: '직접 공을 치는 경우도 파이브앤하프와 같이
   //   쿠션별 컬러를 적용해 주세요.' 충돌점부터 다시 세어 1·2·3쿠션을 같은 색으로.
   //   숫자를 충돌 후 라인에서 읽는 것(systemBase)과도 눈으로 맞아떨어진다.
   for (let i = 0; i < pts2.length-1; i++){
     const c = cols[Math.min(i, cols.length-1)];
-    seg(pts2[i], pts2[i+1], band, 0.22, c);
-    seg(pts2[i], pts2[i+1], thin, 0.95, c);
+    if (i < BAND_UPTO){
+      seg(pts2[i], pts2[i+1], band, 0.22, c);
+      seg(pts2[i], pts2[i+1], thin, 0.95, c);
+    } else {
+      seg(pts2[i], pts2[i+1], thin, i === BAND_UPTO ? 0.45 : 0.30, c);
+    }
   }
-  drawCushionDots(pts2, pts2.length - 1 - (post.hit ? 1 : 0));
-  // 6쿠션 **방향**만 절반 길이로 알려준다 (사용자 지시). 띠 없이 얇은 선.
-  // ⚠️ 5쿠션 안에서 공에 맞았으면 그리지 않는다 — '공에 닿으면 이후는 지운다'.
-  if (!post.hit && later.length >= 6){
-    const a5 = later[4].p, a6 = later[5].p;
-    const half = [a5[0] + (a6[0]-a5[0])*0.5, a5[1] + (a6[1]-a5[1])*0.5];
-    const tail = cutAtBall([a5, half], cut.obj);
+  // 쿠션 점은 띠 구간까지만. 흐린 구간까지 찍으면 다시 지저분해진다.
+  drawCushionDots(pts2, Math.min(BAND_UPTO, pts2.length - 1 - (post.hit ? 1 : 0)));
+  // 마지막 쿠션 다음 **방향**만 절반 길이로. 제일 흐리게.
+  // ⚠️ 그 안에서 공에 맞았으면 그리지 않는다 — '공에 닿으면 이후는 지운다'.
+  if (!post.hit && later.length >= DRAW_UPTO + 1){
+    const aN = later[DRAW_UPTO-1].p, aN1 = later[DRAW_UPTO].p;
+    const half = [aN[0] + (aN1[0]-aN[0])*0.5, aN[1] + (aN1[1]-aN[1])*0.5];
+    const tail = cutAtBall([aN, half], cut.obj);
     for (let i = 0; i < tail.pts.length-1; i++)
-      seg(tail.pts[i], tail.pts[i+1], thin, 0.55, COL.after);
+      seg(tail.pts[i], tail.pts[i+1], thin, 0.20, COL.after);
   }
   // 1적구 동선 — 키스를 보려면 이것도 그려야 한다 (사용자 확정).
   // 1적구는 회전·당점의 영향을 안 받고 두께로만 방향이 정해지므로 계산할 수 있다.
