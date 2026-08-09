@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 77;
+const MOBILE_VER = 78;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1045,6 +1045,31 @@ function doReset(){
   S.place = null;
   S.rMode = (S.rMode+1) % 3;
 }
+
+// 공끼리 **붙는 것은 되지만 올라탈 수는 없다** (사용자 확정).
+// 겹치면 중심 사이 거리가 지름이 되도록 밀어낸다. 밀린 공이 또 다른 공과 겹칠 수
+// 있으므로 몇 번 되풀이한다.
+function separate(role, p){
+  const D = T.ball_diameter;
+  let x = p[0], y = p[1];
+  for (let n = 0; n < 8; n++){
+    let moved = false;
+    for (const k in S.balls){
+      if (k === role) continue;
+      const o = S.balls[k].p;
+      let dx = x - o[0], dy = y - o[1], d = Math.hypot(dx, dy);
+      if (d >= D - 1e-6) continue;
+      if (d < 1e-6){ dx = 1; dy = 0; d = 1; }     // 정확히 포개졌으면 아무 방향으로
+      x = o[0] + dx/d*D; y = o[1] + dy/d*D;
+      moved = true;
+    }
+    x = Math.min(Math.max(x, 0), T.width);
+    y = Math.min(Math.max(y, 0), T.height);
+    if (!moved) break;
+  }
+  return [x, y];
+}
+
 function roleOf(c){
   if (c === 'red') return 'obj2';
   return c === (S.cueWhite ? 'white' : 'yellow') ? 'cue' : 'obj1';
@@ -1079,7 +1104,7 @@ function down(px,py){
   if (S.place){
     const [x,y] = toMm(px,py);
     if (x >= 0 && x <= T.width && y >= 0 && y <= T.height){
-      S.balls[roleOf(S.place)] = {p:[x,y], color:S.place};
+      S.balls[roleOf(S.place)] = {p: separate(roleOf(S.place), [x,y]), color:S.place};
       S.place = null;                          // 궤적은 그대로 둔다 (따라온다)
       blink();
     }
@@ -1093,7 +1118,8 @@ function down(px,py){
 function move(px,py){
   if (S.drag){
     const [x,y] = toMm(px,py);
-    S.balls[S.drag].p = [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)];
+    S.balls[S.drag].p = separate(S.drag,
+      [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)]);
     blink();
   } else if (S.aiming){
     const f = frameAt(px,py); if (f) S.aim = S.lastAim = f;
@@ -1823,7 +1849,8 @@ function usePhoto(img){
   if (found){
     S.balls = {}; S.aim = null;
     for (const c of ['white','yellow','red'])
-      if (found[c]){ S.balls[roleOf(c)] = {p: found[c], color: c}; n++; }
+      if (found[c]){                             // 겹쳐 읽혔으면 밀어낸다
+        S.balls[roleOf(c)] = {p: separate(roleOf(c), found[c]), color: c}; n++; }
     if (n) blink();                            // 찍고 돌아오면 3초간 깜박인다
   }
   msg.style.display = 'block';
