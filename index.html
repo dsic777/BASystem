@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 97;
+const MOBILE_VER = 98;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1567,10 +1567,12 @@ function drawPath(){
 
   // ⚠️ 현장 보정(S.corr)은 아직 충돌 뒤 구간에 안 걸린다. 보정은 조준선 기준으로
   //    풀린 값이라 여기에 그대로 못 쓴다 — 필요해지면 따로 풀어야 한다.
-  const later = roll(P, a.dir, 3, 0);
-  // 2·3쿠션을 지나 **다음 공에 맞을 때까지** 그린다 (사용자 지시).
+  // ★ 사용자 지시 2026-08-10 (뒤돌리기/우라마우시 예시):
+  //   '수구는 괘적으로 **5쿠션까지** 표시하고, 라인으로 6쿠션 방향으로 **50%만**'
+  //   전에는 3쿠션까지였다.
   // ⚠️ 여기도 두께 띠를 넣는다 — 어디로 지나가는지 폭까지 봐야 키스가 보인다.
-  const post = cutAtBall([P, ...later.map(h => h.p)], cut.obj);
+  const later = roll(P, a.dir, 6, 0);
+  const post = cutAtBall([P, ...later.slice(0,5).map(h => h.p)], cut.obj);
   const pts2 = post.pts;
   for (let i = 0; i < pts2.length-1; i++){
     seg(pts2[i], pts2[i+1], band, 0.22, COL.hit);
@@ -1581,17 +1583,27 @@ function drawPath(){
     g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,5,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
+  // 6쿠션 **방향**만 절반 길이로 알려준다 (사용자 지시). 띠 없이 얇은 선.
+  // ⚠️ 5쿠션 안에서 공에 맞았으면 그리지 않는다 — '공에 닿으면 이후는 지운다'.
+  if (!post.hit && later.length >= 6){
+    const a5 = later[4].p, a6 = later[5].p;
+    const half = [a5[0] + (a6[0]-a5[0])*0.5, a5[1] + (a6[1]-a5[1])*0.5];
+    const tail = cutAtBall([a5, half], cut.obj);
+    for (let i = 0; i < tail.pts.length-1; i++)
+      seg(tail.pts[i], tail.pts[i+1], thin, 0.55, COL.hit);
+  }
   // 1적구 동선 — 키스를 보려면 이것도 그려야 한다 (사용자 확정).
   // 1적구는 회전·당점의 영향을 안 받고 두께로만 방향이 정해지므로 계산할 수 있다.
   if (a.objDir){
+    // ★ 사용자 지시 2026-08-10: '1적구 경로를 **3쿠션까지만** 보여줍시다, 힘에
+    //   관계없이. 공에 맞았을 경우입니다. 안 맞았을 경우 4쿠션까지 연장합니다.'
+    //   → 3쿠션 안에서 공에 맞으면 거기서 끊고, 아무 공에도 안 맞으면 4쿠션까지.
     // ⚠️ 얼마나 굴러가는지는 아직 모른다 — 1적구가 받는 **충격량**을 안 재서다.
-    //    6쿠션까지 그렸더니 34% 얇은 두께에도 다이 전체를 덮었다 (3.jpg).
-    //    실제로는 얇게 맞으면 조금 가다 선다. 없는 것을 그리면 안 된다.
-    //    그래서 사용자 체크리스트의 기준까지만 그린다 —
-    //    "1적구가 맞고 **첫 번째 쿠션**에 부딪힌 뒤 어디로 튕겨 돌아오는지" (data/kiss.json)
-    //    → 첫 쿠션 + 되돌아오는 한 구간 = 2쿠션.
-    //    두께별 굴러가는 거리를 재면 그때 실제 길이로 바꾼다.
-    const oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 2).map(h => h.p)], cut.obj);
+    //    전에 6쿠션까지 그렸더니 34% 얇은 두께에도 다이 전체를 덮었다 (3.jpg).
+    //    이제는 '힘에 관계없이 몇 쿠션' 이라는 사용자 기준을 그대로 쓴다.
+    let oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 3).map(h => h.p)], cut.obj);
+    if (!oq.hit)
+      oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 4).map(h => h.p)], cut.obj);
     const op = oq.pts;
     // ⚠️ 수구의 1→2쿠션 구간도 노란색이라 1적구 궤적과 헷갈린다. 점선으로 갈라 준다.
     g.save(); g.setLineDash([Math.max(8, thin*4), Math.max(6, thin*3)]);
