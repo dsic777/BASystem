@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 80;
+const MOBILE_VER = 81;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1369,26 +1369,38 @@ function drawPath(){
   if (!cue || !S.aim) return;
   const hits = pathFromAim(cue.p, S.aim, S.corr);
   if (!hits.length) return;
-  const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
-  const pts = cut.pts;
+  const full = [cue.p, ...hits.map(h => h.p)];
+  const cut = cutAtBall(full);
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
-  // ⚠️ 공 두께를 나타내던 굵은 띠는 없앤다. 선만 남긴다 (사용자 지시).
-  //    그리는 것은 **4쿠션까지** — 그 뒤는 안 그린다.
-  const last = Math.min(pts.length-1, 4);
-  for (let i = 0; i < last; i++){
-    const a = toPx(...pts[i]), b = toPx(...pts[i+1]);
+  const last = Math.min(full.length-1, 4);        // 그리는 것은 4쿠션까지
+  const seg = (a, b, w, alpha) => {
+    g.globalAlpha = alpha; g.lineWidth = w; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(...toPx(...a)); g.lineTo(...toPx(...b)); g.stroke();
+    g.globalAlpha = 1;
+  };
+
+  // 1) 적구에 **부딪히기 전**까지는 공 두께(궤적)를 띠로 깔고 그 위에 선을 얹는다.
+  const band = Math.max(3, T.ball_diameter * L.sc);
+  for (let i = 0; i < cut.pts.length-1 && i < last; i++){
     g.strokeStyle = cols[Math.min(i,cols.length-1)];
-    g.lineWidth = Math.max(2.5, L.cloth.h*0.008); g.lineCap = 'round';
-    g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+    seg(cut.pts[i], cut.pts[i+1], band, 0.28);
   }
-  // 쿠션 접점 — 잘린 뒤의 것은 안 그린다
-  for (let i = 1; i <= last - (cut.hit ? 1 : 0); i++){
-    const [x,y] = toPx(...pts[i]);
+  // 2) 선은 4쿠션까지 이어 그린다. 부딪힌 뒤는 **선만** 남는다 (사용자 지시).
+  const thin = Math.max(2.5, L.cloth.h*0.008);
+  for (let i = 0; i < last; i++){
+    g.strokeStyle = cols[Math.min(i,cols.length-1)];
+    seg(full[i], full[i+1], thin, 1);
+  }
+
+  // 쿠션 접점 — 적구에 닿은 뒤의 것은 안 그린다 (일어나지 않을 일이다)
+  const shown = cut.hit ? cut.pts.length-2 : last;
+  for (let i = 1; i <= Math.min(shown, last); i++){
+    const [x,y] = toPx(...full[i]);
     g.fillStyle = COL.c23; g.beginPath(); g.arc(x,y,6,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
-  if (cut.hit && pts.length-1 <= last){           // 적구에 닿은 자리
-    const [x,y] = toPx(...pts[pts.length-1]);
+  if (cut.hit){                                   // 적구에 닿은 자리
+    const [x,y] = toPx(...cut.pts[cut.pts.length-1]);
     g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,9,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
