@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 72;
+const MOBILE_VER = 73;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -887,9 +887,11 @@ function sideButtons(){
 //    (서로 물고 돌면 화면이 통째로 죽는다).
 function corrGeom(ex, ey){
   const R = clockR(), c = L.cloth;
-  // ⚠️ 당점 크기에 맞추면 안 된다. 당점은 보기만 하는 그림이라 작아도 되지만
-  //    이건 손가락으로 누른다 — 천 높이의 15% 로 두면 폰에서 7mm 쯤 된다.
-  const bw = Math.round(Math.max(R * 1.25, c.h * 0.15));
+  // 오른쪽 칸 공 버튼과 같은 크기로 맞춘다 (사용자 지시).
+  // ⚠️ BW 는 sideButtons() 가 정한다. buttonRects() 가 sideButtons() 를 먼저 부르므로
+  //    여기서는 이미 값이 들어 있다. 당점 크기에 맞추면 안 된다 — 당점은 보기만
+  //    하는 그림이고 이건 손가락으로 누른다.
+  const bw = Math.round(Math.max(BW || c.h * 0.15, R * 1.1));
   const gap = Math.round(bw * 0.16);
   const w = bw*3 + gap*2;
   const up = ey > c.y + c.h/2;                     // 아래쪽 모서리면 위로 붙인다
