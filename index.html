@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 76;
+const MOBILE_VER = 77;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -769,7 +769,8 @@ function drawAnswer(){
 
 // ---------------------------------------------------------------- 상태
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
-           corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0};
+           corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
+           blink:0};
 
 // ---------------------------------------------------------------- 화면 좌표
 let L = {};
@@ -1080,11 +1081,12 @@ function down(px,py){
     if (x >= 0 && x <= T.width && y >= 0 && y <= T.height){
       S.balls[roleOf(S.place)] = {p:[x,y], color:S.place};
       S.place = null;                          // 궤적은 그대로 둔다 (따라온다)
+      blink();
     }
     return;
   }
   const gb = ballAt(px,py);
-  if (gb){ S.drag = gb; return; }
+  if (gb){ S.drag = gb; blink(); return; }
   const f = frameAt(px,py);
   if (f){ S.aim = S.lastAim = f; S.aiming = true; }
 }
@@ -1092,6 +1094,7 @@ function move(px,py){
   if (S.drag){
     const [x,y] = toMm(px,py);
     S.balls[S.drag].p = [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)];
+    blink();
   } else if (S.aiming){
     const f = frameAt(px,py); if (f) S.aim = S.lastAim = f;
   }
@@ -1315,22 +1318,22 @@ function drawPath(){
   const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
   const pts = cut.pts;
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
-  const bw = Math.max(3, T.ball_diameter*L.sc);
-  for (let i = 0; i < pts.length-1; i++){
+  // ⚠️ 공 두께를 나타내던 굵은 띠는 없앤다. 선만 남긴다 (사용자 지시).
+  //    그리는 것은 **4쿠션까지** — 그 뒤는 안 그린다.
+  const last = Math.min(pts.length-1, 4);
+  for (let i = 0; i < last; i++){
     const a = toPx(...pts[i]), b = toPx(...pts[i+1]);
     g.strokeStyle = cols[Math.min(i,cols.length-1)];
-    g.globalAlpha = 0.28; g.lineWidth = bw; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
-    g.globalAlpha = 1; g.lineWidth = 3;
+    g.lineWidth = Math.max(2.5, L.cloth.h*0.008); g.lineCap = 'round';
     g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
   }
   // 쿠션 접점 — 잘린 뒤의 것은 안 그린다
-  for (let i = 1; i < pts.length - (cut.hit ? 1 : 0); i++){
+  for (let i = 1; i <= last - (cut.hit ? 1 : 0); i++){
     const [x,y] = toPx(...pts[i]);
     g.fillStyle = COL.c23; g.beginPath(); g.arc(x,y,6,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
-  if (cut.hit){                                   // 적구에 닿은 자리
+  if (cut.hit && pts.length-1 <= last){           // 적구에 닿은 자리
     const [x,y] = toPx(...pts[pts.length-1]);
     g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,9,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
@@ -1355,13 +1358,30 @@ function drawBalls(){
     //    따로 그려 확실히 구분한다 (사용자 지적: 수구 테두리가 안 보인다).
     const r = ballR();
     g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, r*0.12); g.stroke();
-    if (k === 'cue'){
+    // 수구는 금색 링을 **계속** 유지한다. 나머지는 방금 놓였을 때만 잠깐 깜박인다
+    // (사용자 지시: 3초간 금색 테두리 블링크 후 지우기).
+    const on = k === 'cue' ? 1 : blinkAlpha();
+    if (on > 0){
+      g.save();
+      g.globalAlpha = on;
       g.strokeStyle = '#ffdd33';
       g.lineWidth = Math.max(3, r * 0.42);
       g.beginPath(); g.arc(x, y, r + g.lineWidth*0.7, 0, 7); g.stroke();
+      g.restore();
     }
   }
 }
+
+// 방금 공이 놓이거나 움직였으면 3초간 깜박인다. 0 이면 안 그린다.
+function blinkAlpha(){
+  if (!S.blink) return 0;
+  const left = S.blink - Date.now();
+  if (left <= 0){ S.blink = 0; return 0; }
+  return 0.35 + 0.65 * Math.abs(Math.sin(left / 1000 * Math.PI * 2));
+}
+// ⚠️ const 화살표로 두면 선언 전에 불릴 때 화면이 통째로 죽는다 (전에 겪었다).
+//    함수 선언으로 둬서 끌어올려지게 한다.
+function blink(){ S.blink = Date.now() + 3000; }
 function drawClock(){
   if (previewOn()) return;                        // 촬영 중에는 다이 안을 비운다
   const [x,y] = clockCenter(), R = clockR();
@@ -1449,7 +1469,8 @@ function readScale(name, rail, t, clampEnds){
   const sc = SCALES.find(s => s.name === name);
   if (!sc) return null;
   const n = (rail === 'bottom' || rail === 'top') ? 8 : 4;
-  const pts = sc.points.filter(p => p.rail === rail)
+  // ⚠️ 100 뒤의 110·120 은 **표시만** 하는 점이다 (사용자 확정). 읽을 때는 뺀다.
+  const pts = sc.points.filter(p => p.rail === rail && !p.display_only)
                        .map(p => [p.index / n, p.number])
                        .sort((a,b) => a[0]-b[0]);
   if (pts.length < 2) return null;
@@ -1516,13 +1537,11 @@ function systemNumbers(){
   let third = null;
   let hits = null;
   try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
-  // ⚠️ 적구에 닿아 3쿠션 전에 끊겼으면 3쿠션수는 없는 값이다.
+  // 3쿠션수는 **항상** 보여준다 (사용자 지시). 적구에 닿아 궤적이 먼저 끊겨도
+  // 시스템이 가리키는 도착 자리는 알려줘야 한다.
   if (hits && hits.length >= 3){
-    const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
-    if (cut.pts.length >= 4 || !cut.hit){
-      const r = railParam(fold(o, hits[2].p));
-      if (r) third = readScale('third_cushion', r.rail, r.t);
-    }
+    const r = railParam(fold(o, hits[2].p));
+    if (r) third = readScale('third_cushion', r.rail, r.t);
   }
   return {start, first, third};
 }
@@ -1805,6 +1824,7 @@ function usePhoto(img){
     S.balls = {}; S.aim = null;
     for (const c of ['white','yellow','red'])
       if (found[c]){ S.balls[roleOf(c)] = {p: found[c], color: c}; n++; }
+    if (n) blink();                            // 찍고 돌아오면 3초간 깜박인다
   }
   msg.style.display = 'block';
   const who = TEST.on && TEST.name ? TEST.name + ' · ' : '';
