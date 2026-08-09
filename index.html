@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 89;
+const MOBILE_VER = 90;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -778,7 +778,8 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            blink:0, pal:null,
            // 상하 당점. +3 상단 3팁 · 0 중단 · −3 하단 3팁 (고르는 화면은 아직 없다)
            tipV:0,        // 상하 당점  +3 상단3팁(12시) · 0 중단 · −3 하단3팁(6시)
-           tipH:2};       // 좌우 회전  0 무회전(거울) · 2 실측표 기준 · 3 최대
+           tipH:2,        // 좌우 회전  0 무회전(거울) · 2 실측표 기준 · 3 최대
+           tipPanel:false};
 
 // ---------------------------------------------------------------- 화면 좌표
 let L = {};
@@ -807,7 +808,8 @@ function layout(){
   const rl = 1, rt = 1;      // 위·왼쪽 끝에 붙인다
   const px = T.rail_x*sc, py = T.rail_y*sc;
   PANEL = {x: rl + rw + 4, y: rt, w: Math.max(w - (rl+rw) - 8, 40), h: rh};
-  L = {sc, rail:{x:rl, y:rt, w:rw, h:rh},
+  L = {sc, w, h,                                   // w·h = 눕힌 뒤의 화면 크기
+       rail:{x:rl, y:rt, w:rw, h:rh},
        cloth:{x:rl+px, y:rt+py, w:T.width*sc, h:T.height*sc},
        ox: rl+px, oy: rt+py+T.height*sc};
 }
@@ -1111,8 +1113,37 @@ function ballAt(px,py){
   }
   return null;
 }
+// 잠깐 뜨는 안내
+function flash(t, ms){
+  msg.style.display = 'block'; msg.textContent = t;
+  setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, ms || 1800);
+}
+
+// 당점판이 열려 있을 때. **한 번 탭하면 그 자리로 정하고 바로 닫는다** (사용자 지시).
+function tapTipPanel(px,py){
+  const q = tipGeom();
+  for (const b of q.btn)
+    if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
+      S.tipV = b.v; S.tipH = b.s; S.tipPanel = false; return;
+    }
+  if (Math.hypot(px-q.cx, py-q.cy) <= q.R){
+    const [s,v] = tipAt(q, px, py);
+    if (s < 0)                        flash('역회전은 실측 데이터가 없습니다');
+    else if (Math.hypot(s,v) > TIP_MAX) flash('3팁 바깥은 삑사리 구역입니다');
+    else { S.tipV = v; S.tipH = s; S.tipPanel = false; }
+    return;                           // 못 고른 자리면 판은 그대로 둔다
+  }
+  S.tipPanel = false;                 // 판 바깥을 탭하면 그냥 닫는다
+}
+
 function down(px,py){
+  if (S.tipPanel){ tapTipPanel(px,py); return; }
   if (tapButton(px,py)) return;
+  // 작은 시계판을 탭하면 크게 띄운다
+  if (!previewOn()){
+    const [cx,cy] = clockCenter();
+    if (Math.hypot(px-cx, py-cy) <= clockR()*1.3){ S.tipPanel = true; return; }
+  }
   if (S.place){
     const [x,y] = toMm(px,py);
     if (x >= 0 && x <= T.width && y >= 0 && y <= T.height){
@@ -1128,6 +1159,7 @@ function down(px,py){
   if (f){ S.aim = S.lastAim = f; S.aiming = true; }
 }
 function move(px,py){
+  if (S.tipPanel) return;
   if (S.pal){                                    // 색 버튼에서 끌어오는 중
     if (Math.hypot(px - S.pal.x, py - S.pal.y) > BW * 0.25) S.pal.moved = true;
     S.pal.x = px; S.pal.y = py;
@@ -1143,6 +1175,7 @@ function move(px,py){
   }
 }
 function up(px, py){
+  if (S.tipPanel) return;
   // 끌어온 자리가 다이 안이면 거기 놓는다. 움직이지 않았으면 탭으로 본다.
   // ⚠️ 끌고 가는 동안은 아직 안 놓인 상태라 다른 공 위를 지나가도 상관없다.
   //    놓는 순간에만 separate() 로 겹침을 푼다.
@@ -1247,7 +1280,7 @@ function draw(){
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
-  drawButtons(); drawReadout(); drawBrand(); drawPalDrag();
+  drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawTipPanel();
   requestAnimationFrame(draw);
 }
 function drawDiamonds(){
@@ -1627,19 +1660,150 @@ function blink(){ S.blink = Date.now() + 3000; }
 function drawClock(){
   if (previewOn()) return;                        // 촬영 중에는 다이 안을 비운다
   const [x,y] = clockCenter(), R = clockR();
-  const left = goingLeft();
   g.fillStyle = '#f0f0ea'; g.beginPath(); g.arc(x,y,R,0,7); g.fill();
   g.strokeStyle = '#3c3e46'; g.lineWidth = 2; g.stroke();
-  const ang = (left ? 9.5 : 2.5)/12*2*Math.PI - Math.PI/2;
-  const d = R*0.62;
+  // ⚠️ 전에는 2시30분에 점을 박아뒀다. 이제 **고른 당점 자리**에 찍는다.
+  const [dx,dy] = tipOffset(R);
   g.fillStyle = '#de342c';
-  g.beginPath(); g.arc(x + Math.cos(ang)*d, y + Math.sin(ang)*d, R*0.22, 0, 7); g.fill();
+  g.beginPath(); g.arc(x + dx, y + dy, R*0.22, 0, 7); g.fill();
 }
 function goingLeft(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return false;
   const h = pathFromAim(cue.p, S.aim, S.corr);
   return h.length ? h[0].p[0] < cue.p[0] : false;
+}
+
+// ---------------------------------------------------------------- 당점판
+// 작은 시계판에서 1팁을 손가락으로 찍는 것은 불가능하다 — 1팁이 공 반지름의
+// 0.195 뿐이다 (사용자 지적). 탭하면 크게 띄워 고르고, 고르는 즉시 닫는다.
+// ⚠️ 아무 데나 찍히게 하지 않는다. 당점은 1·2·3팁 단위이고 data/separation.json 도
+//    그 단위로만 있다. 사이를 찍게 하면 표에 없는 값을 지어내 쓰게 된다.
+//    가까운 팁 자리로 붙인다.
+const TIP_R = 6.0 / 30.75;   // 1팁이 공 반지름의 얼마인가.
+                             // 큐 팁 지름 12mm 의 절반 = 6mm, 공 반지름 30.75mm
+                             // (data/separation.json 의 tip_size)
+const TIP_MAX = 3.05;        // 3팁 = 18mm = 반지름의 0.585. 그 밖은 삑사리 구역.
+// ★ 사용자 데이터에 실제로 적혀 있는 당점만 넣는다. 내가 만든 조합은 없다.
+// ⚠️ 좌우 팁을 h 라고 부르면 안 된다. 버튼 사각형의 h(높이)와 부딪혀 프리셋이
+//    통째로 깨진다 (하네스에서 tipH=100 으로 잡았다). 점과 같은 이름 s 를 쓴다.
+const PRESET = [
+  {lb:'파이브앤하프', v: 2, s: 2, src:'systems.json  상단 2~3팁 · 1시30분'},
+  {lb:'무회전 뱅크',  v: 2, s: 0, src:'systems.json  12시 · 좌우 회전 0'},
+  {lb:'끌어치기',     v:-3, s: 0, src:'kiss.json  일자배치 하단 3팁'},
+  {lb:'중단 기준',    v: 0, s: 0, src:'separation.json  자연 분리각 45도'}
+];
+
+// 순회전(공이 도는 쪽)이 화면의 어느 쪽인가. 작은 시계판이 2시30분/9시30분을
+// 갈라 그리던 것과 같은 기준이다.
+function tipSide(){ return goingLeft() ? -1 : 1; }
+// 반지름 R 인 공에서 지금 당점이 중심에서 얼마나 떨어져 있나 (px)
+function tipOffset(R){
+  return [S.tipH * TIP_R * R * tipSide(), -S.tipV * TIP_R * R];
+}
+
+function tipGeom(){
+  const w = L.w, h = L.h;
+  const R  = Math.min(h*0.40, w*0.25);
+  const cx = Math.round(Math.max(R + w*0.045, w*0.28));
+  const cy = Math.round(h*0.5);
+  const x0 = Math.round(cx + R + w*0.05);
+  const bw = Math.max(40, Math.round(w - x0 - w*0.04));
+  const bh = Math.round(h*0.135), gap = Math.round(bh*0.20);
+  const y0 = Math.round(h*0.94 - (bh*4 + gap*3));
+  const btn = PRESET.map((p,i) => ({...p, x:x0, y:y0 + i*(bh+gap), w:bw, h:bh}));
+  const dots = [];
+  for (let v = 3; v >= -3; v--)
+    for (let s = 0; s <= 3; s++)
+      if (Math.hypot(s, v) <= TIP_MAX) dots.push({v, s});
+  return {R, cx, cy, x0, bw, y0, btn, dots, unit: R*TIP_R};
+}
+
+// 화면 좌표 → 팁 좌표. 순회전 쪽이 +, 역회전 쪽이 −.
+function tipAt(q, px, py){
+  return [Math.round((px - q.cx) / q.unit * tipSide()),   // s (좌우)
+          Math.round(-(py - q.cy) / q.unit)];             // v (상하)
+}
+
+function drawTipPanel(){
+  if (!S.tipPanel) return;
+  const q = tipGeom(), sd = tipSide();
+  g.save();
+  g.fillStyle = 'rgba(10,11,13,0.90)'; g.fillRect(0,0,L.w,L.h);
+
+  // 공
+  const sph = g.createRadialGradient(q.cx-q.R*0.34, q.cy-q.R*0.38, q.R*0.05,
+                                     q.cx, q.cy, q.R*1.06);
+  sph.addColorStop(0,'#ffffff'); sph.addColorStop(0.34,'#f2f1ea');
+  sph.addColorStop(1,'#b9b7ac');
+  g.fillStyle = sph; g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7); g.fill();
+
+  // 3팁 바깥 = 삑사리 구역. 선수는 치지만 우리는 미끄러진다 (사용자 확인).
+  g.save();
+  g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7);
+  g.arc(q.cx,q.cy,q.unit*3,0,7,true);
+  g.fillStyle = 'rgba(190,40,32,0.30)'; g.fill();
+  g.restore();
+
+  // 역회전 쪽 = 실측 데이터가 없다. 덮어서 못 고르게 한다.
+  g.save();
+  g.beginPath(); g.arc(q.cx,q.cy,q.R, sd>0 ? Math.PI/2 : -Math.PI/2,
+                       sd>0 ? -Math.PI/2 : Math.PI/2, true);
+  g.closePath(); g.fillStyle = 'rgba(12,13,15,0.62)'; g.fill();
+  g.restore();
+
+  // 팁 자리
+  const rr = Math.max(3, q.unit*0.17);
+  for (const d of q.dots){
+    const x = q.cx + d.s*q.unit*sd, y = q.cy - d.v*q.unit;
+    const on = d.s === S.tipH && d.v === S.tipV;
+    g.beginPath(); g.arc(x, y, on ? q.unit*0.34 : rr, 0, 7);
+    g.fillStyle = on ? '#de342c' : 'rgba(58,60,68,0.55)'; g.fill();
+    if (on){ g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, q.unit*0.14); g.stroke(); }
+  }
+
+  // 축 이름
+  g.fillStyle = 'rgba(40,42,48,0.85)'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '700 ' + Math.round(q.unit*0.46) + 'px system-ui, sans-serif';
+  for (const v of [3,2,1,-1,-2,-3])
+    g.fillText((v>0?'상':'하') + Math.abs(v),
+               q.cx - q.unit*0.72*sd, q.cy - v*q.unit);
+  for (const s of [1,2,3])
+    if (Math.hypot(s,0) <= TIP_MAX)
+      g.fillText('순'+s, q.cx + s*q.unit*sd, q.cy + q.unit*0.72);
+  g.fillStyle = 'rgba(230,232,238,0.75)';
+  g.font = '700 ' + Math.round(q.unit*0.42) + 'px system-ui, sans-serif';
+  g.fillText('역회전', q.cx - q.unit*1.9*sd, q.cy - q.unit*0.34);
+  g.fillText('실측 없음', q.cx - q.unit*1.9*sd, q.cy + q.unit*0.34);
+
+  // 지금 값
+  const fs = Math.round(L.h*0.055);
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = '#f2f4f8';
+  g.font = '800 ' + Math.round(fs*1.20) + 'px system-ui, sans-serif';
+  const vn = S.tipV === 0 ? '중단' : (S.tipV>0?'상단 ':'하단 ') + Math.abs(S.tipV) + '팁';
+  g.fillText(vn + ' · ' + (S.tipH === 0 ? '무회전' : '순 ' + S.tipH + '팁'),
+             q.x0, Math.round(L.h*0.20));
+  const sa = separationAngle(0.5, S.tipV), rf = reflect(45, S.tipH) - 45;
+  g.fillStyle = '#9aa2b2';
+  g.font = '600 ' + Math.round(fs*0.80) + 'px system-ui, sans-serif';
+  g.fillText('반두께 분리각  ' + (sa === null ? '-' : sa.toFixed(0) + '°'),
+             q.x0, Math.round(L.h*0.20 + fs*1.30));
+  g.fillText('쿠션 45° 입사   +' + rf.toFixed(1) + '°',
+             q.x0, Math.round(L.h*0.20 + fs*2.20));
+
+  // 자주 쓰는 당점 (전부 data/ 에 적혀 있는 것)
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const b of q.btn){
+    const on = b.v === S.tipV && b.s === S.tipH;
+    g.fillStyle = on ? '#3a4150' : '#22252b';
+    g.strokeStyle = on ? '#ffdd33' : '#3a3e46'; g.lineWidth = on ? 3 : 1.5;
+    g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
+    g.fillStyle = on ? '#ffe98a' : '#dfe3ea';
+    g.font = '700 ' + Math.round(b.h*0.40) + 'px system-ui, sans-serif';
+    g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
+  }
+  g.restore();
 }
 
 // 오른쪽 칸 위 빈 자리에 이름을 넣는다 (사용자 지시, ss.jpg 자리).
