@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 69;
+const MOBILE_VER = 70;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1334,10 +1334,15 @@ function drawBrand(){
   }
   if (fs < 9){ g.restore(); return; }              // 자리가 없으면 안 그린다
   g.font = 'italic 700 ' + Math.round(fs) + face;
-  g.fillStyle = 'rgba(236,241,249,0.92)';
+  // ⚠️ 폰에서는 화면이 어두워 반투명이 더 죽는다 (사용자 지적). 불투명 흰색에
+  //    옅은 그림자를 둬서 뜨게 한다.
+  g.shadowColor = 'rgba(0,0,0,0.85)';
+  g.shadowBlur = Math.max(2, fs*0.18);
+  g.fillStyle = '#ffffff';
   const cx = PANEL.x + PANEL.w / 2;
   const cy = PANEL.y + room * 0.60;                // 조금 아래로 (사용자 지시)
   words.forEach((t, i) => g.fillText(t, cx, cy + (i - 1) * fs * 1.16));
+  g.shadowBlur = 0;
   g.restore();
 }
 
