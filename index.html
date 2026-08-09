@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 82;
+const MOBILE_VER = 83;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1448,13 +1448,23 @@ function drawPath(){
   // ⚠️ 현장 보정(S.corr)은 아직 충돌 뒤 구간에 안 걸린다. 보정은 조준선 기준으로
   //    풀린 값이라 여기에 그대로 못 쓴다 — 필요해지면 따로 풀어야 한다.
   const later = roll(P, a.dir, 3, 0);
-  const pts2 = [P, ...later.map(h => h.p)];
-  for (let i = 0; i < pts2.length-1; i++)
+  // 2·3쿠션을 지나 **다음 공에 맞을 때까지** 그린다 (사용자 지시).
+  // ⚠️ 여기도 두께 띠를 넣는다 — 어디로 지나가는지 폭까지 봐야 키스가 보인다.
+  const post = cutAtBall([P, ...later.map(h => h.p)]);
+  const pts2 = post.pts;
+  for (let i = 0; i < pts2.length-1; i++){
+    seg(pts2[i], pts2[i+1], band, 0.22, COL.hit);
     seg(pts2[i], pts2[i+1], thin, 0.95, COL.hit);
-  for (let i = 1; i < pts2.length; i++){
+  }
+  for (let i = 1; i < pts2.length - (post.hit ? 1 : 0); i++){
     const [x,y] = toPx(...pts2[i]);
     g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,5,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
+  }
+  if (post.hit){                                  // 다음 공에 맞은 자리 = 득점
+    const [x,y] = toPx(...pts2[pts2.length-1]);
+    g.fillStyle = '#6eeb5a'; g.beginPath(); g.arc(x,y,11,0,7); g.fill();
+    g.strokeStyle = '#14141a'; g.lineWidth = 3; g.stroke();
   }
   // 두께·분리각을 접촉점 옆에 적는다
   g.save();
