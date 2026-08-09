@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 85;
+const MOBILE_VER = 86;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -81,7 +81,8 @@ let T, SCALES, BOUNCE, SEP = [], SEP_OBJ = [];
 
 const RAILS = {bottom:[0,1], right:[-1,0], top:[0,-1], left:[1,0]};   // 안쪽 법선
 const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa',
-             hit:'#ff78be'};   // 적구에 닿은 자리
+             hit:'#ff78be',    // 수구가 적구에 닿은 자리 · 그 뒤 경로
+             obj:'#ff2f22'};   // 1적구 궤적 — 공 색과 무관하게 늘 적색 (사용자 확정)
 // 다이 색 — 파란 천에서 **차콜**로 (design.png 방향). 배경을 무채색으로 내리면
 // 남는 색이 전부 정보가 된다 (궤적·눈금·공).
 const FELT = '#24272c', FELT_HI = '#31353c', FELT_EDGE = '#15171a';
@@ -1513,19 +1514,19 @@ function drawPath(){
   // 1적구 동선 — 키스를 보려면 이것도 그려야 한다 (사용자 확정).
   // 1적구는 회전·당점의 영향을 안 받고 두께로만 방향이 정해지므로 계산할 수 있다.
   if (a.objDir){
-    const oc2 = objColor(cut.obj);
-    const oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 3).map(h => h.p)], cut.obj);
+    // 몇 쿠션을 맞든 끝까지 그린다 (사용자 지시). 다른 공에 닿으면 거기서 끊는다.
+    const oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 6).map(h => h.p)], cut.obj);
     const op = oq.pts;
     // ⚠️ 수구의 1→2쿠션 구간도 노란색이라 1적구 궤적과 헷갈린다. 점선으로 갈라 준다.
     g.save(); g.setLineDash([Math.max(8, thin*4), Math.max(6, thin*3)]);
     for (let i = 0; i < op.length-1; i++){
-      seg(op[i], op[i+1], band, 0.18, oc2);
-      seg(op[i], op[i+1], Math.max(2, thin*0.8), 0.95, oc2);
+      seg(op[i], op[i+1], band, 0.18, COL.obj);
+      seg(op[i], op[i+1], Math.max(2, thin*0.8), 0.95, COL.obj);
     }
     g.restore();
     for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
       const [x,y] = toPx(...op[i]);
-      g.fillStyle = oc2; g.beginPath(); g.arc(x,y,4,0,7); g.fill();
+      g.fillStyle = COL.obj; g.beginPath(); g.arc(x,y,4,0,7); g.fill();
       g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
     }
   }
@@ -1545,15 +1546,6 @@ function drawPath(){
   g.strokeText(txt, hx, hy - fs*0.7); g.fillStyle = COL.hit;
   g.fillText(txt, hx, hy - fs*0.7);
   g.restore();
-}
-
-// 그 자리에 있는 공의 색 (1적구 동선을 그 공 색으로 그린다)
-function objColor(p){
-  for (const k in S.balls){
-    const q = S.balls[k].p;
-    if (Math.hypot(q[0]-p[0], q[1]-p[1]) < 1) return TONE[S.balls[k].color] || '#fff';
-  }
-  return '#fff';
 }
 
 function drawCushionDots(pts, upto){
