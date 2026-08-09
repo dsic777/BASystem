@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 81;
+const MOBILE_VER = 82;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -77,7 +77,7 @@ setInterval(checkVersion, 60000);
 //    주소가 /basystem/ 하나로 끝난다 (사용자 확정).
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 const msg = document.getElementById('msg');
-let T, SCALES, BOUNCE;
+let T, SCALES, BOUNCE, SEP = [];
 
 const RAILS = {bottom:[0,1], right:[-1,0], top:[0,-1], left:[1,0]};   // 안쪽 법선
 const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa',
@@ -1348,7 +1348,7 @@ function cutAtBall(pts){
   for (let i = 0; i < pts.length-1; i++){
     const a = pts[i], b = pts[i+1];
     const dx = b[0]-a[0], dy = b[1]-a[1], ll = dx*dx + dy*dy;
-    let t0 = null;
+    let t0 = null, hitObj = null;
     if (ll > 1e-9) for (const o of objs){
       const fx = a[0]-o[0], fy = a[1]-o[1];
       const B = 2*(fx*dx + fy*dy), C = fx*fx + fy*fy - D*D;
@@ -1356,12 +1356,52 @@ function cutAtBall(pts){
       if (disc < 0) continue;
       const sq = Math.sqrt(disc);
       for (const t of [(-B-sq)/(2*ll), (-B+sq)/(2*ll)])
-        if (t > 1e-3 && t <= 1 && (t0 === null || t < t0)) t0 = t;
+        if (t > 1e-3 && t <= 1 && (t0 === null || t < t0)){ t0 = t; hitObj = o; }
     }
-    if (t0 !== null){ out.push([a[0]+dx*t0, a[1]+dy*t0]); return {pts:out, hit:true}; }
+    if (t0 !== null){
+      out.push([a[0]+dx*t0, a[1]+dy*t0]);
+      return {pts:out, hit:true, obj:hitObj, from:a};
+    }
     out.push(b);
   }
   return {pts:out, hit:false};
+}
+
+
+// ---------------------------------------------------------------- 충돌 후
+// 적구를 맞은 뒤 수구가 꺾이는 각 (분리각). data/separation.json 의 표를 보간한다.
+// ⚠️ 이 표는 **당점 2시30분~3시 3팁 · 사용자의 평소 속도** 에서만 맞는다
+//    (실측 쿠션표와 같은 조건). 속도·거리·당점 높낮이는 아직 안 넣었다.
+function separationAngle(thick){
+  if (!SEP.length) return null;
+  const t = Math.max(0, Math.min(1, thick));
+  if (t >= SEP[SEP.length-1][0]) return SEP[SEP.length-1][1];   // 더 두꺼워도 안 늘린다
+  for (let i = 0; i < SEP.length-1; i++)
+    if (t >= SEP[i][0] && t <= SEP[i+1][0]){
+      const k = (t - SEP[i][0]) / (SEP[i+1][0] - SEP[i][0]);
+      return SEP[i][1] + k * (SEP[i+1][1] - SEP[i][1]);
+    }
+  return null;
+}
+
+// 적구에 닿는 순간의 두께와, 그 뒤 수구가 갈 방향.
+//   두께 = (지름 − 중심선까지 거리) / 지름     (정면 1.0 · 반두께 0.5 · 스침 0)
+//   꺾이는 쪽은 적구가 있는 **반대쪽**이다.
+function afterHit(from, to, obj){
+  const D = T.ball_diameter;
+  let dx = to[0]-from[0], dy = to[1]-from[1];
+  const L = Math.hypot(dx, dy);
+  if (L < 1e-9) return null;
+  dx /= L; dy /= L;
+  const ox = obj[0]-to[0], oy = obj[1]-to[1];
+  const side = dx*oy - dy*ox;                    // 적구가 왼쪽(+)인가 오른쪽(−)인가
+  const perp = Math.abs(side);                   // 접촉 순간 중심선까지 거리
+  const thick = Math.max(0, Math.min(1, (D - perp) / D));
+  const deg = separationAngle(thick);
+  if (deg === null) return null;
+  const r = -Math.sign(side || 1) * deg * Math.PI/180;   // 적구 반대쪽으로 꺾인다
+  return {thick, deg,
+          dir: [dx*Math.cos(r) - dy*Math.sin(r), dx*Math.sin(r) + dy*Math.cos(r)]};
 }
 
 function drawPath(){
@@ -1372,36 +1412,66 @@ function drawPath(){
   const full = [cue.p, ...hits.map(h => h.p)];
   const cut = cutAtBall(full);
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
-  const last = Math.min(full.length-1, 4);        // 그리는 것은 4쿠션까지
-  const seg = (a, b, w, alpha) => {
-    g.globalAlpha = alpha; g.lineWidth = w; g.lineCap = 'round';
+  const seg = (a, b, w, alpha, col) => {
+    g.strokeStyle = col; g.globalAlpha = alpha; g.lineWidth = w; g.lineCap = 'round';
     g.beginPath(); g.moveTo(...toPx(...a)); g.lineTo(...toPx(...b)); g.stroke();
     g.globalAlpha = 1;
   };
-
-  // 1) 적구에 **부딪히기 전**까지는 공 두께(궤적)를 띠로 깔고 그 위에 선을 얹는다.
   const band = Math.max(3, T.ball_diameter * L.sc);
-  for (let i = 0; i < cut.pts.length-1 && i < last; i++){
-    g.strokeStyle = cols[Math.min(i,cols.length-1)];
-    seg(cut.pts[i], cut.pts[i+1], band, 0.28);
-  }
-  // 2) 선은 4쿠션까지 이어 그린다. 부딪힌 뒤는 **선만** 남는다 (사용자 지시).
   const thin = Math.max(2.5, L.cloth.h*0.008);
-  for (let i = 0; i < last; i++){
-    g.strokeStyle = cols[Math.min(i,cols.length-1)];
-    seg(full[i], full[i+1], thin, 1);
+
+  // 1) 적구에 부딪히기 전 — 공 두께(궤적) 띠를 깔고 그 위에 선
+  const before = cut.pts;
+  for (let i = 0; i < before.length-1; i++){
+    const c = cols[Math.min(i,cols.length-1)];
+    seg(before[i], before[i+1], band, 0.28, c);
+    seg(before[i], before[i+1], thin, 1, c);
   }
 
-  // 쿠션 접점 — 적구에 닿은 뒤의 것은 안 그린다 (일어나지 않을 일이다)
-  const shown = cut.hit ? cut.pts.length-2 : last;
-  for (let i = 1; i <= Math.min(shown, last); i++){
-    const [x,y] = toPx(...full[i]);
-    g.fillStyle = COL.c23; g.beginPath(); g.arc(x,y,6,0,7); g.fill();
+  if (!cut.hit){                                  // 안 맞으면 4쿠션까지 선만
+    const last = Math.min(full.length-1, 4);
+    for (let i = before.length-1; i < last; i++)
+      seg(full[i], full[i+1], thin, 1, cols[Math.min(i,cols.length-1)]);
+    drawCushionDots(full, Math.min(last, full.length-1));
+    return;
+  }
+
+  // 2) 맞은 뒤 — 두께로 꺾인 방향으로 다시 굴린다 (사용자 제공 분리각 표)
+  const P = before[before.length-1];
+  const a = afterHit(cut.from, P, cut.obj);
+  drawCushionDots(before, before.length-2);
+  const [hx,hy] = toPx(...P);
+  g.fillStyle = COL.hit; g.beginPath(); g.arc(hx,hy,9,0,7); g.fill();
+  g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
+  if (!a) return;
+
+  // ⚠️ 현장 보정(S.corr)은 아직 충돌 뒤 구간에 안 걸린다. 보정은 조준선 기준으로
+  //    풀린 값이라 여기에 그대로 못 쓴다 — 필요해지면 따로 풀어야 한다.
+  const later = roll(P, a.dir, 3, 0);
+  const pts2 = [P, ...later.map(h => h.p)];
+  for (let i = 0; i < pts2.length-1; i++)
+    seg(pts2[i], pts2[i+1], thin, 0.95, COL.hit);
+  for (let i = 1; i < pts2.length; i++){
+    const [x,y] = toPx(...pts2[i]);
+    g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,5,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
-  if (cut.hit){                                   // 적구에 닿은 자리
-    const [x,y] = toPx(...cut.pts[cut.pts.length-1]);
-    g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,9,0,7); g.fill();
+  // 두께·분리각을 접촉점 옆에 적는다
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'bottom';
+  const fs = Math.max(11, L.cloth.h*0.045);
+  g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
+  g.lineJoin = 'round'; g.strokeStyle = '#14161a'; g.lineWidth = Math.max(3, fs*0.28);
+  const txt = Math.round(a.thick*100) + '%  ' + Math.round(a.deg) + '°';
+  g.strokeText(txt, hx, hy - fs*0.7); g.fillStyle = COL.hit;
+  g.fillText(txt, hx, hy - fs*0.7);
+  g.restore();
+}
+
+function drawCushionDots(pts, upto){
+  for (let i = 1; i <= upto; i++){
+    const [x,y] = toPx(...pts[i]);
+    g.fillStyle = COL.c23; g.beginPath(); g.arc(x,y,6,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
 }
@@ -1945,10 +2015,11 @@ addEventListener('pointerup', e => up(...pos(e)));
 
 (async () => {
   try{
-    const [tb, num, bo] = await Promise.all([
+    const [tb, num, bo, sep] = await Promise.all([
       fetch('data/table_medium.json').then(r => r.json()),
       fetch('data/five_half_numbers.json').then(r => r.json()),
-      fetch('data/measured_bounce.json').then(r => r.json())]);
+      fetch('data/measured_bounce.json').then(r => r.json()),
+      fetch('data/separation.json').then(r => r.json())]);
     const pf = tb.playfield || tb;
     T = {width: pf.width ?? tb.width, height: pf.height ?? tb.height,
          outer_width: (tb.outer?.width) ?? tb.outer_width,
@@ -1962,6 +2033,7 @@ addEventListener('pointerup', e => up(...pos(e)));
       color: 'rgb(' + (s.color || [255,255,255]).join(',') + ')',
       points: s.points}));
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
+    SEP = sep.table.map(r => [r[0], r[1]]);
     msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
     const mA = location.search.match(/[?&]a=(\d{2})/);
