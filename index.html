@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 90;
+const MOBILE_VER = 91;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1139,11 +1139,6 @@ function tapTipPanel(px,py){
 function down(px,py){
   if (S.tipPanel){ tapTipPanel(px,py); return; }
   if (tapButton(px,py)) return;
-  // 작은 시계판을 탭하면 크게 띄운다
-  if (!previewOn()){
-    const [cx,cy] = clockCenter();
-    if (Math.hypot(px-cx, py-cy) <= clockR()*1.3){ S.tipPanel = true; return; }
-  }
   if (S.place){
     const [x,y] = toMm(px,py);
     if (x >= 0 && x <= T.width && y >= 0 && y <= T.height){
@@ -1155,6 +1150,14 @@ function down(px,py){
   }
   const gb = ballAt(px,py);
   if (gb){ S.drag = gb; blink(); return; }
+  // 작은 시계판을 탭하면 크게 띄운다.
+  // ⚠️ 탭 영역을 그림 크기(clockR)로 두면 못 누른다 — 폰에서 반경이 21 CSS px 밖에
+  //    안 되는데 손가락 접촉은 40~50 px 다 (사용자: 'v90 안되는데요'). 넉넉히 잡는다.
+  // ⚠️ 공보다 뒤에 둔다. 당점 원이 공 위에 겹쳤을 때 공을 못 잡으면 안 된다.
+  if (!previewOn()){
+    const [cx,cy] = clockCenter();
+    if (Math.hypot(px-cx, py-cy) <= clockR()*2.4){ S.tipPanel = true; return; }
+  }
   const f = frameAt(px,py);
   if (f){ S.aim = S.lastAim = f; S.aiming = true; }
 }
@@ -1662,6 +1665,9 @@ function drawClock(){
   const [x,y] = clockCenter(), R = clockR();
   g.fillStyle = '#f0f0ea'; g.beginPath(); g.arc(x,y,R,0,7); g.fill();
   g.strokeStyle = '#3c3e46'; g.lineWidth = 2; g.stroke();
+  // 누르면 커진다는 표시. 크기는 그대로 두고(사용자가 줄이라고 했다) 테두리만 두른다.
+  g.strokeStyle = 'rgba(255,221,51,0.55)'; g.lineWidth = Math.max(1.5, R*0.10);
+  g.beginPath(); g.arc(x, y, R*1.22, 0, 7); g.stroke();
   // ⚠️ 전에는 2시30분에 점을 박아뒀다. 이제 **고른 당점 자리**에 찍는다.
   const [dx,dy] = tipOffset(R);
   g.fillStyle = '#de342c';
