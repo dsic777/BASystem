@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 102;
+const MOBILE_VER = 103;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1659,15 +1659,29 @@ function drawPath(){
     g.fillStyle = '#6eeb5a'; g.beginPath(); g.arc(x,y,11,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 3; g.stroke();
   }
-  // 두께·분리각을 접촉점 옆에 적는다
+  // 두께·분리각을 접촉점 옆에 적는다.
+  // ⚠️ 접촉점 **바로 위**에 적으면 1적구가 덮는다 (사용자 지적, ss.jpg).
+  //    draw() 가 경로를 먼저 그리고 공을 나중에 그려서 글자가 공 밑으로 들어간다.
+  //    '32%  35°' 의 가운데가 가려져 각도 두 개처럼 보였다.
+  //    → 1적구 **반대쪽**으로 민다. 공이 어디 있든 자동으로 반대편에 붙는다.
   g.save();
-  g.textAlign = 'center'; g.textBaseline = 'bottom';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
   const fs = Math.max(11, L.cloth.h*0.045);
   g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
   g.lineJoin = 'round'; g.strokeStyle = '#14161a'; g.lineWidth = Math.max(3, fs*0.28);
   const txt = Math.round(a.thick*100) + '%  ' + Math.round(a.deg) + '°';
-  g.strokeText(txt, hx, hy - fs*0.7); g.fillStyle = COL.hit;
-  g.fillText(txt, hx, hy - fs*0.7);
+  const [obx, oby] = toPx(...cut.obj);
+  let vx = hx - obx, vy = hy - oby;
+  const vn = Math.hypot(vx, vy) || 1;
+  vx /= vn; vy /= vn;
+  const off = ballR()*2.0 + fs*0.9;
+  const half = g.measureText(txt).width/2 + fs*0.3;
+  const c2 = L.cloth;
+  // 천 밖으로 나가지 않게 잡아 둔다
+  const tx = Math.min(Math.max(hx + vx*off, c2.x + half), c2.x + c2.w - half);
+  const ty = Math.min(Math.max(hy + vy*off, c2.y + fs*0.7), c2.y + c2.h - fs*0.7);
+  g.strokeText(txt, tx, ty); g.fillStyle = COL.hit;
+  g.fillText(txt, tx, ty);
   g.restore();
 }
 
