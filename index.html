@@ -77,7 +77,7 @@ setInterval(checkVersion, 60000);
 //    주소가 /basystem/ 하나로 끝난다 (사용자 확정).
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 const msg = document.getElementById('msg');
-let T, SCALES, BOUNCE, SEP = [];
+let T, SCALES, BOUNCE, SEP = [], SEP_OBJ = [];
 
 const RAILS = {bottom:[0,1], right:[-1,0], top:[0,-1], left:[1,0]};   // 안쪽 법선
 const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa',
@@ -2033,7 +2033,8 @@ addEventListener('pointerup', e => up(...pos(e)));
       color: 'rgb(' + (s.color || [255,255,255]).join(',') + ')',
       points: s.points}));
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
-    SEP = sep.table.map(r => [r[0], r[1]]);
+    SEP = sep.cue_ball.table.map(r => [r[0], r[1]]);
+    SEP_OBJ = sep.object_ball.table.map(r => [r[0], r[1]]);
     msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
     const mA = location.search.match(/[?&]a=(\d{2})/);
