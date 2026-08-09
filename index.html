@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 74;
+const MOBILE_VER = 75;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -891,7 +891,9 @@ function corrGeom(ex, ey){
   // ⚠️ BW 는 sideButtons() 가 정한다. buttonRects() 가 sideButtons() 를 먼저 부르므로
   //    여기서는 이미 값이 들어 있다. 당점 크기에 맞추면 안 된다 — 당점은 보기만
   //    하는 그림이고 이건 손가락으로 누른다.
-  const bw = Math.round(Math.max(BW || c.h * 0.15, R * 1.1));
+  // ⚠️ 당점 반지름을 하한으로 두면 안 된다 — 조건에 따라 BW 보다 커진다.
+  //    오른쪽 칸 여섯 버튼과 **정확히 같은 크기**로 둔다 (사용자 지시).
+  const bw = Math.round(BW || c.h * 0.12);
   const gap = Math.round(bw * 0.16);
   const w = bw*3 + gap*2;
   const up = ey > c.y + c.h/2;                     // 아래쪽 모서리면 위로 붙인다
@@ -908,7 +910,8 @@ function corrButtons(){
     ({x: q.x + i*(q.bw+q.gap), y: q.y, w: q.bw, h: q.bw, lb}));
 }
 
-const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
+// 당점은 **보기만 하는 그림**이라 작아도 된다 (사용자 지시로 줄임).
+const clockR = () => L.cloth.h * 0.055;
 // ⚠️ 여기서 BTN(버튼 자리)을 보면 안 된다. buttonRects() 가 clockCenter() 를
 //    부르므로 서로 물고 도는 순환이 되고, const 화살표 함수라 선언 전에
 //    불려 화면이 통째로 죽는다 (실기기에서 확인).
