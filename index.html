@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 83;
+const MOBILE_VER = 84;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1368,6 +1368,42 @@ function cutAtBall(pts){
 }
 
 
+
+// 1적구가 나가는 각. **수구의 진행 방향** 을 0 으로 보고, 적구가 있는 **같은 쪽**으로 꺾인다.
+// (수구는 반대쪽으로 꺾인다 — data/separation.json 참고)
+function objectAngle(thick){
+  if (!SEP_OBJ.length) return null;
+  const t = Math.max(0, Math.min(1, thick));
+  const a = SEP_OBJ.slice().sort((x,y) => x[0]-y[0]);
+  if (t <= a[0][0]) return a[0][1];
+  if (t >= a[a.length-1][0]) return a[a.length-1][1];
+  for (let i = 0; i < a.length-1; i++)
+    if (t >= a[i][0] && t <= a[i+1][0]){
+      const k = (t - a[i][0]) / (a[i+1][0] - a[i][0]);
+      return a[i][1] + k * (a[i+1][1] - a[i][1]);
+    }
+  return null;
+}
+
+// 회전 없는 거울반사로 굴린다.
+// ⚠️ 1적구에 실측 반사표(measured_bounce)를 쓰면 안 된다. 그 표는 **큐로 3팁을 준
+//    수구** 로 잰 것이고, 1적구는 큐에 안 맞아 회전이 없다.
+function rollPlain(start, d, cushions){
+  const n = Math.hypot(d[0], d[1]);
+  if (n < 1e-9) return [];
+  let p = start.slice(), dir = [d[0]/n, d[1]/n], out = [];
+  for (let i = 0; i < cushions; i++){
+    const nx = nextRail(p, dir, T.width, T.height);
+    if (!nx) break;
+    const [rail, q] = nx, nb = RAILS[rail];
+    const dot = dir[0]*nb[0] + dir[1]*nb[1];
+    dir = [dir[0] - 2*dot*nb[0], dir[1] - 2*dot*nb[1]];
+    out.push({rail, p: q});
+    p = q;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- 충돌 후
 // 적구를 맞은 뒤 수구가 꺾이는 각 (분리각). data/separation.json 의 표를 보간한다.
 // ⚠️ 이 표는 **당점 2시30분~3시 3팁 · 사용자의 평소 속도** 에서만 맞는다
@@ -1399,9 +1435,14 @@ function afterHit(from, to, obj){
   const thick = Math.max(0, Math.min(1, (D - perp) / D));
   const deg = separationAngle(thick);
   if (deg === null) return null;
-  const r = -Math.sign(side || 1) * deg * Math.PI/180;   // 적구 반대쪽으로 꺾인다
-  return {thick, deg,
-          dir: [dx*Math.cos(r) - dy*Math.sin(r), dx*Math.sin(r) + dy*Math.cos(r)]};
+  const sgn = Math.sign(side || 1);
+  const r = -sgn * deg * Math.PI/180;                    // 수구는 적구 반대쪽으로
+  const od = objectAngle(thick);
+  const ro = od === null ? null : sgn * od * Math.PI/180; // 1적구는 같은 쪽으로
+  return {thick, deg, objDeg: od,
+          dir: [dx*Math.cos(r) - dy*Math.sin(r), dx*Math.sin(r) + dy*Math.cos(r)],
+          objDir: ro === null ? null
+                : [dx*Math.cos(ro) - dy*Math.sin(ro), dx*Math.sin(ro) + dy*Math.cos(ro)]};
 }
 
 function drawPath(){
@@ -1461,6 +1502,22 @@ function drawPath(){
     g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,5,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
+  // 1적구 동선 — 키스를 보려면 이것도 그려야 한다 (사용자 확정).
+  // 1적구는 회전·당점의 영향을 안 받고 두께로만 방향이 정해지므로 계산할 수 있다.
+  if (a.objDir){
+    const oc2 = objColor(cut.obj);
+    const op = cutAtBall2(cut.obj, [cut.obj, ...rollPlain(cut.obj, a.objDir, 3).map(h => h.p)]);
+    for (let i = 0; i < op.length-1; i++){
+      seg(op[i], op[i+1], band, 0.20, oc2);
+      seg(op[i], op[i+1], Math.max(2, thin*0.8), 0.9, oc2);
+    }
+    for (let i = 1; i < op.length; i++){
+      const [x,y] = toPx(...op[i]);
+      g.fillStyle = oc2; g.beginPath(); g.arc(x,y,4,0,7); g.fill();
+      g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
+    }
+  }
+
   if (post.hit){                                  // 다음 공에 맞은 자리 = 득점
     const [x,y] = toPx(...pts2[pts2.length-1]);
     g.fillStyle = '#6eeb5a'; g.beginPath(); g.arc(x,y,11,0,7); g.fill();
@@ -1476,6 +1533,42 @@ function drawPath(){
   g.strokeText(txt, hx, hy - fs*0.7); g.fillStyle = COL.hit;
   g.fillText(txt, hx, hy - fs*0.7);
   g.restore();
+}
+
+// 그 자리에 있는 공의 색 (1적구 동선을 그 공 색으로 그린다)
+function objColor(p){
+  for (const k in S.balls){
+    const q = S.balls[k].p;
+    if (Math.hypot(q[0]-p[0], q[1]-p[1]) < 1) return TONE[S.balls[k].color] || '#fff';
+  }
+  return '#fff';
+}
+
+// 1적구 동선을 **자기 자신을 뺀** 다른 공에서 끊는다
+function cutAtBall2(self, pts){
+  const D = T.ball_diameter, out = [pts[0]];
+  const objs = [];
+  for (const k in S.balls){
+    const q = S.balls[k].p;
+    if (Math.hypot(q[0]-self[0], q[1]-self[1]) > 1) objs.push(q);
+  }
+  for (let i = 0; i < pts.length-1; i++){
+    const a = pts[i], b = pts[i+1];
+    const dx = b[0]-a[0], dy = b[1]-a[1], ll = dx*dx + dy*dy;
+    let t0 = null;
+    if (ll > 1e-9) for (const o of objs){
+      const fx = a[0]-o[0], fy = a[1]-o[1];
+      const B = 2*(fx*dx + fy*dy), C = fx*fx + fy*fy - D*D;
+      const disc = B*B - 4*ll*C;
+      if (disc < 0) continue;
+      const sq = Math.sqrt(disc);
+      for (const t of [(-B-sq)/(2*ll), (-B+sq)/(2*ll)])
+        if (t > 1e-3 && t <= 1 && (t0 === null || t < t0)) t0 = t;
+    }
+    if (t0 !== null){ out.push([a[0]+dx*t0, a[1]+dy*t0]); return out; }
+    out.push(b);
+  }
+  return out;
 }
 
 function drawCushionDots(pts, upto){
