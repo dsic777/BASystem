@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 78;
+const MOBILE_VER = 79;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1270,6 +1270,8 @@ function drawNumbers(){
     g.fillStyle = sc.color; g.textAlign = 'center'; g.textBaseline = 'middle';
     const seen = [];
     for (const pt of sc.points){
+      // ⚠️ 100 뒤의 110·120 은 **판독창 전용**이다 (사용자 확정). 다이에는 안 그린다.
+      if (pt.readout_only) continue;
       let mm = railPoint(sc, pt.rail, pt.index);
       const rail = foldRail(o, pt.rail);
       mm = fold(o, mm);
@@ -1495,8 +1497,7 @@ function readScale(name, rail, t, clampEnds){
   const sc = SCALES.find(s => s.name === name);
   if (!sc) return null;
   const n = (rail === 'bottom' || rail === 'top') ? 8 : 4;
-  // ⚠️ 100 뒤의 110·120 은 **표시만** 하는 점이다 (사용자 확정). 읽을 때는 뺀다.
-  const pts = sc.points.filter(p => p.rail === rail && !p.display_only)
+  const pts = sc.points.filter(p => p.rail === rail)
                        .map(p => [p.index / n, p.number])
                        .sort((a,b) => a[0]-b[0]);
   if (pts.length < 2) return null;
@@ -1504,7 +1505,11 @@ function readScale(name, rail, t, clampEnds){
   //    포인트 사이 공간을 전부 그 값으로 본다. 다만 **두 레일의 끝값이 같은
   //    모서리에서만** 그렇다. 아무 끝이나 늘리면 없는 값을 지어내게 된다
   //    (우측 레일 반대쪽 끝은 100 이라 늘리면 100 이 나와 버렸다).
-  if (t <= pts[0][0] || t >= pts[pts.length-1][0]){
+  // ⚠️ 끝점과 **정확히** 같은 자리는 범위 밖이 아니다. 그 값을 그대로 준다
+  //    (전엔 t=1.00 에서 null 이 나와 마지막 눈금을 못 읽었다).
+  if (t === pts[0][0]) return pts[0][1];
+  if (t === pts[pts.length-1][0]) return pts[pts.length-1][1];
+  if (t < pts[0][0] || t > pts[pts.length-1][0]){
     if (!clampEnds) return null;
     const lo = t <= pts[0][0];
     const mine = lo ? pts[0][1] : pts[pts.length-1][1];

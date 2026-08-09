@@ -108,10 +108,10 @@
           "rail": "right",
           "index": 4,
           "number": 110,
-          "display_only": true
+          "readout_only": true
         }
       ],
-      "_extended": "★ 2026-08-09 사용자 지시: 100 다음 110·120 을 같은 간격으로 이어 **표시만** 한다. 원래 안 쓰는 포인트라 display_only 로 두고 숫자 읽기(readScale)에서는 뺀다."
+      "_extended": "★ 2026-08-09 사용자 확정: 100 다음 110·120 은 원래 안 쓰는 포인트다. **판독창에서만** 쓰고 다이 위에는 안 그린다 (3쿠션 숫자가 100 을 넘으면 — 로 비던 것을 메우려는 것)."
     },
     "first_cushion": {
       "_desc": "1쿠션수 — 노란색. 상단 장쿠션. 조준 목표라 프레임 포인트 기준.",
@@ -181,10 +181,10 @@
           "rail": "top",
           "index": 8,
           "number": 110,
-          "display_only": true
+          "readout_only": true
         }
       ],
-      "_extended": "★ 2026-08-09 사용자 지시: 100 다음 110·120 을 같은 간격으로 이어 **표시만** 한다. 원래 안 쓰는 포인트라 display_only 로 두고 숫자 읽기(readScale)에서는 뺀다."
+      "_extended": "★ 2026-08-09 사용자 확정: 100 다음 110·120 은 원래 안 쓰는 포인트다. **판독창에서만** 쓰고 다이 위에는 안 그린다 (3쿠션 숫자가 100 을 넘으면 — 로 비던 것을 메우려는 것)."
     },
     "third_cushion": {
       "_desc": "3쿠션수 — 연두색. 하단 장쿠션. 공이 실제로 도착하는 곳이라 레일 포인트(쿠션 날) 기준.",
@@ -254,16 +254,16 @@
           "rail": "bottom",
           "index": 7.5,
           "number": 110,
-          "display_only": true
+          "readout_only": true
         },
         {
           "rail": "bottom",
           "index": 8,
           "number": 120,
-          "display_only": true
+          "readout_only": true
         }
       ],
-      "_extended": "★ 2026-08-09 사용자 지시: 100 다음 110·120 을 같은 간격으로 이어 **표시만** 한다. 원래 안 쓰는 포인트라 display_only 로 두고 숫자 읽기(readScale)에서는 뺀다."
+      "_extended": "★ 2026-08-09 사용자 확정: 100 다음 110·120 은 원래 안 쓰는 포인트다. **판독창에서만** 쓰고 다이 위에는 안 그린다 (3쿠션 숫자가 100 을 넘으면 — 로 비던 것을 메우려는 것)."
     }
   },
   "_open_questions": [
