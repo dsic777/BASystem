@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 79;
+const MOBILE_VER = 80;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -770,7 +770,7 @@ function drawAnswer(){
 // ---------------------------------------------------------------- 상태
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
-           blink:0};
+           blink:0, pal:null};
 
 // ---------------------------------------------------------------- 화면 좌표
 let L = {};
@@ -1031,8 +1031,12 @@ function tapButton(px,py){
       if (a) S.balls.obj1 = a; else delete S.balls.obj1;
       if (b2) S.balls.cue = b2; else delete S.balls.cue;
     }
-    else if (['white','yellow','red'].includes(b.lb))
+    else if (['white','yellow','red'].includes(b.lb)){
       S.place = S.place === b.lb ? null : b.lb;
+      // 손가락으로 끌어다 놓기도 된다 (사용자 지시). 탭 방식은 그대로 남긴다 —
+      // 움직이지 않고 떼면 지금처럼 '고른 상태' 로 남는다.
+      S.pal = {c: b.lb, x: px, y: py, moved: false};
+    }
     else if (b.lb === 'reset') doReset();
     return true;
   }
@@ -1116,6 +1120,11 @@ function down(px,py){
   if (f){ S.aim = S.lastAim = f; S.aiming = true; }
 }
 function move(px,py){
+  if (S.pal){                                    // 색 버튼에서 끌어오는 중
+    if (Math.hypot(px - S.pal.x, py - S.pal.y) > BW * 0.25) S.pal.moved = true;
+    S.pal.x = px; S.pal.y = py;
+    return;
+  }
   if (S.drag){
     const [x,y] = toMm(px,py);
     S.balls[S.drag].p = separate(S.drag,
@@ -1125,7 +1134,24 @@ function move(px,py){
     const f = frameAt(px,py); if (f) S.aim = S.lastAim = f;
   }
 }
-const up = () => { S.drag = null; S.aiming = false; };
+function up(px, py){
+  // 끌어온 자리가 다이 안이면 거기 놓는다. 움직이지 않았으면 탭으로 본다.
+  // ⚠️ 끌고 가는 동안은 아직 안 놓인 상태라 다른 공 위를 지나가도 상관없다.
+  //    놓는 순간에만 separate() 로 겹침을 푼다.
+  if (S.pal){
+    const q = S.pal; S.pal = null;
+    if (q.moved && px !== undefined){
+      const [x,y] = toMm(px,py);
+      if (x >= 0 && x <= T.width && y >= 0 && y <= T.height){
+        const role = roleOf(q.c);
+        S.balls[role] = {p: separate(role, [x,y]), color: q.c};
+        S.place = null;
+        blink();
+      }
+    }
+  }
+  S.drag = null; S.aiming = false;
+}
 
 // ---------------------------------------------------------------- 그리기
 function draw(){
@@ -1213,7 +1239,7 @@ function draw(){
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
-  drawButtons(); drawReadout(); drawBrand();
+  drawButtons(); drawReadout(); drawBrand(); drawPalDrag();
   requestAnimationFrame(draw);
 }
 function drawDiamonds(){
@@ -1430,6 +1456,22 @@ function goingLeft(){
 
 // 오른쪽 칸 위 빈 자리에 이름을 넣는다 (사용자 지시, ss.jpg 자리).
 // 버튼 묶음이 세로 가운데 정렬이라 위아래에 빈 공간이 남는다.
+// 색 버튼에서 끌어오는 중인 공 — 손가락을 따라다닌다
+function drawPalDrag(){
+  if (!S.pal || !S.pal.moved) return;
+  const r = ballR(), x = S.pal.x, y = S.pal.y, base = TONE[S.pal.c] || '#fff';
+  g.save();
+  g.globalAlpha = 0.85;
+  const sph = g.createRadialGradient(x-r*0.34, y-r*0.38, r*0.05, x, y, r*1.06);
+  sph.addColorStop(0, '#ffffff'); sph.addColorStop(0.30, base);
+  sph.addColorStop(1, shade(base, 0.42));
+  g.fillStyle = sph;
+  g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, r*0.30);
+  g.beginPath(); g.arc(x, y, r + g.lineWidth*0.7, 0, 7); g.stroke();
+  g.restore();
+}
+
 function drawBrand(){
   if (!PANEL || !BTN.length) return;
   const top = Math.min(...BTN.filter(b => b.x >= PANEL.x).map(b => b.y));
@@ -1887,7 +1929,7 @@ const pos = e => {
 };
 cv.addEventListener('pointerdown', e => { down(...pos(e)); });
 cv.addEventListener('pointermove', e => { move(...pos(e)); });
-addEventListener('pointerup', up);
+addEventListener('pointerup', e => up(...pos(e)));
 
 (async () => {
   try{
