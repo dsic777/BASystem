@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 75;
+const MOBILE_VER = 76;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -80,7 +80,8 @@ const msg = document.getElementById('msg');
 let T, SCALES, BOUNCE;
 
 const RAILS = {bottom:[0,1], right:[-1,0], top:[0,-1], left:[1,0]};   // 안쪽 법선
-const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa'};
+const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa',
+             hit:'#ff78be'};   // 적구에 닿은 자리
 // 다이 색 — 파란 천에서 **차콜**로 (design.png 방향). 배경을 무채색으로 내리면
 // 남는 색이 전부 정보가 된다 (궤적·눈금·공).
 const FELT = '#24272c', FELT_HI = '#31353c', FELT_EDGE = '#15171a';
@@ -1276,12 +1277,43 @@ function railPoint(sc, rail, idx){
   if (rail === 'left')   return [-off, T.height*t];
   return [T.width+off, T.height*t];
 }
+
+// 궤적이 적구에 닿으면 거기서 끊는다.
+// ⚠️ 닿은 뒤의 경로는 두께·당점·스트로크에 따라 완전히 달라진다 — 아직 재지 않은
+//    영역이다. 그대로 이어 그리면 없는 것을 보여주게 된다 (사용자 지시).
+//    수구 중심이 적구 중심에서 **지름**만큼 떨어지는 순간이 접촉이다.
+// 반환: {pts, hit}  hit=true 면 마지막 점이 적구에 닿은 자리
+function cutAtBall(pts){
+  const objs = [];
+  for (const k in S.balls) if (k !== 'cue') objs.push(S.balls[k].p);
+  if (!objs.length) return {pts, hit:false};
+  const D = T.ball_diameter, out = [pts[0]];
+  for (let i = 0; i < pts.length-1; i++){
+    const a = pts[i], b = pts[i+1];
+    const dx = b[0]-a[0], dy = b[1]-a[1], ll = dx*dx + dy*dy;
+    let t0 = null;
+    if (ll > 1e-9) for (const o of objs){
+      const fx = a[0]-o[0], fy = a[1]-o[1];
+      const B = 2*(fx*dx + fy*dy), C = fx*fx + fy*fy - D*D;
+      const disc = B*B - 4*ll*C;
+      if (disc < 0) continue;
+      const sq = Math.sqrt(disc);
+      for (const t of [(-B-sq)/(2*ll), (-B+sq)/(2*ll)])
+        if (t > 1e-3 && t <= 1 && (t0 === null || t < t0)) t0 = t;
+    }
+    if (t0 !== null){ out.push([a[0]+dx*t0, a[1]+dy*t0]); return {pts:out, hit:true}; }
+    out.push(b);
+  }
+  return {pts:out, hit:false};
+}
+
 function drawPath(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return;
   const hits = pathFromAim(cue.p, S.aim, S.corr);
   if (!hits.length) return;
-  const pts = [cue.p, ...hits.map(h => h.p)];
+  const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
+  const pts = cut.pts;
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
   const bw = Math.max(3, T.ball_diameter*L.sc);
   for (let i = 0; i < pts.length-1; i++){
@@ -1292,9 +1324,15 @@ function drawPath(){
     g.globalAlpha = 1; g.lineWidth = 3;
     g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
   }
-  for (const h of hits){
-    const [x,y] = toPx(...h.p);
+  // 쿠션 접점 — 잘린 뒤의 것은 안 그린다
+  for (let i = 1; i < pts.length - (cut.hit ? 1 : 0); i++){
+    const [x,y] = toPx(...pts[i]);
     g.fillStyle = COL.c23; g.beginPath(); g.arc(x,y,6,0,7); g.fill();
+    g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
+  }
+  if (cut.hit){                                   // 적구에 닿은 자리
+    const [x,y] = toPx(...pts[pts.length-1]);
+    g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,9,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
 }
@@ -1478,9 +1516,13 @@ function systemNumbers(){
   let third = null;
   let hits = null;
   try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
+  // ⚠️ 적구에 닿아 3쿠션 전에 끊겼으면 3쿠션수는 없는 값이다.
   if (hits && hits.length >= 3){
-    const r = railParam(fold(o, hits[2].p));
-    if (r) third = readScale('third_cushion', r.rail, r.t);
+    const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
+    if (cut.pts.length >= 4 || !cut.hit){
+      const r = railParam(fold(o, hits[2].p));
+      if (r) third = readScale('third_cushion', r.rail, r.t);
+    }
   }
   return {start, first, third};
 }
