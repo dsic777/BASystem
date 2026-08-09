@@ -10,7 +10,10 @@
 <style>
   html,body{margin:0;height:100dvh;background:#16181c;overflow:hidden;
             -webkit-user-select:none;user-select:none;touch-action:none}
-  canvas{display:block;width:100%;height:100%}
+  /* ⚠️ touch-action 은 **상속되지 않는다**. html,body 에만 걸어 두면 캔버스는
+     그대로라, 손가락을 끌 때 브라우저가 제스처로 채가고 pointercancel 이 뜬다.
+     그러면 끌어다 놓기가 중간에 끊긴다 (사용자 지적: '됐다 안 됐다 합니다'). */
+  canvas{display:block;width:100%;height:100%;touch-action:none}
   #msg{position:fixed;left:8px;top:8px;color:#ffd; font:14px/1.4 sans-serif;
        background:#3a4049dd;padding:6px 10px;border-radius:8px;max-width:70vw}
   /* ⚠️ 글자만 지우면 배경과 여백이 남아 검은 알약처럼 보인다 (사용자 지적) */
@@ -62,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 103;
+const MOBILE_VER = 104;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2427,9 +2430,21 @@ const pos = e => {
   const x = t.clientX*devicePixelRatio, y = t.clientY*devicePixelRatio;
   return ROT ? [cv.height - y, x] : [x, y];      // 눕혀 그렸으면 손가락도 되돌린다
 };
-cv.addEventListener('pointerdown', e => { down(...pos(e)); });
+// ⚠️ 끌어다 놓기가 '됐다 안 됐다' 하던 이유 (사용자 지적 2026-08-10)
+//   ① touch-action 이 캔버스에 없었다 (위 CSS 참고)
+//   ② 포인터를 잡아두지 않아, 손가락이 빨리 움직이면 pointermove 가 다른 데로 간다
+//   ③ pointercancel 을 안 받아서, 브라우저가 제스처를 채가면 up() 이 영영 안 불린다
+//      → S.pal 이 남아 다음 탭이 이상해진다. 이게 '안 될 때' 의 정체다.
+cv.addEventListener('pointerdown', e => {
+  try { cv.setPointerCapture(e.pointerId); } catch(_){}
+  down(...pos(e));
+});
 cv.addEventListener('pointermove', e => { move(...pos(e)); });
 addEventListener('pointerup', e => up(...pos(e)));
+// 브라우저가 가로채면 놓지 말고 **그냥 취소**한다 (엉뚱한 자리에 공이 놓이면 안 된다)
+function cancelTouch(){ S.pal = null; S.drag = null; S.aiming = false; }
+cv.addEventListener('pointercancel', cancelTouch);
+addEventListener('pointercancel', cancelTouch);
 
 (async () => {
   try{
