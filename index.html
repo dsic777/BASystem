@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 84;
+const MOBILE_VER = 85;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1340,9 +1340,17 @@ function railPoint(sc, rail, idx){
 //    영역이다. 그대로 이어 그리면 없는 것을 보여주게 된다 (사용자 지시).
 //    수구 중심이 적구 중심에서 **지름**만큼 떨어지는 순간이 접촉이다.
 // 반환: {pts, hit}  hit=true 면 마지막 점이 적구에 닿은 자리
-function cutAtBall(pts){
+function cutAtBall(pts, except){
+  // ⚠️ except — 방금 맞은 그 공은 빼야 한다. 충돌 직후 수구는 아직 그 공에서
+  //    지름 거리에 있고, 얇게 맞으면 계속 다가가므로 **즉시 다시 맞았다고** 나온다
+  //    (사용자 지적, 2.jpg 에서 충돌 후 궤적이 몇 px 만 그려졌다).
   const objs = [];
-  for (const k in S.balls) if (k !== 'cue') objs.push(S.balls[k].p);
+  for (const k in S.balls){
+    const q = S.balls[k].p;
+    if (k === 'cue') continue;
+    if (except && Math.hypot(q[0]-except[0], q[1]-except[1]) < 1) continue;
+    objs.push(q);
+  }
   if (!objs.length) return {pts, hit:false};
   const D = T.ball_diameter, out = [pts[0]];
   for (let i = 0; i < pts.length-1; i++){
@@ -1491,7 +1499,7 @@ function drawPath(){
   const later = roll(P, a.dir, 3, 0);
   // 2·3쿠션을 지나 **다음 공에 맞을 때까지** 그린다 (사용자 지시).
   // ⚠️ 여기도 두께 띠를 넣는다 — 어디로 지나가는지 폭까지 봐야 키스가 보인다.
-  const post = cutAtBall([P, ...later.map(h => h.p)]);
+  const post = cutAtBall([P, ...later.map(h => h.p)], cut.obj);
   const pts2 = post.pts;
   for (let i = 0; i < pts2.length-1; i++){
     seg(pts2[i], pts2[i+1], band, 0.22, COL.hit);
@@ -1506,12 +1514,16 @@ function drawPath(){
   // 1적구는 회전·당점의 영향을 안 받고 두께로만 방향이 정해지므로 계산할 수 있다.
   if (a.objDir){
     const oc2 = objColor(cut.obj);
-    const op = cutAtBall2(cut.obj, [cut.obj, ...rollPlain(cut.obj, a.objDir, 3).map(h => h.p)]);
+    const oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 3).map(h => h.p)], cut.obj);
+    const op = oq.pts;
+    // ⚠️ 수구의 1→2쿠션 구간도 노란색이라 1적구 궤적과 헷갈린다. 점선으로 갈라 준다.
+    g.save(); g.setLineDash([Math.max(8, thin*4), Math.max(6, thin*3)]);
     for (let i = 0; i < op.length-1; i++){
-      seg(op[i], op[i+1], band, 0.20, oc2);
-      seg(op[i], op[i+1], Math.max(2, thin*0.8), 0.9, oc2);
+      seg(op[i], op[i+1], band, 0.18, oc2);
+      seg(op[i], op[i+1], Math.max(2, thin*0.8), 0.95, oc2);
     }
-    for (let i = 1; i < op.length; i++){
+    g.restore();
+    for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
       const [x,y] = toPx(...op[i]);
       g.fillStyle = oc2; g.beginPath(); g.arc(x,y,4,0,7); g.fill();
       g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
@@ -1542,33 +1554,6 @@ function objColor(p){
     if (Math.hypot(q[0]-p[0], q[1]-p[1]) < 1) return TONE[S.balls[k].color] || '#fff';
   }
   return '#fff';
-}
-
-// 1적구 동선을 **자기 자신을 뺀** 다른 공에서 끊는다
-function cutAtBall2(self, pts){
-  const D = T.ball_diameter, out = [pts[0]];
-  const objs = [];
-  for (const k in S.balls){
-    const q = S.balls[k].p;
-    if (Math.hypot(q[0]-self[0], q[1]-self[1]) > 1) objs.push(q);
-  }
-  for (let i = 0; i < pts.length-1; i++){
-    const a = pts[i], b = pts[i+1];
-    const dx = b[0]-a[0], dy = b[1]-a[1], ll = dx*dx + dy*dy;
-    let t0 = null;
-    if (ll > 1e-9) for (const o of objs){
-      const fx = a[0]-o[0], fy = a[1]-o[1];
-      const B = 2*(fx*dx + fy*dy), C = fx*fx + fy*fy - D*D;
-      const disc = B*B - 4*ll*C;
-      if (disc < 0) continue;
-      const sq = Math.sqrt(disc);
-      for (const t of [(-B-sq)/(2*ll), (-B+sq)/(2*ll)])
-        if (t > 1e-3 && t <= 1 && (t0 === null || t < t0)) t0 = t;
-    }
-    if (t0 !== null){ out.push([a[0]+dx*t0, a[1]+dy*t0]); return out; }
-    out.push(b);
-  }
-  return out;
 }
 
 function drawCushionDots(pts, upto){
