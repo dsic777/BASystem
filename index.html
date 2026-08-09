@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 70;
+const MOBILE_VER = 71;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -820,7 +820,7 @@ function sizeButtons(){
 let BTN = [];
 function buttonRects(){
   sizeButtons();
-  if (PANEL) return sideButtons().concat(corrButtons());
+  if (PANEL) return sideButtons().concat(previewOn() ? [] : corrButtons());
   const w = BW*5 + BG*4 + GRPG, h = BH*2 + ROWG, pad = 12, c = L.cloth;
   // 좌상단은 당점 자리라 마지막 후보로 둔다
   const spots = [[c.x+c.w-pad-w, c.y+c.h-pad-h], [c.x+pad, c.y+c.h-pad-h],
@@ -906,6 +906,10 @@ const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
 //    공에서 제일 먼 모서리를 고른다. 공이 없으면 왼쪽 위 그대로.
 
 let PATH_CACHE = {key:null, pts:null};
+
+// 카메라·시험 사진 미리보기 중인가. ⚠️ 이때 다이 안에는 아무것도 그리지 않는다
+//    (사용자 지시: 촬영시 다이 안은 공란). 셔터는 우측 하단 원버튼 하나뿐이다.
+function previewOn(){ return !!(TEST.img || (CAMLIVE && VID.videoWidth)); }
 
 // 화면의 한 점에서 지금 궤적까지의 거리 (px). 궤적이 없으면 아주 큰 값.
 // ⚠️ clockCenter 안에서 부르므로 clockCenter 를 되부르는 것을 넣으면 안 된다
@@ -1032,10 +1036,6 @@ function ballAt(px,py){
   return null;
 }
 function down(px,py){
-  if ((CAMLIVE || TEST.img) && SHUTTER){
-    const d = Math.hypot(px - SHUTTER.x, py - SHUTTER.y);
-    if (d <= SHUTTER.r * 1.3) { shoot(); return; }
-  }
   if (tapButton(px,py)) return;
   if (S.place){
     const [x,y] = toMm(px,py);
@@ -1130,18 +1130,8 @@ function draw(){
     g.save(); g.beginPath(); g.rect(c.x,c.y,c.w,c.h); g.clip();
     g.drawImage(PREVIEW, c.x+(c.w-vw)/2, c.y+(c.h-vh)/2, vw, vh);
     g.restore();
-    // ⚠️ 촬영 버튼이 어디인지 몰라 못 찍는다 (사용자 지적).
-    //    가로로 든 폰에서 **오른손 엄지가 닿는 자리** = 오른쪽 가운데에 둔다.
-    const R = Math.max(22, c.h*0.13);
-    SHUTTER = {x: c.x + c.w - R*1.5, y: c.y + c.h/2, r: R};
-    g.save();
-    g.fillStyle = 'rgba(0,0,0,0.35)';
-    g.beginPath(); g.arc(SHUTTER.x, SHUTTER.y, R*1.18, 0, 7); g.fill();
-    g.fillStyle = '#ffffff';
-    g.beginPath(); g.arc(SHUTTER.x, SHUTTER.y, R, 0, 7); g.fill();
-    g.strokeStyle = '#e8484a'; g.lineWidth = Math.max(3, R*0.16);
-    g.beginPath(); g.arc(SHUTTER.x, SHUTTER.y, R*0.72, 0, 7); g.stroke();
-    g.restore();
+    // ⚠️ 다이 안에는 아무것도 얹지 않는다 (사용자 지시). 셔터는 오른쪽 칸의
+    //    원버튼 하나로 모았다 — 촬영할 자리가 두 군데면 헷갈린다.
   } else if (PHOTO && !TABLE_HULL){
     // 당구대를 못 찾았을 때만 원본을 깔아 둔다 (손으로 놓을 수 있게).
     // ⚠️ 찾았으면 사진을 안 겹친다 — 판독한 공만 보여야 맞는지 눈에 들어온다 (사용자 확정).
@@ -1298,6 +1288,7 @@ function drawBalls(){
   }
 }
 function drawClock(){
+  if (previewOn()) return;                        // 촬영 중에는 다이 안을 비운다
   const [x,y] = clockCenter(), R = clockR();
   const left = goingLeft();
   g.fillStyle = '#f0f0ea'; g.beginPath(); g.arc(x,y,R,0,7); g.fill();
@@ -1534,12 +1525,13 @@ function drawButtons(){
     }
 
     if (b.lb === 'cam'){
-      if (CAMLIVE){                               // 미리보기 중 — 셔터 모양
-        g.fillStyle = '#ffffff';
-        g.beginPath(); g.arc(cx, cy, u*0.30, 0, 7); g.fill();
-        g.strokeStyle = '#14161a'; g.lineWidth = Math.max(2, u*0.05); g.stroke();
-        g.strokeStyle = '#e8484a'; g.lineWidth = Math.max(2, u*0.07);
-        g.beginPath(); g.arc(cx, cy, u*0.20, 0, 7); g.stroke();
+      if (previewOn()){                           // 미리보기 중 — 검정·빨강 셔터
+        g.fillStyle = '#14161a';
+        g.beginPath(); g.arc(cx, cy, u*0.36, 0, 7); g.fill();
+        g.strokeStyle = '#d8322b'; g.lineWidth = Math.max(3, u*0.10);
+        g.beginPath(); g.arc(cx, cy, u*0.25, 0, 7); g.stroke();
+        g.fillStyle = '#d8322b';
+        g.beginPath(); g.arc(cx, cy, u*0.11, 0, 7); g.fill();
       } else {
         camIcon(cx, cy, u*0.86);
         g.fillStyle = '#d8322b';                   // 셔터 표시 (design.png)
@@ -1604,7 +1596,7 @@ function camIcon(cx,cy,h){
 //    (사용자 지적). 그래서 **화면 안에서 직접 촬영**한다 — 누르는 순간 찍히고
 //    바로 돌아온다. 물음이 없다.
 let PHOTO = null, WARPED = null;
-let CAMSTREAM = null, CAMLIVE = false, SHUTTER = null;
+let CAMSTREAM = null, CAMLIVE = false;
 const VID = document.createElement('video');
 VID.playsInline = true; VID.muted = true;
 
