@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 94;
+const MOBILE_VER = 95;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1668,10 +1668,15 @@ function drawClock(){
   // 누르면 커진다는 표시. 크기는 그대로 두고(사용자가 줄이라고 했다) 테두리만 두른다.
   g.strokeStyle = 'rgba(255,221,51,0.55)'; g.lineWidth = Math.max(1.5, R*0.10);
   g.beginPath(); g.arc(x, y, R*1.22, 0, 7); g.stroke();
-  // ⚠️ 전에는 2시30분에 점을 박아뒀다. 이제 **고른 당점 자리**에 찍는다.
+  // ⚠️ 작은 원에서는 점이 커서, 3팁(0.78R) 자리에 찍으면 점 가장자리가 공 끝에
+  //    딱 닿아 **떨어져 나가는 것처럼 보인다** (사용자 지적, 13.jpg — 6시 3팁).
+  //    큰 판은 그대로 두고 여기서만 점을 줄이고, 한계 원을 같이 그려
+  //    '원 위에 얹힌 자리' 로 읽히게 한다.
+  g.strokeStyle = 'rgba(190,40,32,0.40)'; g.lineWidth = Math.max(1, R*0.045);
+  g.beginPath(); g.arc(x, y, R*TIP_R*3, 0, 7); g.stroke();
   const [dx,dy] = tipOffset(R);
   g.fillStyle = '#de342c';
-  g.beginPath(); g.arc(x + dx, y + dy, R*0.22, 0, 7); g.fill();
+  g.beginPath(); g.arc(x + dx, y + dy, R*0.155, 0, 7); g.fill();
 }
 function goingLeft(){
   const cue = S.balls.cue;
@@ -1695,12 +1700,16 @@ function goingLeft(){
 // ⚠️ 이 값은 **그림만 바꾼다.** 분리각·반사각 표는 팁 '개수'로 찾으므로 계산은 그대로다.
 //    되돌리려면 이 숫자 하나만 6.0 으로 고치면 된다.
 const TIP_R = 8.0 / 30.75;   // 1팁 8mm / 공 반지름 30.75mm = 0.260
-const TIP_MAX = 3.05;        // 3팁 = 24mm = 반지름의 0.78. 그 밖 7mm 는 큐가 미끄러진다.
+// ⚠️ 3.05 로 두면 (좌우3, 상하1) 이 빠진다. 그런데 그 자리가 **2시30분** 이다 —
+//    파이브앤하프 당점이고(사용자 확정), measured_bounce 를 잰 당점이기도 하다.
+//    반대쪽 (좌우3, 상하−1) 은 사용자가 '순3 바로 아래 원에 걸리는 자리' 라고 짚은 곳.
+//    둘 다 반지름 3.16 이라 한계 원(3팁)에 걸친다. 살려 둔다.
+const TIP_MAX = 3.2;         // 3팁 = 24mm = 반지름의 0.78. 그 밖 7mm 는 큐가 미끄러진다.
 // ★ 사용자 데이터에 실제로 적혀 있는 당점만 넣는다. 내가 만든 조합은 없다.
 // ⚠️ 좌우 팁을 h 라고 부르면 안 된다. 버튼 사각형의 h(높이)와 부딪혀 프리셋이
 //    통째로 깨진다 (하네스에서 tipH=100 으로 잡았다). 점과 같은 이름 s 를 쓴다.
 const PRESET = [
-  {lb:'파이브앤하프', v: 2, s: 2, src:'systems.json  상단 2~3팁 · 1시30분'},
+  {lb:'파이브앤하프', v: 1, s: 3, src:'★ 사용자 확정 2026-08-10 — 2시30분 3팁'},
   {lb:'무회전 뱅크',  v: 2, s: 0, src:'systems.json  12시 · 좌우 회전 0'},
   {lb:'끌어치기',     v:-3, s: 0, src:'kiss.json  일자배치 하단 3팁'},
   {lb:'중단 기준',    v: 0, s: 0, src:'separation.json  자연 분리각 45도'}
