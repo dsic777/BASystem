@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 73;
+const MOBILE_VER = 74;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -926,6 +926,7 @@ function previewOn(){ return !!(TEST.img || (CAMLIVE && VID.videoWidth)); }
 // ⚠️ clockCenter 안에서 부르므로 clockCenter 를 되부르는 것을 넣으면 안 된다
 //    (전에 서로 물고 돌아 화면이 통째로 죽었다).
 function pathDist(t){
+  const box = clusterBox(t);
   const cue = S.balls.cue;
   if (!cue || !S.aim) return 1e9;
   // ⚠️ 한 프레임에 네 모서리를 다 재므로 그때마다 궤적을 새로 굴리면 안 된다.
@@ -939,14 +940,32 @@ function pathDist(t){
   }
   const pts = PATH_CACHE.pts;
   if (!pts) return 1e9;
+  // ⚠️ 당점 중심점까지가 아니라 **묶음 상자까지** 재야 한다. 공과 같은 이유로,
+  //    중심은 궤적에서 멀어도 보정 바가 궤적을 덮는다 (사용자 지시).
+  //    선분을 잘게 나눠 상자까지의 거리를 잰다.
   let best = 1e9;
   for (let i = 0; i < pts.length-1; i++){
     const [ax,ay] = pts[i], [bx,by] = pts[i+1];
-    const dx = bx-ax, dy = by-ay, ll = dx*dx + dy*dy;
-    const u = ll < 1e-9 ? 0 : Math.max(0, Math.min(1, ((t[0]-ax)*dx + (t[1]-ay)*dy)/ll));
-    best = Math.min(best, Math.hypot(t[0]-ax-dx*u, t[1]-ay-dy*u));
+    const n = Math.max(2, Math.min(24, Math.round(Math.hypot(bx-ax, by-ay) / 20)));
+    for (let k = 0; k <= n; k++){
+      const u = k/n;
+      best = Math.min(best, rectD(box, [ax + (bx-ax)*u, ay + (by-ay)*u]));
+    }
   }
   return best;
+}
+
+// 상자에서 점까지의 거리 (상자 안이면 0)
+function rectD(b, p){
+  return Math.hypot(Math.max(b[0] - p[0], 0, p[0] - b[2]),
+                    Math.max(b[1] - p[1], 0, p[1] - b[3]));
+}
+
+// 당점 원 + 보정 바를 묶은 상자 [x0,y0,x1,y1]
+function clusterBox(t){
+  const r = clockR(), q = corrGeom(t[0], t[1]);
+  return [Math.min(t[0]-r, q.x), Math.min(t[1]-r, q.y),
+          Math.max(t[0]+r, q.x+q.w), Math.max(t[1]+r, q.y+q.h)];
 }
 
 function clockCenter(){
@@ -963,15 +982,8 @@ function clockCenter(){
   // ⚠️ 당점 원만 재면 안 된다. 같이 움직이는 **보정 바**가 훨씬 넓어서, 당점은
   //    비어 있어도 바가 공을 덮는다 (사용자 지적, 4.jpg 에서 수구가 가려졌다).
   //    당점 원 + 바를 하나의 상자로 묶어 잰다.
-  const boxD = (t, p) => {
-    const q = corrGeom(t[0], t[1]);
-    const x0 = Math.min(t[0]-r, q.x), x1 = Math.max(t[0]+r, q.x+q.w);
-    const y0 = Math.min(t[1]-r, q.y), y1 = Math.max(t[1]+r, q.y+q.h);
-    const dx = Math.max(x0 - p[0], 0, p[0] - x1);
-    const dy = Math.max(y0 - p[1], 0, p[1] - y1);
-    return Math.hypot(dx, dy);
-  };
-  const ballD = t => Math.min(...put.map(p => boxD(t, p)));
+  const ballD = t => { const b = clusterBox(t);
+                       return Math.min(...put.map(p => rectD(b, p))); };
   const clear = ballR() * 1.1;                              // 이만큼 떨어지면 안 덮는다
   // 공은 반드시 피하고, **그중에서 궤적도 가능하면 피한다** (사용자 지시).
   const okay = spot.filter(t => ballD(t) >= clear);
