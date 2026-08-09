@@ -195,7 +195,7 @@ def run_one(video: Path, out_dir: Path, step: int, table, scales, vtrack, pick_c
         print("  ⚠️ 비율 오차가 큽니다. 더 수직으로 찍으면 정확도가 올라갑니다.")
     print(f"샷 {len(shots)}개 검출\n")
 
-    result, paths = [], []
+    result, paths, frames = [], [], []
     dropped = {"느린 조각": 0, "궤적 튐": 0, "점 부족": 0, "짧음": 0, "쿠션 부족": 0}
     for n, shot in enumerate(shots, 1):
         # 실제 샷인지부터 가린다. 정지 상태에서 갑자기 빨라지는 것이 샷이다.
@@ -262,6 +262,10 @@ def run_one(video: Path, out_dir: Path, step: int, table, scales, vtrack, pick_c
 
         result.append(rec)
         paths.append(shot.path)
+        # ★ 프레임 단위 궤적. 접점만 남기면 **쿠션 사이에서 얼마나 휘는지**를 못 잰다
+        #   (사용자: '4쿠션 후 좌측으로 굴러간다'). 0808 때 이게 없어서 못 쟀다.
+        frames.append({"shot": n, "fps": shot.fps,
+                       "points": [[f, round(x, 1), round(y, 1)] for f, x, y in shot.points]})
         print()
 
     print(f"제외: " + ", ".join(f"{k} {v}" for k, v in dropped.items() if v)
@@ -271,6 +275,12 @@ def run_one(video: Path, out_dir: Path, step: int, table, scales, vtrack, pick_c
     js = out_dir / f"{stem}_track.json"
     js.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"결과 저장: {js}")
+
+    pj = out_dir / f"{stem}_path.json"
+    pj.write_text(json.dumps({"_desc": "프레임 단위 궤적 (쿠션 사이 휨·천 마찰을 재는 데 쓴다)",
+                              "_columns": ["frame", "x_mm", "y_mm"], "shots": frames},
+                             ensure_ascii=False), encoding="utf-8")
+    print(f"궤적 저장: {pj}  ({sum(len(f['points']) for f in frames)}점)")
 
     csv_path = out_dir / f"{stem}_track.csv"
     write_csv(csv_path, result)

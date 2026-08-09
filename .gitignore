@@ -35,3 +35,4 @@ venv/
 .idea/
 Thumbs.db
 desktop.ini
+*_path.json
