@@ -12,7 +12,7 @@
             -webkit-user-select:none;user-select:none;touch-action:none}
   canvas{display:block;width:100%;height:100%}
   #msg{position:fixed;left:8px;top:8px;color:#ffd; font:14px/1.4 sans-serif;
-       background:#0008;padding:6px 10px;border-radius:8px;max-width:70vw}
+       background:#3a4049dd;padding:6px 10px;border-radius:8px;max-width:70vw}
   /* ⚠️ 글자만 지우면 배경과 여백이 남아 검은 알약처럼 보인다 (사용자 지적) */
   #msg:empty{display:none;padding:0}
 </style>
@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 68;
+const MOBILE_VER = 69;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1198,6 +1198,11 @@ function foldRail(o, rail){
   return rail;
 }
 function fold(o,p){ return [o.fx ? T.width-p[0] : p[0], o.fy ? T.height-p[1] : p[1]]; }
+// 'rgb(r,g,b)' 를 k 배로 어둡게 (밝기만 낮춘다 — 크기·색상은 그대로)
+function dim(rgb, k){
+  return rgb.replace(/\d+/g, m => Math.round(m * k));
+}
+
 function drawNumbers(){
   const o = orientation();
   for (const sc of SCALES){
@@ -1227,6 +1232,9 @@ function drawNumbers(){
       }
       if (seen.some(s => s.n === pt.number && Math.hypot(s.x-x, s.y-y) < fs*6)) continue;
       seen.push({n:pt.number, x, y});
+      // ⚠️ 다이아몬드 **반칸**에 걸린 숫자는 밝기를 30% 낮춘다 (사용자 지시).
+      //    상단 60·80·100 / 우측 80·100 / 하단(3쿠션) 50·70·90 이 여기 해당한다.
+      g.fillStyle = pt.index % 1 ? dim(sc.color, 0.7) : sc.color;
       g.strokeStyle = '#101014'; g.lineWidth = Math.max(3, fs * 0.28);
       g.strokeText(String(pt.number), x, y); g.fillText(String(pt.number), x, y);
     }
@@ -1450,7 +1458,7 @@ function drawReadout(){
   const r = READOUT, n = systemNumbers();
   // ⚠️ 어두우면 안 보인다 (사용자 지적). 버튼과 같은 무게로 띄운다.
   const bg = g.createLinearGradient(0, r.y, 0, r.y + r.h);
-  bg.addColorStop(0, '#5a626d'); bg.addColorStop(0.5, '#3d434c'); bg.addColorStop(1, '#2a2f36');
+  bg.addColorStop(0, '#6c7683'); bg.addColorStop(0.5, '#49505b'); bg.addColorStop(1, '#323841');
   g.fillStyle = bg;
   round(r.x, r.y, r.w, r.h, r.h*0.14); g.fill();
   g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, r.h*0.06); g.stroke();
