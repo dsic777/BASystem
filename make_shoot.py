@@ -100,27 +100,29 @@ def page(title, sub):
 
 # ────────────────────────────────────────────── 1순위
 im, d = page("1순위 · 충돌 후 속도  (두 공)",
-             "공 두 개만. 두께를 1/8 → 7/8 까지 훑는다. 두께당 5~10샷, 같은 두께에서 약·중·강.  전부 50~70샷")
+             "공 두 개만.  두께 4단계 × 세기 3단계.  한 칸에 3샷이면 36샷.   ★ 배치를 다시 하지 않는다")
 t = Table(im, 150, 260, 1000)
 t.frame()
 t.ball(1224, 612, "#d6342c", txt="1적구 (고정)", tf=f(26))
 t.ball(500, 612, "#f6f5ee", txt="수구", tf=f(26))
-for k, (lab, th) in enumerate([("1/8", .125), ("4/8", .5), ("7/8", .875)]):
+for k, (lab, th) in enumerate([("얇게", .15), ("반두께", .5), ("두껍게", .8)]):
     off = (1 - th) * BALL * (1 if k != 1 else 1)
     t.line([(500, 612), (2300, 612 + off * (2300 - 500) / (1224 - 500))],
            ["#7fd8ff", "#ffd600", "#ff78be"][k], 3)
-d.text((150, 940), "수구는 한 자리에 두고  겨냥만  얇게 ↔ 두껍게 바꾼다", font=f(30), fill="#e8eaee")
-d.text((150, 985), "두께는 따로 안 적어도 된다 — 궤적에서 계산된다", font=f(30), fill="#e8eaee")
+d.text((150, 930), "★ 배치를 다시 하지 않는다 — 공이 멈춘 자리에서 그대로 다음 샷", font=f(31), fill="#ffe98a")
+d.text((150, 978), "★ 두께를 정확히 맞출 필요 없다 — 궤적에서 재므로 대충 갈라 치면 된다", font=f(31), fill="#ffe98a")
+d.text((150, 1030), "두께 4단계   얇게 · 조금 얇게 · 반두께 · 두껍게", font=f(29), fill="#e8eaee")
+d.text((150, 1075), "세기 3단계   약 · 중 · 강        한 칸에 3샷 = 36샷", font=f(29), fill="#e8eaee")
 
 # 두께 그림 (오른쪽)
 cx, cy, R = 1560, 560, 150
 d.ellipse([cx - R, cy - R, cx + R, cy + R], fill="#d6342c", outline="#14161a", width=4)
 d.text((cx, cy - R - 40), "1적구", font=f(30), fill="#ffb0aa", anchor="ms")
-for lab, th, col in [("1/8  얇게", .125, "#7fd8ff"), ("4/8  반두께", .5, "#ffd600"),
-                     ("7/8  두껍게", .875, "#ff78be")]:
+for lab, th, col in [("얇게", .15, "#7fd8ff"), ("반두께", .5, "#ffd600"),
+                     ("두껍게", .8, "#ff78be")]:
     ox = (1 - th) * 2 * R
     d.ellipse([cx - ox - R, cy - R, cx - ox + R, cy + R], outline=col, width=6)
-    d.text((cx - ox, cy + R + 46 + list([.125, .5, .875]).index(th) * 46), lab,
+    d.text((cx - ox, cy + R + 46 + [.15, .5, .8].index(th) * 46), lab,
            font=f(30), fill=col, anchor="ms")
 d.text((1300, 940), "겹치는 정도가 두께다", font=f(30), fill="#9aa2b2")
 im.save(OUT / "촬영1.png")
