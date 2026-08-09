@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 88;
+const MOBILE_VER = 89;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -95,7 +95,10 @@ function shade(hex, k){
 const TONE = {white:'#f6f5ee', yellow:'#f0be28', red:'#d6342c'};
 
 // ---------------------------------------------------------------- 실측 반사표
-function reflect(a){
+// 입사각 → 반사각. 표는 **좌우 2팁**으로 잰 것이다 (data/measured_bounce.json 의 by_tip).
+//   실측 45도 벌어짐 +11.0  ↔  사용자 가이드 2팁 +10~12  → 표 = 2팁으로 확정
+// 팁이 바뀌면 벌어짐(반사−입사)을 팁/2 배 한다. 0팁이면 벌어짐 0 = 거울반사.
+function reflect(a, tip){
   const t = BOUNCE, x = Math.abs(a);
   if (t.length < 2) return x;
   let p, q;
@@ -104,7 +107,8 @@ function reflect(a){
   else for (let i = 0; i < t.length-1; i++)
     if (t[i][0] <= x && x <= t[i+1][0]) { p = t[i]; q = t[i+1]; break; }
   const y = p[1] + (q[1]-p[1]) * (x-p[0]) / (q[0]-p[0] || 1);
-  return Math.max(x, Math.min(y, 89.9));
+  const h = Math.max(0, Math.min(3, tip === undefined ? S.tipH : tip));
+  return Math.max(x, Math.min(x + (y - x) * (h/2), 89.9));
 }
 
 function nextRail(p, d, w, h){
@@ -773,7 +777,8 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, pal:null,
            // 상하 당점. +3 상단 3팁 · 0 중단 · −3 하단 3팁 (고르는 화면은 아직 없다)
-           tipV:0};
+           tipV:0,        // 상하 당점  +3 상단3팁(12시) · 0 중단 · −3 하단3팁(6시)
+           tipH:2};       // 좌우 회전  0 무회전(거울) · 2 실측표 기준 · 3 최대
 
 // ---------------------------------------------------------------- 화면 좌표
 let L = {};
@@ -1421,14 +1426,20 @@ function rollPlain(start, d, cushions){
 //    (실측 쿠션표와 같은 조건). 속도·거리·당점 높낮이는 아직 안 넣었다.
 // 두께와 **상하 당점**으로 분리각을 낸다.
 //   tip  +3 = 상단 3팁(12시) · 0 = 중단 · −3 = 하단 3팁(6시)
-// ⚠️ 좌우 회전(사이드)은 여기가 아니라 쿠션 반사(measured_bounce)를 바꾼다.
+// ⚠️ 좌우 회전(사이드)은 여기가 아니라 쿠션 반사(reflect)를 바꾼다.
+//    사용자 확인: '중단 2~3팁(옆회전만)' 이 무회전과 값이 같다 → 분리각은 좌우와 무관.
 function separationAngle(thick, tip){
   if (!SEP.length) return null;
   const t = Math.max(0, Math.min(1, thick));
   const v = Math.max(-3, Math.min(3, tip === undefined ? S.tipV : tip));
-  // 한 줄에서 상하 당점으로 값을 뽑는다 (상단 ↔ 중단 ↔ 하단 사이 보간)
-  const byTip = r => v >= 0 ? r[2] + (r[1] - r[2]) * (v/3)
-                            : r[2] + (r[3] - r[2]) * (-v/3);
+  // 한 줄에서 상하 당점으로 값을 뽑는다.
+  // 표는 일곱 칸: [두께, +3, +2, +1, 0, −1, −2, −3] — 사용자 제공 실측값이라
+  // 상단↔중단↔하단이 직선이 아니다. 이웃한 두 칸 사이만 보간한다.
+  const byTip = r => {
+    const f = Math.max(0, Math.min(5.999, 3 - v));   // +3→0 · 0→3 · −3→6
+    const i = Math.floor(f);
+    return r[1+i] + (f - i) * (r[2+i] - r[1+i]);
+  };
   if (t >= SEP[SEP.length-1][0]) return byTip(SEP[SEP.length-1]);  // 더 두꺼워도 안 늘린다
   for (let i = 0; i < SEP.length-1; i++)
     if (t >= SEP[i][0] && t <= SEP[i+1][0]){
@@ -2128,7 +2139,7 @@ addEventListener('pointerup', e => up(...pos(e)));
       color: 'rgb(' + (s.color || [255,255,255]).join(',') + ')',
       points: s.points}));
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
-    SEP = sep.cue_ball.by_tip.table;   // [두께, 상단3팁, 중단, 하단3팁]
+    SEP = sep.cue_ball.by_tip.table;   // [두께, 상단3·2·1팁, 중단, 하단1·2·3팁]
     SEP_OBJ = sep.object_ball.table.map(r => [r[0], r[1]]);
     msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
