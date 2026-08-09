@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 87;
+const MOBILE_VER = 88;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -771,7 +771,9 @@ function drawAnswer(){
 // ---------------------------------------------------------------- 상태
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
-           blink:0, pal:null};
+           blink:0, pal:null,
+           // 상하 당점. +3 상단 3팁 · 0 중단 · −3 하단 3팁 (고르는 화면은 아직 없다)
+           tipV:0};
 
 // ---------------------------------------------------------------- 화면 좌표
 let L = {};
@@ -1417,14 +1419,21 @@ function rollPlain(start, d, cushions){
 // 적구를 맞은 뒤 수구가 꺾이는 각 (분리각). data/separation.json 의 표를 보간한다.
 // ⚠️ 이 표는 **당점 2시30분~3시 3팁 · 사용자의 평소 속도** 에서만 맞는다
 //    (실측 쿠션표와 같은 조건). 속도·거리·당점 높낮이는 아직 안 넣었다.
-function separationAngle(thick){
+// 두께와 **상하 당점**으로 분리각을 낸다.
+//   tip  +3 = 상단 3팁(12시) · 0 = 중단 · −3 = 하단 3팁(6시)
+// ⚠️ 좌우 회전(사이드)은 여기가 아니라 쿠션 반사(measured_bounce)를 바꾼다.
+function separationAngle(thick, tip){
   if (!SEP.length) return null;
   const t = Math.max(0, Math.min(1, thick));
-  if (t >= SEP[SEP.length-1][0]) return SEP[SEP.length-1][1];   // 더 두꺼워도 안 늘린다
+  const v = Math.max(-3, Math.min(3, tip === undefined ? S.tipV : tip));
+  // 한 줄에서 상하 당점으로 값을 뽑는다 (상단 ↔ 중단 ↔ 하단 사이 보간)
+  const byTip = r => v >= 0 ? r[2] + (r[1] - r[2]) * (v/3)
+                            : r[2] + (r[3] - r[2]) * (-v/3);
+  if (t >= SEP[SEP.length-1][0]) return byTip(SEP[SEP.length-1]);  // 더 두꺼워도 안 늘린다
   for (let i = 0; i < SEP.length-1; i++)
     if (t >= SEP[i][0] && t <= SEP[i+1][0]){
       const k = (t - SEP[i][0]) / (SEP[i+1][0] - SEP[i][0]);
-      return SEP[i][1] + k * (SEP[i+1][1] - SEP[i][1]);
+      return byTip(SEP[i]) + k * (byTip(SEP[i+1]) - byTip(SEP[i]));
     }
   return null;
 }
@@ -2119,7 +2128,7 @@ addEventListener('pointerup', e => up(...pos(e)));
       color: 'rgb(' + (s.color || [255,255,255]).join(',') + ')',
       points: s.points}));
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
-    SEP = sep.cue_ball.table.map(r => [r[0], r[1]]);
+    SEP = sep.cue_ball.by_tip.table;   // [두께, 상단3팁, 중단, 하단3팁]
     SEP_OBJ = sep.object_ball.table.map(r => [r[0], r[1]]);
     msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
