@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 96;
+const MOBILE_VER = 97;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1122,11 +1122,15 @@ function flash(t, ms){
 }
 
 // 당점판이 열려 있을 때. **한 번 탭하면 그 자리로 정하고 바로 닫는다** (사용자 지시).
+// ★ 고르는 것만으로는 닫지 않는다. 오른쪽 안내(시계 자리·분리각·쿠션 보정)를
+//   보고 나서 '조정 완료' 를 눌러야 나간다 (사용자 지시 2026-08-10).
 function tapTipPanel(px,py){
   const q = tipGeom();
   for (const b of q.btn)
     if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
-      setTip(b.dir, b.r); S.tipPanel = false; return;
+      if (b.done) S.tipPanel = false;      // 이것만 나간다
+      else setTip(b.dir, b.r);             // 프리셋도 값만 바꾸고 남는다
+      return;
     }
   const dx = px - q.cx, dy = py - q.cy, dist = Math.hypot(dx, dy);
   if (dist <= q.R){
@@ -1140,9 +1144,10 @@ function tapTipPanel(px,py){
       const t = Math.hypot(dx - ox, dy - oy);
       if (t < bd){ bd = t; best = d; }
     }
-    setTip(best.dir, best.r); S.tipPanel = false; return;
+    setTip(best.dir, best.r);              // 값만 바꾸고 판은 그대로
+    return;
   }
-  S.tipPanel = false;                 // 판 바깥을 탭하면 그냥 닫는다
+  S.tipPanel = false;                      // 판 바깥을 탭하면 나간다
 }
 
 function down(px,py){
@@ -1775,10 +1780,14 @@ function tipGeom(){
   const bw = Math.max(40, Math.round(w - x0 - w*0.04));
   // 버튼 띠는 0.30h ~ TIP_BOT. 글자 띠(TIP_TOP ~ 0.27h)와 절대 안 겹치게 나눈다.
   // ⚠️ 전에는 글자 셋째 줄이 0.321h, 버튼 시작이 0.319h 라 정확히 겹쳤다 (7.jpg).
-  const band = h*(TIP_BOT - 0.30), gap = Math.round(h*0.018);
-  const bh = Math.round((band - gap*3) / 4);
+  // 프리셋 4개 + '조정 완료' 1개 = 다섯 칸.
+  // ⚠️ 탭하면 바로 닫던 것을 사용자가 되돌렸다 — 오른쪽 안내를 읽을 시간이 필요하다.
+  //    '위치 지정시 우측에서 다 보여주는데 바로 넘어가면 좀 그렇네요.'
+  const band = h*(TIP_BOT - 0.30), gap = Math.round(h*0.016);
+  const bh = Math.round((band - gap*4) / 5);
   const y0 = Math.round(h*0.30);
-  const btn = PRESET.map((p,i) => ({...p, x:x0, y:y0 + i*(bh+gap), w:bw, h:bh}));
+  const rows = PRESET.concat([{lb:'조정 완료', done:true}]);
+  const btn = rows.map((p,i) => ({...p, x:x0, y:y0 + i*(bh+gap), w:bw, h:bh}));
   return {R, cx, cy, x0, bw, y0, btn, dots: tipDots(), unit: R*TIP_R};
 }
 
@@ -1865,12 +1874,14 @@ function drawTipPanel(){
   // 자주 쓰는 당점 (전부 data/ 에 적혀 있는 것)
   g.textAlign = 'center'; g.textBaseline = 'middle';
   for (const b of q.btn){
-    const on = b.dir === S.tipDir && b.r === S.tipR;
-    g.fillStyle = on ? '#3a4150' : '#22252b';
-    g.strokeStyle = on ? '#ffdd33' : '#3a3e46'; g.lineWidth = on ? 3 : 1.5;
+    const on = !b.done && b.dir === S.tipDir && b.r === S.tipR;
+    // '조정 완료' 는 나가는 버튼이라 눈에 띄게 채운다
+    g.fillStyle   = b.done ? '#c8a23a' : (on ? '#3a4150' : '#22252b');
+    g.strokeStyle = b.done ? '#ffdd33' : (on ? '#ffdd33' : '#3a3e46');
+    g.lineWidth   = b.done ? 2.5 : (on ? 3 : 1.5);
     g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
-    g.fillStyle = on ? '#ffe98a' : '#dfe3ea';
-    g.font = '700 ' + Math.round(b.h*0.40) + 'px system-ui, sans-serif';
+    g.fillStyle = b.done ? '#1a1508' : (on ? '#ffe98a' : '#dfe3ea');
+    g.font = (b.done ? '800 ' : '700 ') + Math.round(b.h*0.44) + 'px system-ui, sans-serif';
     g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
   }
   g.restore();
