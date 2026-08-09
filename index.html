@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 71;
+const MOBILE_VER = 72;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -882,19 +882,28 @@ function sideButtons(){
 }
 
 // 보정(- 0 +) — 당점 그림 바로 옆에 붙여 한 묶음으로 움직인다.
-function corrButtons(){
-  const [ex,ey] = clockCenter(), R = clockR(), c = L.cloth;
+// 보정 바의 자리 — 당점 중심을 주면 계산한다.
+// ⚠️ clockCenter 를 여기서 부르면 안 된다. clockCenter 가 이 함수를 쓰기 때문이다
+//    (서로 물고 돌면 화면이 통째로 죽는다).
+function corrGeom(ex, ey){
+  const R = clockR(), c = L.cloth;
   // ⚠️ 당점 크기에 맞추면 안 된다. 당점은 보기만 하는 그림이라 작아도 되지만
   //    이건 손가락으로 누른다 — 천 높이의 15% 로 두면 폰에서 7mm 쯤 된다.
   const bw = Math.round(Math.max(R * 1.25, c.h * 0.15));
   const gap = Math.round(bw * 0.16);
   const w = bw*3 + gap*2;
   const up = ey > c.y + c.h/2;                     // 아래쪽 모서리면 위로 붙인다
-  const y = up ? ey - R - gap - bw : ey + R + gap;
-  const x = Math.min(Math.max(ex - w/2, c.x + 4), c.x + c.w - w - 4);
+  const y0 = up ? ey - R - gap - bw : ey + R + gap;
+  return {x: Math.min(Math.max(ex - w/2, c.x + 4), c.x + c.w - w - 4),
+          y: Math.min(Math.max(y0, c.y+4), c.y + c.h - bw - 4),
+          w, h: bw, bw, gap};
+}
+
+function corrButtons(){
+  const [ex,ey] = clockCenter();
+  const q = corrGeom(ex, ey);
   return ['-','0','+'].map((lb,i) =>
-    ({x: x + i*(bw+gap), y: Math.min(Math.max(y, c.y+4), c.y+c.h-bw-4),
-      w: bw, h: bw, lb}));
+    ({x: q.x + i*(q.bw+q.gap), y: q.y, w: q.bw, h: q.bw, lb}));
 }
 
 const clockR = () => L.cloth.h * 0.085;   // 버튼(0.185)의 절반 정도
@@ -949,8 +958,19 @@ function clockCenter(){
   // ⚠️ '기준치를 넘으면 바로 그 자리'로 하면 안 된다. 기준을 아슬아슬하게 넘긴
   //    왼쪽 위가 계속 뽑혀 공을 덮는다 (사용자 지적, 6.jpg — 54px 떨어졌는데
   //    기준이 52px 이라 통과했다). **제일 빈 모서리**를 고른다.
-  const ballD = t => Math.min(...put.map(p => Math.hypot(p[0]-t[0], p[1]-t[1])));
-  const clear = r + ballR() * 1.6;                          // 이만큼이면 공을 안 덮는다
+  // ⚠️ 당점 원만 재면 안 된다. 같이 움직이는 **보정 바**가 훨씬 넓어서, 당점은
+  //    비어 있어도 바가 공을 덮는다 (사용자 지적, 4.jpg 에서 수구가 가려졌다).
+  //    당점 원 + 바를 하나의 상자로 묶어 잰다.
+  const boxD = (t, p) => {
+    const q = corrGeom(t[0], t[1]);
+    const x0 = Math.min(t[0]-r, q.x), x1 = Math.max(t[0]+r, q.x+q.w);
+    const y0 = Math.min(t[1]-r, q.y), y1 = Math.max(t[1]+r, q.y+q.h);
+    const dx = Math.max(x0 - p[0], 0, p[0] - x1);
+    const dy = Math.max(y0 - p[1], 0, p[1] - y1);
+    return Math.hypot(dx, dy);
+  };
+  const ballD = t => Math.min(...put.map(p => boxD(t, p)));
+  const clear = ballR() * 1.1;                              // 이만큼 떨어지면 안 덮는다
   // 공은 반드시 피하고, **그중에서 궤적도 가능하면 피한다** (사용자 지시).
   const okay = spot.filter(t => ballD(t) >= clear);
   const cand = okay.length ? okay : spot;
