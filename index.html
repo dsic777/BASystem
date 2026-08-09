@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 100;
+const MOBILE_VER = 101;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1597,15 +1597,15 @@ function drawPath(){
   const later = roll(P, a.dir, 6, 0);
   const post = cutAtBall([P, ...later.slice(0,5).map(h => h.p)], cut.obj);
   const pts2 = post.pts;
+  // ★ 사용자 지시 2026-08-10: '직접 공을 치는 경우도 파이브앤하프와 같이
+  //   쿠션별 컬러를 적용해 주세요.' 충돌점부터 다시 세어 1·2·3쿠션을 같은 색으로.
+  //   숫자를 충돌 후 라인에서 읽는 것(systemBase)과도 눈으로 맞아떨어진다.
   for (let i = 0; i < pts2.length-1; i++){
-    seg(pts2[i], pts2[i+1], band, 0.22, COL.hit);
-    seg(pts2[i], pts2[i+1], thin, 0.95, COL.hit);
+    const c = cols[Math.min(i, cols.length-1)];
+    seg(pts2[i], pts2[i+1], band, 0.22, c);
+    seg(pts2[i], pts2[i+1], thin, 0.95, c);
   }
-  for (let i = 1; i < pts2.length - (post.hit ? 1 : 0); i++){
-    const [x,y] = toPx(...pts2[i]);
-    g.fillStyle = COL.hit; g.beginPath(); g.arc(x,y,5,0,7); g.fill();
-    g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
-  }
+  drawCushionDots(pts2, pts2.length - 1 - (post.hit ? 1 : 0));
   // 6쿠션 **방향**만 절반 길이로 알려준다 (사용자 지시). 띠 없이 얇은 선.
   // ⚠️ 5쿠션 안에서 공에 맞았으면 그리지 않는다 — '공에 닿으면 이후는 지운다'.
   if (!post.hit && later.length >= 6){
@@ -1613,7 +1613,7 @@ function drawPath(){
     const half = [a5[0] + (a6[0]-a5[0])*0.5, a5[1] + (a6[1]-a5[1])*0.5];
     const tail = cutAtBall([a5, half], cut.obj);
     for (let i = 0; i < tail.pts.length-1; i++)
-      seg(tail.pts[i], tail.pts[i+1], thin, 0.55, COL.hit);
+      seg(tail.pts[i], tail.pts[i+1], thin, 0.55, COL.after);
   }
   // 1적구 동선 — 키스를 보려면 이것도 그려야 한다 (사용자 확정).
   // 1적구는 회전·당점의 영향을 안 받고 두께로만 방향이 정해지므로 계산할 수 있다.
