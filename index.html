@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 91;
+const MOBILE_VER = 92;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1708,15 +1708,21 @@ function tipOffset(R){
   return [S.tipH * TIP_R * R * tipSide(), -S.tipV * TIP_R * R];
 }
 
+// ⚠️ 세로 자리를 0.10h ~ 0.84h 안에만 둔다. 폰 화면이 캔버스보다 짧게 보이는
+//    경우가 있어서(7.jpg — 공 아래와 마지막 버튼이 잘렸다) 위아래를 넉넉히 비운다.
+const TIP_TOP = 0.10, TIP_BOT = 0.84;
 function tipGeom(){
   const w = L.w, h = L.h;
-  const R  = Math.min(h*0.40, w*0.25);
+  const R  = Math.min(h*0.37, w*0.24);
   const cx = Math.round(Math.max(R + w*0.045, w*0.28));
-  const cy = Math.round(h*0.5);
+  const cy = Math.round(h*0.47);
   const x0 = Math.round(cx + R + w*0.05);
   const bw = Math.max(40, Math.round(w - x0 - w*0.04));
-  const bh = Math.round(h*0.135), gap = Math.round(bh*0.20);
-  const y0 = Math.round(h*0.94 - (bh*4 + gap*3));
+  // 버튼 띠는 0.30h ~ TIP_BOT. 글자 띠(TIP_TOP ~ 0.27h)와 절대 안 겹치게 나눈다.
+  // ⚠️ 전에는 글자 셋째 줄이 0.321h, 버튼 시작이 0.319h 라 정확히 겹쳤다 (7.jpg).
+  const band = h*(TIP_BOT - 0.30), gap = Math.round(h*0.018);
+  const bh = Math.round((band - gap*3) / 4);
+  const y0 = Math.round(h*0.30);
   const btn = PRESET.map((p,i) => ({...p, x:x0, y:y0 + i*(bh+gap), w:bw, h:bh}));
   const dots = [];
   for (let v = 3; v >= -3; v--)
@@ -1735,7 +1741,7 @@ function drawTipPanel(){
   if (!S.tipPanel) return;
   const q = tipGeom(), sd = tipSide();
   g.save();
-  g.fillStyle = 'rgba(10,11,13,0.90)'; g.fillRect(0,0,L.w,L.h);
+  g.fillStyle = '#0a0b0d'; g.fillRect(0,0,L.w,L.h);   // 뒤가 비치면 당점이 안 읽힌다
 
   // 공
   const sph = g.createRadialGradient(q.cx-q.R*0.34, q.cy-q.R*0.38, q.R*0.05,
@@ -1745,17 +1751,22 @@ function drawTipPanel(){
   g.fillStyle = sph; g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7); g.fill();
 
   // 3팁 바깥 = 삑사리 구역. 선수는 치지만 우리는 미끄러진다 (사용자 확인).
+  // ⚠️ 진하게 칠하면 공 전체가 붉어져 당점이 안 보인다 (7.jpg). 옅게 + 경계선.
   g.save();
   g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7);
   g.arc(q.cx,q.cy,q.unit*3,0,7,true);
-  g.fillStyle = 'rgba(190,40,32,0.30)'; g.fill();
+  g.fillStyle = 'rgba(190,40,32,0.16)'; g.fill();
   g.restore();
+  g.strokeStyle = 'rgba(222,52,44,0.75)'; g.lineWidth = Math.max(1.5, q.unit*0.08);
+  g.beginPath(); g.arc(q.cx,q.cy,q.unit*3,0,7); g.stroke();
 
   // 역회전 쪽 = 실측 데이터가 없다. 덮어서 못 고르게 한다.
+  // ⚠️ arc 의 시작·끝 각으로 반쪽을 그리려다 **반대쪽**이 칠해졌다 (7.jpg).
+  //    원으로 자른 뒤 사각형을 칠한다 — 어느 쪽인지 눈으로 확인된다.
   g.save();
-  g.beginPath(); g.arc(q.cx,q.cy,q.R, sd>0 ? Math.PI/2 : -Math.PI/2,
-                       sd>0 ? -Math.PI/2 : Math.PI/2, true);
-  g.closePath(); g.fillStyle = 'rgba(12,13,15,0.62)'; g.fill();
+  g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7); g.clip();
+  g.fillStyle = 'rgba(12,13,15,0.66)';
+  g.fillRect(sd > 0 ? q.cx - q.R : q.cx, q.cy - q.R, q.R, q.R*2);
   g.restore();
 
   // 팁 자리
@@ -1783,20 +1794,21 @@ function drawTipPanel(){
   g.fillText('실측 없음', q.cx - q.unit*1.9*sd, q.cy + q.unit*0.34);
 
   // 지금 값
-  const fs = Math.round(L.h*0.055);
+  // 글자 띠 — 버튼(0.30h 부터)과 안 겹치게 TIP_TOP ~ 0.27h 안에 넣는다.
+  const fs = Math.round(L.h*0.050);
   g.textAlign = 'left'; g.textBaseline = 'alphabetic';
   g.fillStyle = '#f2f4f8';
-  g.font = '800 ' + Math.round(fs*1.20) + 'px system-ui, sans-serif';
+  g.font = '800 ' + Math.round(fs*1.15) + 'px system-ui, sans-serif';
   const vn = S.tipV === 0 ? '중단' : (S.tipV>0?'상단 ':'하단 ') + Math.abs(S.tipV) + '팁';
   g.fillText(vn + ' · ' + (S.tipH === 0 ? '무회전' : '순 ' + S.tipH + '팁'),
-             q.x0, Math.round(L.h*0.20));
+             q.x0, Math.round(L.h*0.135));
   const sa = separationAngle(0.5, S.tipV), rf = reflect(45, S.tipH) - 45;
   g.fillStyle = '#9aa2b2';
-  g.font = '600 ' + Math.round(fs*0.80) + 'px system-ui, sans-serif';
+  g.font = '600 ' + Math.round(fs*0.78) + 'px system-ui, sans-serif';
   g.fillText('반두께 분리각  ' + (sa === null ? '-' : sa.toFixed(0) + '°'),
-             q.x0, Math.round(L.h*0.20 + fs*1.30));
+             q.x0, Math.round(L.h*0.205));
   g.fillText('쿠션 45° 입사   +' + rf.toFixed(1) + '°',
-             q.x0, Math.round(L.h*0.20 + fs*2.20));
+             q.x0, Math.round(L.h*0.265));
 
   // 자주 쓰는 당점 (전부 data/ 에 적혀 있는 것)
   g.textAlign = 'center'; g.textBaseline = 'middle';
