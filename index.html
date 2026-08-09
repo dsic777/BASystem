@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 98;
+const MOBILE_VER = 99;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2019,44 +2019,64 @@ function readScale(name, rail, t, clampEnds){
 
 // 조준선에서 수구수 · 1쿠션수 · 3쿠션수를 읽는다.
 // ⚠️ 3쿠션수는 재는 게 아니라 **수구수 − 1쿠션수** 다 (CLAUDE.md 확정 공식).
+// 어떤 점에서 어떤 방향으로 쏘았을 때 **프레임**(포인트가 찍힌 나무 띠)과 만나는 자리.
+// ⚠️ 네 변의 연장선 중 아무거나 잡으면 안 된다. 만나는 자리가 프레임 사각형 **안**에
+//    있는 것만 고른다 (코너 밖으로 나가는 교점을 잡으면 눈금이 엉뚱하게 읽힌다).
+function frameHit(from, d){
+  const off = T.frame_offset, n = Math.hypot(d[0], d[1]);
+  if (n < 1e-9) return null;
+  const dx = d[0]/n, dy = d[1]/n;
+  const x0 = -off, x1 = T.width + off, y0 = -off, y1 = T.height + off, e = 1e-6;
+  const cand = [];
+  if (dy < -e) cand.push((y0 - from[1]) / dy);
+  if (dy >  e) cand.push((y1 - from[1]) / dy);
+  if (dx < -e) cand.push((x0 - from[0]) / dx);
+  if (dx >  e) cand.push((x1 - from[0]) / dx);
+  let best = null;
+  for (const t of cand){
+    if (t <= 1e-6) continue;
+    const q = [from[0] + dx*t, from[1] + dy*t];
+    if (q[0] < x0 - 1 || q[0] > x1 + 1 || q[1] < y0 - 1 || q[1] > y1 + 1) continue;
+    if (best === null || t < best[0]) best = [t, q];
+  }
+  return best ? best[1] : null;
+}
+
 function systemNumbers(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return null;
   const o = orientation();
-  // 접기 전 기준으로 되돌려서 읽는다 (번호표는 접기 전 좌표로 정의돼 있다)
-  const A = fold(o, S.aim), C = fold(o, cue.p);
 
-  const a = frameParam(A);
-  const first = a ? readScale('first_cushion', a.rail, a.t) : null;
+  // 숫자를 읽는 **기준선**. 보통은 조준선이다.
+  let from = cue.p, dir = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]], hits = null;
+  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
 
-  // 수구수 — 조준선을 수구 뒤로 연장해 만나는 프레임 자리
-  const off = T.frame_offset;
-  let dx = C[0]-A[0], dy = C[1]-A[1];
-  const len = Math.hypot(dx,dy);
-  let start = null;
-  if (len > 1){
-    dx /= len; dy /= len;
-    const cand = [];
-    if (dy < 0) cand.push([(-off - C[1])/dy, 'bottom']);
-    if (dy > 0) cand.push([(T.height+off - C[1])/dy, 'top']);
-    if (dx < 0) cand.push([(-off - C[0])/dx, 'left']);
-    if (dx > 0) cand.push([(T.width+off - C[0])/dx, 'right']);
-    cand.sort((p,q) => p[0]-q[0]);
-    if (cand.length){
-      const q = [C[0] + dx*cand[0][0], C[1] + dy*cand[0][0]];
-      const f = frameParam(q);
-      if (f) start = readScale('start', f.rail, f.t, true);   // 코너 = 50
-    }
+  // ★ 사용자 지시 2026-08-10 (23.jpg): 수구가 쿠션보다 **1적구를 먼저 맞으면**
+  //   파이브앤하프 숫자는 조준선이 아니라 **충돌 후 라인**에서 읽는다.
+  //   '1쿠션 40으로 향하는 반대 일직선이 수구수(55) 정도. 1쿠션 40, 3쿠션 15.'
+  //   (전에는 조준선 그대로 읽어서 수구수가 96 으로 나왔다 — 그 배치와 무관한 값이다)
+  const cut = hits ? cutAtBall([cue.p, ...hits.map(h => h.p)]) : null;
+  if (cut && cut.hit){
+    const P = cut.pts[cut.pts.length-1];
+    const af = afterHit(cut.from, P, cut.obj);
+    if (af){ from = P; dir = af.dir; hits = roll(P, af.dir, 3, 0); }
   }
+
+  // 1쿠션수 — 기준선을 앞으로 늘려 프레임과 만나는 자리
+  const fw = frameHit(from, dir);
+  const fa = fw ? frameParam(fold(o, fw)) : null;
+  const first = fa ? readScale('first_cushion', fa.rail, fa.t) : null;
+
+  // 수구수 — **반대쪽으로** 늘려 프레임과 만나는 자리 (코너 = 50)
+  const bw = frameHit(from, [-dir[0], -dir[1]]);
+  const fb = bw ? frameParam(fold(o, bw)) : null;
+  const start = fb ? readScale('start', fb.rail, fb.t, true) : null;
+
   // ⚠️ 3쿠션수를 '수구수 − 1쿠션수' 로 계산하면 안 된다 (사용자 지적).
   //    그건 시스템이 **예상하는** 값이고, 화면에 안내해야 하는 것은 공이 실제로
   //    도착하는 자리다. 실측 반사표로 굴린 궤적의 3쿠션 접점을 쿠션 위 눈금
   //    (third_cushion, reference=rail) 에서 읽는다.
   let third = null;
-  let hits = null;
-  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
-  // 3쿠션수는 **항상** 보여준다 (사용자 지시). 적구에 닿아 궤적이 먼저 끊겨도
-  // 시스템이 가리키는 도착 자리는 알려줘야 한다.
   if (hits && hits.length >= 3){
     const r = railParam(fold(o, hits[2].p));
     if (r) third = readScale('third_cushion', r.rail, r.t);
