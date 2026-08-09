@@ -62,7 +62,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 86;
+const MOBILE_VER = 87;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1514,8 +1514,14 @@ function drawPath(){
   // 1적구 동선 — 키스를 보려면 이것도 그려야 한다 (사용자 확정).
   // 1적구는 회전·당점의 영향을 안 받고 두께로만 방향이 정해지므로 계산할 수 있다.
   if (a.objDir){
-    // 몇 쿠션을 맞든 끝까지 그린다 (사용자 지시). 다른 공에 닿으면 거기서 끊는다.
-    const oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 6).map(h => h.p)], cut.obj);
+    // ⚠️ 얼마나 굴러가는지는 아직 모른다 — 1적구가 받는 **충격량**을 안 재서다.
+    //    6쿠션까지 그렸더니 34% 얇은 두께에도 다이 전체를 덮었다 (3.jpg).
+    //    실제로는 얇게 맞으면 조금 가다 선다. 없는 것을 그리면 안 된다.
+    //    그래서 사용자 체크리스트의 기준까지만 그린다 —
+    //    "1적구가 맞고 **첫 번째 쿠션**에 부딪힌 뒤 어디로 튕겨 돌아오는지" (data/kiss.json)
+    //    → 첫 쿠션 + 되돌아오는 한 구간 = 2쿠션.
+    //    두께별 굴러가는 거리를 재면 그때 실제 길이로 바꾼다.
+    const oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 2).map(h => h.p)], cut.obj);
     const op = oq.pts;
     // ⚠️ 수구의 1→2쿠션 구간도 노란색이라 1적구 궤적과 헷갈린다. 점선으로 갈라 준다.
     g.save(); g.setLineDash([Math.max(8, thin*4), Math.max(6, thin*3)]);
