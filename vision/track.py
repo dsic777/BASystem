@@ -489,16 +489,25 @@ def find_contacts(track: Track, w: float, h: float, ball_diameter: float,
     return out
 
 
-def _split_on_jump(points, jump_mm: float = 150.0) -> list[list]:
+def _split_on_jump(points, jump_mm: float = 150.0, max_gap: int = 20) -> list[list]:
     """한 프레임에 공이 갈 수 없는 거리를 건너뛰었으면 거기서 자른다.
 
     ⚠️ 편집 컷이다. 카메라가 고정이라 컷 전후 화면이 거의 같아 밝기 차이로는
        못 찾는다. 대신 공이 튄 것으로 찾는다 — 150mm/프레임은 4.5m/s로,
        사람이 큐로 낼 수 있는 속도를 넘는다.
+
+    ★ 2026-08-11 — **반드시 프레임 간격으로 나눠서** 본다.
+      궤적에는 빈 프레임이 있다 (사람에 가려 공을 놓친 구간). 두 점 사이 거리만
+      보면 3프레임만 놓쳐도 1.5m/s 에서 150mm 를 넘어 **한 샷이 잘렸다.**
+      9.3분 편집본이 147조각으로 쪼개지고, 앞 구간이 짧아 충돌 39쌍 중 7개만
+      살아남던 원인이 이것이다.
+    max_gap  이보다 오래 놓쳤으면 이어 붙이지 않는다 (20프레임 = 0.67초).
     """
     out, cur = [], [points[0]]
     for a, b in zip(points, points[1:]):
-        if np.hypot(b[1] - a[1], b[2] - a[2]) > jump_mm:
+        df = max(1, b[0] - a[0])
+        per_frame = float(np.hypot(b[1] - a[1], b[2] - a[2])) / df
+        if per_frame > jump_mm or df > max_gap:
             out.append(cur)
             cur = [b]
         else:
@@ -516,7 +525,11 @@ def _split_on_accel(points, floor_mm: float = 15.0, ratio: float = 2.0) -> list[
     """
     if len(points) < 12:
         return [points]
-    v = np.hypot(np.diff([p[1] for p in points]), np.diff([p[2] for p in points]))
+    # ★ 2026-08-11 — 여기도 **프레임 간격으로 나눈다**. 안 나누면 공을 몇 프레임
+    #   놓친 자리에서 '속도가 확 올랐다' 고 오판해 멀쩡한 샷을 잘랐다.
+    d = np.hypot(np.diff([p[1] for p in points]), np.diff([p[2] for p in points]))
+    df = np.maximum(1, np.diff([p[0] for p in points]))
+    v = d / df
     k = np.ones(5) / 5.0
     v = np.convolve(v, k, mode="same")
 
