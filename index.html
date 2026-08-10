@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 107;
+const MOBILE_VER = 108;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1336,7 +1336,13 @@ function systemBase(){
   let from = cue.p, dir = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]], hits = null;
   try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
   const cut = hits ? cutAtBall([cue.p, ...hits.map(h => h.p)]) : null;
-  if (cut && cut.hit){
+  // ★ 충돌 후 라인에서 숫자를 읽는 것은 **직접 1적구를 치는 경우**(앞·뒤·제각돌리기)
+  //   뿐이다. 그때는 충돌한 자리부터 3쿠션 시스템이 시작되므로 그게 맞다.
+  // ⚠️ 사용자 지적 2026-08-10 (1.jpg): 쓰리뱅크로 **3쿠션을 다 돌고 나서** 1적구를
+  //   맞은 배치인데도 충돌 후 라인에서 읽어, 수구수 36 / 1쿠션 — / 3쿠션 13 이
+  //   나왔다. 실제 수구는 좌측 60 눈금이고 1쿠션은 하단 10 이다.
+  //   → 충돌 **전에 쿠션을 쓴 적이 있으면** 원래 큐선 그대로 읽는다.
+  if (cut && cut.hit && cut.pts.length === 2){
     const P = cut.pts[cut.pts.length-1];
     const af = afterHit(cut.from, P, cut.obj);
     if (af){ from = P; dir = af.dir; hits = roll(P, af.dir, 3, 0); }
@@ -1618,11 +1624,19 @@ function drawPath(){
   // ★ 사용자 2026-08-10 (4.jpg) — 충돌 **전에 쓴 쿠션 수**로 정한다.
   //   쓰리뱅크로 3쿠션을 이미 돌고 얇게 맞았는데 거기서 또 7쿠션을 더 도는 것이 문제였다.
   //   직접 치는 경우(앞·뒤·제각돌리기)는 7쿠션 그대로. 표는 data/speed.json.
-  const DRAW_UPTO = afterCushions(before.length - 2);   // 여기까지 선을 그린다
+  const DRAW_UPTO = afterCushions(before.length - 2);   // 여기까지 진하게 그린다
   const BAND_UPTO = Math.min(5, DRAW_UPTO);             // 띠는 그리는 데까지만
-  const later = roll(P, a.dir, DRAW_UPTO + 1, 0);
-  const post = cutAtBall([P, ...later.slice(0, DRAW_UPTO).map(h => h.p)], cut.obj);
-  const pts2 = post.pts;
+  // ★ 사용자 2026-08-10 (1.jpg): '궤적이 1적구를 맞고 멈추었는데 **2적구까지는
+  //   연장궤적이 그려져야** 합니다.' 득점이 되는지가 거기서 갈리므로, 표대로 끊더라도
+  //   2적구에 닿는 경로는 보여야 한다. 표는 **진하게 그리는 한도**이고,
+  //   그 뒤는 2적구에 닿을 때만 얇고 흐린 연장선으로 이어 붙인다.
+  const REACH_UPTO = 7;                                 // 2적구를 여기까지 찾아본다
+  const later = roll(P, a.dir, REACH_UPTO + 1, 0);
+  const post = cutAtBall([P, ...later.slice(0, REACH_UPTO).map(h => h.p)], cut.obj);
+  // 2적구에 닿으면 거기까지, 아니면 표대로만
+  const lastSeg = post.hit ? post.pts.length - 1
+                           : Math.min(DRAW_UPTO, post.pts.length - 1);
+  const pts2 = post.pts.slice(0, lastSeg + 1);
   // ★ 사용자 지시 2026-08-10: '직접 공을 치는 경우도 파이브앤하프와 같이
   //   쿠션별 컬러를 적용해 주세요.' 충돌점부터 다시 세어 1·2·3쿠션을 같은 색으로.
   //   숫자를 충돌 후 라인에서 읽는 것(systemBase)과도 눈으로 맞아떨어진다.
@@ -1631,8 +1645,12 @@ function drawPath(){
     if (i < BAND_UPTO){
       seg(pts2[i], pts2[i+1], band, 0.22, c);
       seg(pts2[i], pts2[i+1], thin, 0.95, c);
-    } else {
+    } else if (i < DRAW_UPTO){
       seg(pts2[i], pts2[i+1], thin, i === BAND_UPTO ? 0.45 : 0.30, c);
+    } else {
+      // 2적구까지 이어 붙이는 연장선. 표가 끊은 뒤라 얇고 흐리게 — 여기부터는
+      // '이만큼 굴러간다' 가 아니라 '이 길로 2적구에 닿는다' 를 보여주는 선이다.
+      seg(pts2[i], pts2[i+1], Math.max(2, thin*0.8), 0.42, c);
     }
   }
   // 쿠션 점은 띠 구간까지만. 흐린 구간까지 찍으면 다시 지저분해진다.
