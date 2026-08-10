@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 109;
+const MOBILE_VER = 110;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -779,6 +779,10 @@ function drawAnswer(){
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, pal:null,
+           // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
+           //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
+           //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
+           power:1,
            // 상하 당점. +3 상단 3팁 · 0 중단 · −3 하단 3팁 (고르는 화면은 아직 없다)
            // 당점 — 시계 방향(30분 단위) + 거리(팁). ss1 기준.
            tipDir:6, tipR:2,   // 3시 2팁 = 지금까지와 같은 기본값
@@ -877,20 +881,24 @@ function sideButtons(){
   const RO_H   = 0.82;                             // 판독창 높이 배수 (카메라 위)
   const CAM_D  = 1.6;                              // 카메라 지름 배수
   // ⚠️ 두 칸 폭(2.05)을 그대로 지름으로 쓰면 칸을 다 먹어 제품명 자리가 사라진다.
+  // ★ 사용자 2026-08-11 — 세기(약·중·강) · 경로추천 두 칸을 넷째 줄로 넣는다.
+  //   '버튼만, 기능은 나중에. 위치부터 잡아봅시다.'
+  const ROWS = 4;
   const bw = Math.max(12, Math.min((p.w - colGap - lead) / 2,
-                                   (p.h - rowGap*4) / (3 + RO_H + CAM_D)));
+                                   (p.h - rowGap*(ROWS+1)) / (ROWS + RO_H + CAM_D)));
   const totalW = bw*2 + colGap;
   const camD = bw*CAM_D;
-  const totalH = bw*(3 + RO_H) + camD + rowGap*4;
+  const totalH = bw*(ROWS + RO_H) + camD + rowGap*(ROWS+1);
   const x0 = p.x + lead + (p.w - lead - totalW) / 2;
   // ⚠️ 가운데 정렬이면 위 이름 자리가 좁다. 아래쪽으로 내린다 (사용자 지시).
   const y0 = p.y + (p.h - totalH) * 0.78;
   const out = [];
-  [['swap','reset'], ['white','yellow'], ['red','exit']].forEach((row,i) =>
+  [['swap','reset'], ['white','yellow'], ['red','exit'],
+   ['power','suggest']].forEach((row,i) =>
     row.forEach((lb,j) => out.push({x:x0 + j*(bw+colGap), y:y0 + i*(bw+rowGap),
                                     w:bw, h:bw, lb})));
   // 판독창(누르는 것 아님) 자리를 잡아두고, 카메라는 그 아래에 둔다 (사용자 지시).
-  const roY = y0 + 3*(bw+rowGap);
+  const roY = y0 + ROWS*(bw+rowGap);
   READOUT = {x:x0, y:roY, w:totalW, h:bw*RO_H};
   out.push({x:x0 + (totalW-camD)/2, y:roY + bw*RO_H + rowGap,
             w:camD, h:camD, lb:'cam'});
@@ -1018,6 +1026,8 @@ function clockCenter(){
 const ballR = () => Math.max(5, T.ball_diameter/2*L.sc);
 
 const R_LABELS = ['L','A','R'];   // Line 만 / All 전부 / Restore 되돌리기
+const POWER_KR  = ['약', '중', '강'];
+const POWER_COL = ['#5aa9e0', '#e8c46a', '#e8607f'];
 function tapButton(px,py){
   for (const b of BTN){
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
@@ -1053,6 +1063,11 @@ function tapButton(px,py){
       S.pal = {c: b.lb, x: px, y: py, moved: false};
     }
     else if (b.lb === 'reset') doReset();
+    // ★ 세기 — 누를 때마다 약 → 중 → 강. 기본은 중 (사용자 확정).
+    //   ⚠️ 아직 경로 길이에 연결하지 않았다. 자리와 눈에 보이는 상태만 만든 것이다.
+    else if (b.lb === 'power') S.power = (S.power + 1) % 3;
+    // ★ 경로추천 — 자리만 잡아 둔 것이라 아직 아무 일도 하지 않는다 (사용자 지시).
+    else if (b.lb === 'suggest'){ /* 기능은 나중에 */ }
     return true;
   }
   return false;
@@ -2007,31 +2022,43 @@ function drawPalDrag(){
 }
 
 function drawBrand(){
+  // ★ 사용자 2026-08-11: '상단 로고가 많이 차지하는데 로고 만들고 BSsystem 이라고
+  //   하고 위로 조금 올리면 공간이 나오지 않을까요.'
+  //   세 줄(BILLIARDS/ASSISTANT/SYSTEM) 이 세로를 많이 먹어 버튼이 작아졌다.
+  //   **공 하나 + 한 줄** 로 줄이고 위로 붙인다. 그림 파일이 아니라 캔버스로 그린다 —
+  //   해상도에 안 흐려지고 파일도 안 늘어난다.
   if (!PANEL || !BTN.length) return;
   const top = Math.min(...BTN.filter(b => b.x >= PANEL.x).map(b => b.y));
   const room = top - PANEL.y;
-  const words = ['BILLIARDS', 'ASSISTANT', 'SYSTEM'];
-  let fs = Math.min(room / 4.2, PANEL.w * 0.15);
-  g.save();
-  g.textAlign = 'center'; g.textBaseline = 'middle';
+  if (room < 14) return;
+  const cx = PANEL.x + PANEL.w / 2;
+  const cy = PANEL.y + room * 0.42;                // 위로 올린다 (전에는 0.60)
   const face = 'px Georgia, "Times New Roman", serif';
-  // ⚠️ 칸 폭을 넘으면 글자가 잘린다 (사용자 지적). 재서 줄인다.
-  const fit = PANEL.w * 0.84;
-  for (let k = 0; k < 12; k++){
-    g.font = 'italic 700 ' + Math.round(fs) + face;
-    if (Math.max(...words.map(w => g.measureText(w).width)) <= fit || fs < 9) break;
-    fs *= 0.92;
-  }
-  if (fs < 9){ g.restore(); return; }              // 자리가 없으면 안 그린다
-  g.font = 'italic 700 ' + Math.round(fs) + face;
+  let fs = Math.min(room * 0.42, PANEL.w * 0.20);
+  g.save();
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  const gap = () => fs * 0.42;                     // 공과 글자 사이
+  const R = () => fs * 0.46;                       // 공 반지름
+  const width = () => { g.font = 'italic 700 ' + Math.round(fs) + face;
+                        return R()*2 + gap() + g.measureText('BSsystem').width; };
+  for (let k = 0; k < 14 && width() > PANEL.w * 0.90 && fs > 8; k++) fs *= 0.92;
+  if (fs < 8){ g.restore(); return; }
+  const w = width(), bx = cx - w/2 + R(), tx = cx - w/2 + R()*2 + gap();
+  // 로고 표시 — 당구공 (흰 구 + 금색 링). 앱 아이콘과 같은 느낌으로.
+  const sph = g.createRadialGradient(bx - R()*0.35, cy - R()*0.38, R()*0.06, bx, cy, R()*1.05);
+  sph.addColorStop(0, '#ffffff'); sph.addColorStop(0.32, '#f2f1ea');
+  sph.addColorStop(1, '#a8a598');
+  g.fillStyle = sph;
+  g.beginPath(); g.arc(bx, cy, R(), 0, 7); g.fill();
+  g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(1.5, R()*0.22);
+  g.beginPath(); g.arc(bx, cy, R()*1.10, 0, 7); g.stroke();
   // ⚠️ 폰에서는 화면이 어두워 반투명이 더 죽는다 (사용자 지적). 불투명 흰색에
   //    옅은 그림자를 둬서 뜨게 한다.
   g.shadowColor = 'rgba(0,0,0,0.85)';
   g.shadowBlur = Math.max(2, fs*0.18);
+  g.font = 'italic 700 ' + Math.round(fs) + face;
   g.fillStyle = '#ffffff';
-  const cx = PANEL.x + PANEL.w / 2;
-  const cy = PANEL.y + room * 0.60;                // 조금 아래로 (사용자 지시)
-  words.forEach((t, i) => g.fillText(t, cx, cy + (i - 1) * fs * 1.16));
+  g.fillText('BSsystem', tx, cy);
   g.shadowBlur = 0;
   g.restore();
 }
@@ -2257,6 +2284,36 @@ function drawButtons(){
     }
     if (b.lb === 'reset'){                         // L / A / R — 색 그대로, 굵고 크게
       heavy(R_LABELS[S.rMode], cx, cy, u*0.66, '#e8607f');
+      continue;
+    }
+    // ★ 세기 — 막대 셋 중 지금 단계까지 채운다. 글자는 아래에 작게 (약·중·강)
+    if (b.lb === 'power'){
+      const n = S.power, bw2 = u*0.13, gap = u*0.09, hs = [0.20, 0.30, 0.40];
+      const x0 = cx - (bw2*3 + gap*2)/2, base = cy + u*0.10;
+      for (let i = 0; i < 3; i++){
+        const hh = u*hs[i];
+        g.fillStyle = i <= n ? POWER_COL[n] : 'rgba(20,22,26,0.18)';
+        round(x0 + i*(bw2+gap), base - hh, bw2, hh, bw2*0.3); g.fill();
+        g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1.5, u*0.028); g.stroke();
+      }
+      heavy(POWER_KR[n], cx, cy + u*0.30, u*0.26, POWER_COL[n]);
+      continue;
+    }
+    // ★ 경로추천 — 한 점에서 갈라지는 경로 셋 (기능은 아직 없다)
+    if (b.lb === 'suggest'){
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      const sx = cx - u*0.26, sy = cy + u*0.24;
+      [[[0.20,-0.16],[0.52,0.02]], [[0.16,0.04],[0.50,-0.24]], [[0.26,0.22],[0.50,0.20]]]
+        .forEach((pp, i) => {
+          g.strokeStyle = ['#3f8ae0','#e0a03f','#4fb06a'][i];
+          g.lineWidth = Math.max(2.5, u*0.075);
+          g.beginPath(); g.moveTo(sx, sy);
+          g.lineTo(sx + u*pp[0][0], sy + u*pp[0][1]);
+          g.lineTo(sx + u*pp[1][0], sy + u*pp[1][1]); g.stroke();
+        });
+      g.fillStyle = '#f2f1ea';                     // 출발 공
+      g.beginPath(); g.arc(sx, sy, u*0.085, 0, 7); g.fill();
+      g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1.5, u*0.03); g.stroke();
       continue;
     }
     if (b.lb === 'swap' || ['white','yellow','red'].includes(b.lb)){
