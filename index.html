@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 115;
+const MOBILE_VER = 116;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1369,12 +1369,23 @@ function systemBase(){
   //   맞은 배치인데도 충돌 후 라인에서 읽어, 수구수 36 / 1쿠션 — / 3쿠션 13 이
   //   나왔다. 실제 수구는 좌측 60 눈금이고 1쿠션은 하단 10 이다.
   //   → 충돌 **전에 쿠션을 쓴 적이 있으면** 원래 큐선 그대로 읽는다.
-  if (cut && cut.hit && cut.pts.length === 2){
+  // ★ 3쿠션수는 성격이 다르다 (사용자 지적 2026-08-11, 24.jpg).
+  //   수구수·1쿠션수는 **출발**을 설명하므로 원래 큐선에서 읽는 것이 맞다.
+  //   3쿠션수는 **도착**을 설명하므로 공이 **실제로 가는 경로**에서 읽어야 한다.
+  //   24.jpg 는 1쿠션을 맞고 나서 흰공에 부딪히는 배치인데, 공에 안 맞았다고 치고
+  //   계속 굴린 가상 경로의 3쿠션을 읽어 65 가 나왔다 (실제 도착은 하단 36).
+  //   → 충돌이 있으면 arrival 은 **충돌점부터 다시 센** 경로로 둔다.
+  //     화면의 쿠션별 색도 충돌점부터 다시 세므로 눈으로 본 것과 맞아떨어진다.
+  let arrival = hits;
+  if (cut && cut.hit){
     const P = cut.pts[cut.pts.length-1];
     const af = afterHit(cut.from, P, cut.obj);
-    if (af){ from = P; dir = af.dir; hits = roll(P, af.dir, 3, 0); }
+    if (af){
+      arrival = roll(P, af.dir, 3, 0);
+      if (cut.pts.length === 2){ from = P; dir = af.dir; hits = arrival; }
+    }
   }
-  const val = {from, dir, hits};
+  const val = {from, dir, hits, arrival};
   BASE_CACHE = {key, val};
   return val;
 }
@@ -2214,9 +2225,13 @@ function systemNumbers(){
   //    그건 시스템이 **예상하는** 값이고, 화면에 안내해야 하는 것은 공이 실제로
   //    도착하는 자리다. 실측 반사표로 굴린 궤적의 3쿠션 접점을 쿠션 위 눈금
   //    (third_cushion, reference=rail) 에서 읽는다.
+  // ⚠️ hits 가 아니라 **arrival** 에서 읽는다 — 공이 실제로 가는 경로다 (24.jpg).
+  //    ★ 사용자 확정 2026-08-11: '장 하단 그린 폰트가 3쿠션 숫자입니다.'
+  //      그 눈금은 장쿠션에만 있으므로, 3쿠션째 접점이 단쿠션이면 읽을 것이 없다.
+  const arr = b.arrival;
   let third = null;
-  if (hits && hits.length >= 3){
-    const r = railParam(fold(o, hits[2].p));
+  if (arr && arr.length >= 3){
+    const r = railParam(fold(o, arr[2].p));
     if (r) third = readScale('third_cushion', r.rail, r.t);
   }
   return {start, first, third};
