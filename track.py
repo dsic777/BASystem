@@ -6,6 +6,13 @@
     python track.py 영상.mp4 --out 폴더         결과 저장 위치
     python track.py 영상.mp4 --step 2           2프레임에 1번만 처리 (빠르게)
     python track.py 영상.mp4 --pick             ★ 당구대 코너 4개를 직접 찍어 저장
+    python track.py 영상.mp4 --roll             ★ 끝까지 굴러간 데까지 남긴다 (아래 참고)
+
+★ --roll  '공이 얼마나 굴러가나' 를 재는 촬영용 (2026-08-10 이후).
+  기본값은 멈추기 직전의 느린 구간(8mm/프레임 미만이 8프레임)을 **떼어낸다** —
+  접점 각도를 흔들림 없이 재려고 그렇게 해 두었다. 그래서 0808 은 마지막 쿠션에서
+  공이 아직 살아 있는 샷이 72% 였다. 굴러간 거리를 재려면 이 옵션을 켠다.
+  기준을 5mm 로 낮추고 꼬리를 살린다. **기존 분석에는 영향이 없다** (기본값 그대로).
 
 ★ 당구장에 당구대가 여러 대 보이면 자동 검출이 엉뚱한 사각형을 만든다.
   카메라가 삼각대로 고정돼 있으니 **--pick 으로 한 번만 찍어두면** 그 영상 내내 정확하다.
@@ -128,6 +135,8 @@ def main(argv: list[str]) -> int:
     if "--ball" in argv:
         names = argv[argv.index("--ball") + 1].split(",")
         only = tuple(ball_kr.get(n.strip(), n.strip().lower()) for n in names)
+    # ★ 공이 끝까지 굴러간 데까지 남긴다. 굴러간 거리를 재는 촬영용.
+    roll = "--roll" in argv
     flags = {"--out", "--step", "--from", "--to", "--ball"}
     positional = [a for i, a in enumerate(argv)
                   if a not in flags and (i == 0 or argv[i - 1] not in flags)]
@@ -162,7 +171,7 @@ def main(argv: list[str]) -> int:
     for v in videos:
         try:
             total += run_one(v, out_dir, step, table, scales, vtrack, pick_corners,
-                             t_from, t_to, only)
+                             t_from, t_to, only, roll)
         except Exception as e:
             print(f"[{v.name}] 실패: {e}\n")
     print(f"전체 샷 {total}개")
@@ -171,7 +180,7 @@ def main(argv: list[str]) -> int:
 
 def run_one(video: Path, out_dir: Path, step: int, table, scales, vtrack, pick_corners,
             t_from: float = 0.0, t_to: float | None = None,
-            only: tuple[str, ...] | None = None) -> int:
+            only: tuple[str, ...] | None = None, roll: bool = False) -> int:
     import cv2
 
     print(f"=== {video.name} ===")
@@ -184,10 +193,14 @@ def run_one(video: Path, out_dir: Path, step: int, table, scales, vtrack, pick_c
     f1 = int(t_to * 60 * fps) if t_to is not None else None
     if f0 or f1:
         print(f"구간: {t_from:.1f}분 ~ {t_to if t_to is not None else '끝'}분")
+    if roll:
+        print("굴러간 끝까지 남긴다 (--roll): 멈춤 기준 8mm → 5mm, 느린 꼬리를 안 버린다")
     top, shots = vtrack.track_video(str(video), table.width, table.height,
                                     step=step, quad=quad,
                                     ball_diameter_mm=table.ball_diameter,
-                                    first_frame=f0, last_frame=f1, only=only)
+                                    first_frame=f0, last_frame=f1, only=only,
+                                    min_move_mm=5.0 if roll else 8.0,
+                                    keep_tail=roll)
     if only:
         print(f"추적 대상 공: {', '.join(only)}")
     print(f"당구대 검출 완료 — 상단뷰 {top.size}, 가로세로비 {top.aspect:.3f} (규격 2.000)")

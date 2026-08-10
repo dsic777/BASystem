@@ -139,7 +139,8 @@ def track_video(path: str, table_width: float, table_height: float,
                 ball_diameter_mm: float | None = None,
                 first_frame: int = 0,
                 last_frame: int | None = None,
-                only: tuple[str, ...] | None = None) -> tuple[TopView, list[Track]]:
+                only: tuple[str, ...] | None = None,
+                keep_tail: bool = False) -> tuple[TopView, list[Track]]:
     """영상 → (상단뷰, 샷 목록).
 
     공을 **전부** 따라가고, 그 중 실제로 움직인 것만 샷으로 남긴다.
@@ -252,7 +253,7 @@ def track_video(path: str, table_width: float, table_height: float,
     fps = cap_fps if cap_fps > 1 else 30.0
     shots: list[Track] = []
     for tr in traces:
-        shots.extend(split_shots(tr, min_move_mm, fps))
+        shots.extend(split_shots(tr, min_move_mm, fps, keep_tail=keep_tail))
     shots.sort(key=lambda s: s.start_frame)
     return top, shots
 
@@ -519,12 +520,17 @@ def _split_all(points) -> list[list]:
 
 
 def split_shots(samples, min_move_mm: float, fps: float = 30.0,
-                stop_run: int = 8) -> list[Track]:
+                stop_run: int = 8, keep_tail: bool = False) -> list[Track]:
     """멈춰 있는 구간을 잘라 샷 단위로 나눈다.
 
     ⚠️ 한 프레임만 느려도 끊으면 안 된다. 공은 굴러가다 느려지는 구간이 있고,
        검출이 촘촘할수록 그 구간이 길게 잡혀 한 샷이 잘게 쪼개진다.
        **연속으로 stop_run 번 느려야** 멈춘 것으로 본다.
+
+    keep_tail  ★ 사용자 2026-08-10 — '공의 속도에 따라 궤적을 얼마나 이어야 하는가를
+               판단할 목적으로' 재는 촬영에서는 **마지막 느린 구간을 버리면 안 된다.**
+               기본값은 그 구간을 떼어낸다(cur[:-slow]) — 접점 각도를 정확히 재려고
+               멈추기 직전의 흔들림을 뺀 것이다. 굴러간 거리를 재려면 켠다.
     """
     shots: list[Track] = []
     cur: list[tuple[int, float, float]] = []
@@ -540,7 +546,7 @@ def split_shots(samples, min_move_mm: float, fps: float = 30.0,
             slow += 1
             cur.append(b)                       # 느린 구간도 궤적의 일부다
             if slow >= stop_run:
-                keep = cur[:-slow]
+                keep = cur if keep_tail else cur[:-slow]
                 for seg in _split_all(keep):
                     shots.append(Track(seg[0][0], seg[-1][0], seg, fps=fps))
                 cur, slow = [], 0
