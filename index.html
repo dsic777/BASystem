@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 111;
+const MOBILE_VER = 112;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -890,8 +890,13 @@ function sideButtons(){
   const camD = bw*CAM_D;
   const totalH = bw*(ROWS + RO_H) + camD + rowGap*(ROWS+1);
   const x0 = p.x + lead + (p.w - lead - totalW) / 2;
-  // ⚠️ 가운데 정렬이면 위 이름 자리가 좁다. 아래쪽으로 내린다 (사용자 지시).
-  const y0 = p.y + (p.h - totalH) * 0.78;
+  // 남는 세로 여백을 위·아래로 나누는 비율. 클수록 버튼 뭉치가 아래로 내려간다.
+  // ⚠️ 전에는 0.78 이었다 — 이름 자리를 넉넉히 주려던 것인데, 이름을 한 줄
+  //    (BSsystem) 로 줄이고 나니 로고와 첫 줄 사이가 크게 비고 카메라는 아래에
+  //    붙어 버렸다 (사용자 지적 7.jpg: '제품명 아래 버튼들 조금만 위로 올려도 될 듯,
+  //    그래야 카메라 버튼까지 같이 올라가죠').
+  const TOP_SHARE = 0.50;
+  const y0 = p.y + (p.h - totalH) * TOP_SHARE;
   const out = [];
   [['swap','reset'], ['white','yellow'], ['red','exit'],
    ['power','suggest']].forEach((row,i) =>
