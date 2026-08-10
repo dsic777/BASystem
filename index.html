@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 105;
+const MOBILE_VER = 107;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -80,7 +80,7 @@ setInterval(checkVersion, 60000);
 //    주소가 /basystem/ 하나로 끝난다 (사용자 확정).
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 const msg = document.getElementById('msg');
-let T, SCALES, BOUNCE, SEP = [], SEP_OBJ = [];
+let T, SCALES, BOUNCE, SEP = [], SEP_OBJ = [], POST_CUSHIONS = [];
 
 const RAILS = {bottom:[0,1], right:[-1,0], top:[0,-1], left:[1,0]};   // 안쪽 법선
 const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa',
@@ -1554,6 +1554,15 @@ function afterHit(from, to, obj){
                 : [dx*Math.cos(ro) - dy*Math.sin(ro), dx*Math.sin(ro) + dy*Math.cos(ro)]};
 }
 
+// 1적구를 맞은 뒤 수구 경로를 몇 쿠션까지 그리나.
+// data/speed.json ★_충돌_후_그리는_쿠션 의 표 그대로. 표에 없는 값은 마지막 줄을 쓴다.
+function afterCushions(used){
+  if (!POST_CUSHIONS.length) return 7;
+  const u = Math.max(0, used);
+  const row = POST_CUSHIONS.find(r => r[0] === u);
+  return row ? row[1] : POST_CUSHIONS[POST_CUSHIONS.length-1][1];
+}
+
 function drawPath(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return;
@@ -1606,8 +1615,11 @@ function drawPath(){
   // ⚠️ 지저분해 보이는 것은 결국 **띠(공 두께 폭)** 때문이다. 6쿠션부터 띠를 빼면 된다.
   //   두께 30% 규칙·버튼은 사용자가 접었다 — 다시 꺼내지 말 것.
   // ⚠️ 1~5쿠션에 띠를 넣는 이유: 어디로 지나가는지 폭까지 봐야 키스가 보인다.
-  const BAND_UPTO = 5;              // 여기까지 띠를 그린다
-  const DRAW_UPTO = 7;              // 여기까지 선을 그린다
+  // ★ 사용자 2026-08-10 (4.jpg) — 충돌 **전에 쓴 쿠션 수**로 정한다.
+  //   쓰리뱅크로 3쿠션을 이미 돌고 얇게 맞았는데 거기서 또 7쿠션을 더 도는 것이 문제였다.
+  //   직접 치는 경우(앞·뒤·제각돌리기)는 7쿠션 그대로. 표는 data/speed.json.
+  const DRAW_UPTO = afterCushions(before.length - 2);   // 여기까지 선을 그린다
+  const BAND_UPTO = Math.min(5, DRAW_UPTO);             // 띠는 그리는 데까지만
   const later = roll(P, a.dir, DRAW_UPTO + 1, 0);
   const post = cutAtBall([P, ...later.slice(0, DRAW_UPTO).map(h => h.p)], cut.obj);
   const pts2 = post.pts;
@@ -1627,7 +1639,7 @@ function drawPath(){
   drawCushionDots(pts2, Math.min(BAND_UPTO, pts2.length - 1 - (post.hit ? 1 : 0)));
   // 마지막 쿠션 다음 **방향**만 절반 길이로. 제일 흐리게.
   // ⚠️ 그 안에서 공에 맞았으면 그리지 않는다 — '공에 닿으면 이후는 지운다'.
-  if (!post.hit && later.length >= DRAW_UPTO + 1){
+  if (!post.hit && DRAW_UPTO >= 1 && later.length >= DRAW_UPTO + 1){
     const aN = later[DRAW_UPTO-1].p, aN1 = later[DRAW_UPTO].p;
     const half = [aN[0] + (aN1[0]-aN[0])*0.5, aN[1] + (aN1[1]-aN[1])*0.5];
     const tail = cutAtBall([aN, half], cut.obj);
@@ -2452,11 +2464,12 @@ addEventListener('pointercancel', cancelTouch);
 
 (async () => {
   try{
-    const [tb, num, bo, sep] = await Promise.all([
+    const [tb, num, bo, sep, spd] = await Promise.all([
       fetch('data/table_medium.json').then(r => r.json()),
       fetch('data/five_half_numbers.json').then(r => r.json()),
       fetch('data/measured_bounce.json').then(r => r.json()),
-      fetch('data/separation.json').then(r => r.json())]);
+      fetch('data/separation.json').then(r => r.json()),
+      fetch('data/speed.json').then(r => r.json())]);
     const pf = tb.playfield || tb;
     T = {width: pf.width ?? tb.width, height: pf.height ?? tb.height,
          outer_width: (tb.outer?.width) ?? tb.outer_width,
@@ -2472,6 +2485,7 @@ addEventListener('pointercancel', cancelTouch);
     BOUNCE = bo.table.map(r => [r[0], r[1]]);
     SEP = sep.cue_ball.by_tip.table;   // [두께, 상단3·2·1팁, 중단, 하단1·2·3팁]
     SEP_OBJ = sep.object_ball.table.map(r => [r[0], r[1]]);
+    POST_CUSHIONS = spd['★_몇_쿠션까지_구르나']['★_충돌_후_그리는_쿠션'].table;
     msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
     const mA = location.search.match(/[?&]a=(\d{2})/);
