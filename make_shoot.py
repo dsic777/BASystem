@@ -2,8 +2,11 @@
 
     python c:\\Portfolio\\billiards\\make_shoot.py
 
-    촬영0  한 장 요약 (공통 세팅 · 순위표 · 찍고 와서 돌릴 명령)
+    촬영0  한 장 요약 (공통 · 오전에 채워진 것 / 빈 것 · 파일명)
     촬영1~4  순위별
+
+★ 2026-08-11 오후판. 오전 촬영본을 분석해 **실제로 빈 칸**만 남겼다.
+  1순위 상하 당점 15샷 · 2순위 역회전 20샷 · 3순위 충돌 양끝 10샷 · 4순위 여유
 
 ⚠️ 이 그림은 **촬영 안내용**이다. 경로가 정확한 계산 결과는 아니다 —
    '이런 식으로 치면 된다' 를 보여주는 것이 목적이라 궤적이 겹쳐도 상관없다
@@ -150,177 +153,207 @@ def page(title, sub):
     return im, d
 
 
-# ────────────────────────────────────────────── 0 · 한 장 요약
-im, d = page("오늘 촬영  ·  2026-08-10",
-             "하나로 쭉 이어서 찍는다.  순서대로  1순위 → 2순위 → 3순위")
 
-d.rounded_rectangle([60, 190, 950, 566], radius=18, fill="#1e2128", outline="#3a3f49", width=2)
-d.text((92, 214), "공통 — 어떻게 찍나", font=f(36), fill="#ffd54a")
-for i, t in enumerate([
-        "삼각대 고정.  네 코너가 다 보이게.  중간에 옮기지 않는다",
-        "★ 공을 잡지 않는다 — 완전히 멈출 때까지 둔다",
-        "한 샷이 멈춘 뒤 다음 샷.  조명 일정하게",
-        "손으로 옮기는 장면은 섞여도 된다 (걸러낸다)",
-        "두께 · 당점은 적을 필요 없다 — 궤적에서 계산된다",
-        "순위가 바뀔 때 카메라에 손가락으로 1 · 2 · 3"]):
-    col = "#ffe98a" if t.startswith("★") else "#e8eaee"
-    d.text((100, 278 + i * 46), "·", font=f(30), fill="#7f8898")
-    d.text((126, 276 + i * 46), t, font=f(29), fill=col)
-
-# 순위표
-cols = [(60, "순위"), (250, "무엇을"), (760, "공"), (900, "샷"), (1040, "나오는 것")]
-y = 650
-d.text((60, y - 52), "오늘 찍을 것", font=f(36), fill="#ffd54a")
-for x, lab in cols:
-    d.text((x, y), lab, font=f(27), fill="#7f8898")
-d.line([60, y + 42, 1940, y + 42], fill="#3a3f49", width=2)
-rows = [("1", "충돌 후 속도  (두 공)", "2개", "30", "두께별로 수구가 남기는 속도. 지금 데이터 0", "#ffd54a"),
-        ("2", "세기별 빈쿠션  (공 하나)", "1개", "20~30", "그 속도로 몇 쿠션 더 가나. 뒷부분이 잘려 없다", "#7fd8ff"),
-        ("3", "상하 당점 → 쿠션 반사", "1개", "15", "가정이 맞는지. 틀리면 코드가 틀린 것", "#6eeb5a"),
-        ("4", "역회전 빈쿠션 (시간 남으면)", "1개", "20", "실측표는 순회전만. 되돌아오기가 여기 걸림", "#9aa2b2")]
-for i, (n, what, ball, shots, gives, col) in enumerate(rows):
-    yy = y + 66 + i * 64
-    d.text((72, yy), n, font=f(40), fill=col)
-    d.text((250, yy + 6), what, font=f(31), fill="#e8eaee")
-    d.text((770, yy + 6), ball, font=f(29), fill="#c8ccd4")
-    d.text((905, yy + 6), shots, font=f(29), fill="#c8ccd4")
-    d.text((1040, yy + 8), gives, font=f(27), fill="#9aa2b2")
-
-d.rounded_rectangle([1000, 190, 1940, 566], radius=18, fill="#1e2128", outline="#3a3f49", width=2)
-d.text((1032, 214), "1순위와 2순위는 한 쌍이다", font=f(36), fill="#ffd54a")
-for i, t in enumerate([
-        ("1순위", "충돌에서 수구가 얼마나 속도를 남기나", "#ffd54a"),
-        ("2순위", "그 속도로 앞으로 몇 쿠션 더 굴러가나", "#7fd8ff")]):
-    d.text((1032, 278 + i * 66), t[0], font=f(30), fill=t[2])
-    d.text((1150, 280 + i * 66), t[1], font=f(27), fill="#e8eaee")
-d.line([1032, 412, 1900, 412], fill="#3a3f49", width=2)
-d.text((1032, 430), "둘을 합치면 어떤 배치든", font=f(28), fill="#9aa2b2")
-d.text((1032, 470), "'여기서 몇 쿠션 더 간다' 가 계산된다", font=f(31), fill="#6eeb5a")
-d.text((1032, 516), "= 경로를 어디까지 그릴지가 정해진다", font=f(28), fill="#9aa2b2")
-
-d.rounded_rectangle([60, 1000, 1940, 1130], radius=16, fill="#2a1f22", outline="#a34a44", width=2)
-d.text((92, 1018), "★ 1순위(두 공)는 수구와 1적구가 60~80cm 이상 떨어지게", font=f(34), fill="#ffb0aa")
-d.text((92, 1062), "너무 붙으면 프로그램이 '충돌이 아니다' 로 보고 그 샷을 버립니다. 가까워지면 한 공만 옮기세요.",
-       font=f(26), fill="#e0b8b4")
-d.text((92, 1096), "두 공 영상은 이번이 처음이라, 돌아오시면 앞부분 몇 샷부터 확인하겠습니다.",
-       font=f(26), fill="#e0b8b4")
-im.save(OUT / "촬영0.png")
-
-# ────────────────────────────────────────────── 1순위
-im, d = page("1순위 · 충돌 후 속도  (두 공)",
-             "공 두 개만.  두께 3단계 × 세기 3단계.  한 칸에 3~4샷이면 30샷 안팎.   ★ 배치를 다시 하지 않는다")
-t = Table(im, 150, 260, 1000)
-t.frame()
-t.ball(1224, 612, "#d6342c", txt="1적구 (고정)", tf=f(26))
-t.ball(500, 612, "#f6f5ee", txt="수구", tf=f(26))
-for k, (lab, th) in enumerate([("얇게", .15), ("반두께", .5), ("두껍게", .8)]):
-    off = (1 - th) * BALL * (1 if k != 1 else 1)
-    t.line([(500, 612), (2300, 612 + off * (2300 - 500) / (1224 - 500))],
-           ["#7fd8ff", "#ffd600", "#ff78be"][k], 3)
-d.text((150, 900), "★ 배치를 다시 하지 않는다 — 공이 멈춘 자리에서 그대로 다음 샷", font=f(31), fill="#ffe98a")
-d.text((150, 946), "★ 충돌 후 1초는 건드리지 않는다 — 직후 속도를 그때 잰다", font=f(31), fill="#ffe98a")
-d.text((150, 992), "★ 두께를 눈으로 잴 필요가 없다 — collide.py 가 궤적에서 재준다", font=f(31), fill="#ffe98a")
-d.text((150, 1042), "반두께를 큐선으로 잡고, 거기서 얇게 · 두껍게로 갈라 치면 된다", font=f(29), fill="#e8eaee")
-d.text((150, 1086), "두께 3단계  얇게 · 반두께 · 두껍게      세기 3단계  약 · 중 · 강      30샷 안팎",
-       font=f(29), fill="#e8eaee")
-d.text((1300, 1000), "※ 두 공이 60~80cm 이상", font=f(30), fill="#ff9f9a")
-d.text((1300, 1044), "떨어져 있어야 잡힙니다.", font=f(30), fill="#ff9f9a")
-d.text((1300, 1088), "가까워지면 한 공만 옮기세요", font=f(28), fill="#e0b8b4")
-
-# 두께 그림 (오른쪽)
-cx, cy, R = 1560, 560, 150
-d.ellipse([cx - R, cy - R, cx + R, cy + R], fill="#d6342c", outline="#14161a", width=4)
-d.text((cx, cy - R - 40), "1적구", font=f(30), fill="#ffb0aa", anchor="ms")
-for lab, th, col in [("얇게", .15, "#7fd8ff"), ("반두께", .5, "#ffd600"),
-                     ("두껍게", .8, "#ff78be")]:
-    ox = (1 - th) * 2 * R
-    d.ellipse([cx - ox - R, cy - R, cx - ox + R, cy + R], outline=col, width=6)
-    d.text((cx - ox, cy + R + 46 + [.15, .5, .8].index(th) * 46), lab,
-           font=f(30), fill=col, anchor="ms")
-d.text((1300, 940), "겹치는 정도가 두께다", font=f(30), fill="#9aa2b2")
-im.save(OUT / "촬영1.png")
-
-# ────────────────────────────────────────────── 2순위
-im, d = page("2순위 · 세기별 빈쿠션  (공 하나)",
-             "수구 50 → 1쿠션 30 기본각에서 시작해 이어 친다.  약 · 중 · 강 각 7~10샷")
-# 한 다이에 셋을 겹쳐 그리니 읽을 수가 없었다 (7.jpg) — 갈라 그린다.
-# 경로는 거울반사가 아니라 **실측 반사표**로 굴린 것이다 (사용자 지적).
-# ★ 사용자 확정 2026-08-10 — 재는 것은 '다이 휨' 이 아니라 **세기 → 몇 쿠션까지**.
-#   '공의 속도에 따라 궤적을 얼마나 이어야 하는가를 판단할 목적으로.'
-#   그래서 배치를 여러 개 만들 이유가 없다. 같은 기본각을 **세기만 바꿔** 친다.
-#   ⚠️ 몇 쿠션까지 가는지는 **이번에 재는 값**이다. 아래 3·5·7 은 그림용 예시일 뿐이다.
-_cue, _pts, _ = five_half_shot(50, 30, cushions=7)
-for i, (lab, upto, col) in enumerate([("약", 3, "#7fd8ff"), ("중", 5, "#ffd600"),
-                                      ("강", 7, "#ff78be")]):
-    t = Table(im, 110 + i * 620, 290, 540)
-    t.frame()
-    t.line([_cue] + _pts[:upto], col, 4)
-    t.ball(*_cue, "#f6f5ee")
-    x = 110 + i * 620
-    d.text((x, 620), lab + "하게", font=f(40), fill=col)
-    d.text((x + 150, 634), "7~10샷", font=f(28), fill="#9aa2b2")
-
-d.text((110, 690), "세 그림은 같은 배치다 — 세기만 다르다.  어디까지 가는지가 이번에 재는 값이라,",
-       font=f(28), fill="#9aa2b2")
-d.text((110, 734), "그림의 3 · 5 · 7쿠션은 예시일 뿐이다.", font=f(28), fill="#9aa2b2")
-
-d.rounded_rectangle([110, 786, 1120, 884], radius=14, fill="#1e2128", outline="#3a3f49", width=2)
-d.text((136, 804), "수구 50  →  1쿠션 30       당점 9시 30분 3팁", font=f(34), fill="#ffd54a")
-d.text((136, 848), "여기서 시작해 멈춘 자리에서 이어 친다.  당점은 셋 다 같게 (0808 과 같은 조건)",
-       font=f(24), fill="#9aa2b2")
-
-d.rounded_rectangle([110, 906, 1940, 1010], radius=16, fill="#2a2418", outline="#a3822c", width=2)
-d.text((140, 924), "★ 공을 잡지 않는다 — 완전히 멈출 때까지 둔다.  이번 촬영의 핵심이다",
-       font=f(34), fill="#ffe98a")
-d.text((140, 968), "★ 5 · 6 · 7쿠션이 화면 안에 온전히.  마지막 쿠션 이후 진행선이 끝까지 보여야 한다",
-       font=f(30), fill="#ffe98a")
-
-d.text((110, 1034), "※ 0808 은 접점 위치만 보려던 촬영이라, 마지막 쿠션에서 공이 아직 살아 있는 샷이 72% 였다",
-       font=f(28), fill="#ff9f9a")
-d.text((110, 1078), "   (4쿠션 78% · 5쿠션 76%).  '얼마나 굴러가나' 는 그때 미룬 절차고, 이번이 그 차례다.",
-       font=f(28), fill="#9aa2b2")
-im.save(OUT / "촬영2.png")
-
-# ────────────────────────────────────────────── 3순위
-im, d = page("3순위 · 상하 당점이 쿠션 반사를 바꾸는가  (공 하나)",
-             "같은 자리에서 당점만 12시 / 중단 / 6시로 바꿔 각 5샷.  좌우 회전은 0")
-t = Table(im, 150, 280, 1150)
-t.frame()
-t.line(bank((400, 250), 40, 4), "#e8eaee", 5)
-t.ball(400, 250, "#f6f5ee")
-d.text((160, 1010), "가정이 맞으면 셋이  같은 각  으로 나온다", font=f(30), fill="#e8eaee")
-d.text((160, 1055), "다르면 지금 코드가 틀린 것이다 (상하는 분리각만 바꾼다고 가정 중)",
-       font=f(30), fill="#ff9f9a")
-for i, (lab, dy, col) in enumerate([("12시 3팁", -1, "#7fd8ff"), ("중단", 0, "#ffd600"),
-                                    ("6시 3팁", 1, "#ff78be")]):
-    cx, cy, R = 1560, 430 + i * 250, 92
+def tipboard(d, cx, cy, R, dy, label, col, side=0.0):
+    """당점판 하나. dy = 위아래 (-1 12시 3팁 · 0 중단 · +1 6시 3팁), side = 좌우."""
     d.ellipse([cx - R, cy - R, cx + R, cy + R], fill="#f2f1ea", outline="#3c3e46", width=4)
     d.ellipse([cx - R * .78, cy - R * .78, cx + R * .78, cy + R * .78], outline="#be2820", width=3)
-    py = cy + dy * R * .585
-    d.ellipse([cx - 17, py - 17, cx + 17, py + 17], fill="#de342c")
-    d.text((cx + R + 34, cy), lab, font=f(34), fill=col, anchor="lm")
+    px, py = cx + side * R * .585, cy + dy * R * .585
+    d.ellipse([px - R * .17, py - R * .17, px + R * .17, py + R * .17], fill="#de342c")
+    d.text((cx, cy + R + 40), label, font=f(32), fill=col, anchor="ms")
+
+
+# ────────────────────────────────────────────── 0 · 한 장 요약
+im, d = page("오늘 오후 촬영  ·  2026-08-11",
+             "오전 촬영본을 분석해서 실제로 빈 칸만 남겼다.  다 합쳐 20분 안쪽")
+
+d.rounded_rectangle([60, 186, 980, 556], radius=18, fill="#1e2128", outline="#3a3f49", width=2)
+d.text((92, 208), "공통 — 오전과 똑같이", font=f(34), fill="#ffd54a")
+for i, t in enumerate([
+        "카메라 그대로.  다이가 몸에 가려도 상관없다",
+        "★ 공을 잡지 않는다 — 완전히 멈출 때까지",
+        "한 샷이 멈춘 뒤 다음 샷",
+        "★ 파일명에 당점을 정확히 (오전엔 두 번 다 틀렸다)",
+        "편집 방식은 오전 그대로. 바꿀 것 없다"]):
+    col = "#ffe98a" if t.startswith("★") else "#e8eaee"
+    d.text((100, 272 + i * 50), "·", font=f(30), fill="#7f8898")
+    d.text((126, 270 + i * 50), t, font=f(29), fill=col)
+
+d.rounded_rectangle([1010, 186, 1940, 556], radius=18, fill="#1e2128", outline="#3a3f49", width=2)
+d.text((1042, 208), "오전에 채워진 것", font=f(34), fill="#6eeb5a")
+for i, t in enumerate([
+        ("충돌 (두 공)", "15개 · 두께 4~68%", "#6eeb5a"),
+        ("세기별 빈쿠션", "32샷 · 2~5쿠션", "#6eeb5a"),
+        ("역회전", "7샷 20접점 — 얇다", "#ffd54a"),
+        ("상하 당점", "0샷 — 통째로 비었다", "#ff9f9a")]):
+    d.text((1042, 272 + i * 62), t[0], font=f(30), fill=t[2])
+    d.text((1330, 274 + i * 62), t[1], font=f(27), fill="#c8ccd4")
+d.text((1042, 526), "수구수 판독은 26샷 전부 50.0 으로 나왔다 — 편집이 좋았다는 뜻",
+       font=f(24), fill="#9aa2b2")
+
+y = 620
+d.text((60, y - 44), "오늘 찍을 것", font=f(36), fill="#ffd54a")
+for x, lab in [(60, "순위"), (230, "무엇을"), (830, "샷"), (960, "당점"), (1400, "왜")]:
+    d.text((x, y), lab, font=f(27), fill="#7f8898")
+d.line([60, y + 40, 1940, y + 40], fill="#3a3f49", width=2)
+rows = [("1", "상하 당점 (공 하나)", "15", "12시3팁 / 중단 / 6시3팁", "가정을 아직 안 재봤다", "#ffd54a"),
+        ("2", "역회전 빈쿠션 (공 하나)", "20", "9시30분 3팁", "서서 들어가는 각이 13도 차이", "#7fd8ff"),
+        ("3", "충돌 양끝 (두 공)", "10", "12시 2팁", "6/8·7/8 칸이 비었다", "#ff78be"),
+        ("4", "여유 (시간 남으면)", "15", "9시30분 3팁", "세게 · 아주 얕게", "#9aa2b2")]
+for i, (n, what, shots, tip, why, col) in enumerate(rows):
+    yy = y + 64 + i * 66
+    d.text((72, yy), n, font=f(40), fill=col)
+    d.text((230, yy + 6), what, font=f(31), fill="#e8eaee")
+    d.text((840, yy + 6), shots, font=f(29), fill="#c8ccd4")
+    d.text((960, yy + 8), tip, font=f(27), fill="#c8ccd4")
+    d.text((1400, yy + 8), why, font=f(26), fill="#9aa2b2")
+
+d.rounded_rectangle([60, 950, 1940, 1128], radius=16, fill="#2a2418", outline="#a3822c", width=2)
+d.text((92, 968), "★ 1순위는 파일을 당점별로 나눠 주세요 — 영상만 봐서는 당점을 알 수 없습니다",
+       font=f(32), fill="#ffe98a")
+for i, t in enumerate(["상하당점_12시3팁.mp4    상하당점_중단.mp4    상하당점_6시3팁.mp4",
+                       "역회전_9시30분3팁.mp4    충돌추가_12시2팁.mp4"]):
+    d.text((110, 1018 + i * 42), t, font=f(28), fill="#7fd8ff")
+d.text((110, 1096), "※ 파일명의 당점이 곧 데이터 조건이다. 조건이 다른 표는 절대 섞을 수 없다.",
+       font=f(25), fill="#c8ccd4")
+im.save(OUT / "촬영0.png")
+
+# ────────────────────────────────────────────── 1순위 · 상하 당점
+im, d = page("1순위 · 상하 당점이 쿠션 반사를 바꾸는가  (공 하나)",
+             "같은 자리에서 당점만 12시 3팁 / 중단 / 6시 3팁 으로.  각 5샷.   ★ 좌우 회전은 0")
+_cue, _pts, _inc = five_half_shot(50, 30, cushions=5)
+t = Table(im, 110, 240, 820)
+t.frame()
+t.line([_cue] + _pts, "#e8eaee", 5)
+t.ball(*_cue, "#f6f5ee")
+d.text((110, 712), "수구 50  →  1쿠션 30", font=f(38), fill="#ffd54a")
+d.text((110, 766), "오전 2순위와 같은 자리다. 그대로 두고 당점만 바꾸면 된다", font=f(27), fill="#9aa2b2")
+
+for i, (lab, dy, col) in enumerate([("12시 3팁", -1, "#7fd8ff"), ("중단", 0, "#ffd600"),
+                                    ("6시 3팁", 1, "#ff78be")]):
+    tipboard(d, 1320 + i * 210, 400, 92, dy, lab, col)
+
+d.rounded_rectangle([1180, 560, 1940, 700], radius=16, fill="#2a1f22", outline="#a34a44", width=2)
+d.text((1210, 580), "★ 좌우 회전은 0 이어야 한다", font=f(34), fill="#ffb0aa")
+d.text((1210, 626), "3팁이 좌우로 조금이라도 들어가면 이 실험은 무효다.", font=f(25), fill="#e0b8b4")
+d.text((1210, 660), "오전에 찍은 것이 그래서 못 쓰게 됐다 (역회전이 걸려 있었다).",
+       font=f(25), fill="#e0b8b4")
+
+d.text((110, 830), "무엇을 재나 — 셋이 같은 각으로 나오는가", font=f(34), fill="#e8eaee")
+d.text((110, 886), "지금 프로그램은 '상하 당점은 분리각만, 좌우 회전은 쿠션 반사만 바꾼다' 고",
+       font=f(28), fill="#9aa2b2")
+d.text((110, 928), "가정하고 있다. 사용자가 그렇게 말해 주었지만 한 번도 재본 적이 없다.",
+       font=f(28), fill="#9aa2b2")
+d.text((110, 984), "셋이 같은 각이면  →  가정이 맞다. 그대로 간다", font=f(30), fill="#6eeb5a")
+d.text((110, 1030), "다르면  →  지금 코드가 틀린 것이다. 상하 당점도 반사에 넣어야 한다",
+       font=f(30), fill="#ff9f9a")
+d.text((110, 1090), "※ 같은 자리·같은 세기로. 당점 말고는 아무것도 바꾸지 않는다",
+       font=f(28), fill="#e8eaee")
+im.save(OUT / "촬영1.png")
+
+# ────────────────────────────────────────────── 2순위 · 역회전
+im, d = page("2순위 · 역회전 빈쿠션  (공 하나)",
+             "9시 30분 3팁 역회전.  20샷.   ★ 쿠션에 서서 들어가는 각(입사 10~30도) 위주로")
+
+for i, (lab, cn, fn, col, note) in enumerate([
+        ("서서 들어감", 60, 50, "#ff78be", "입사 10~30도  ← 여기가 급하다"),
+        ("누워서 들어감", 90, 20, "#7fd8ff", "입사 60도 이상  ← 차이가 없다")]):
+    cue, pts, inc = five_half_shot(cn, fn, cushions=4)
+    tb = Table(im, 110 + i * 640, 250, 560)
+    tb.frame()
+    tb.line([cue] + pts, col, 4)
+    tb.ball(*cue, "#f6f5ee")
+    x = 110 + i * 640
+    d.text((x, 620), lab, font=f(38), fill=col)
+    d.text((x, 674), note, font=f(26), fill="#9aa2b2")
+
+tipboard(d, 1560, 400, 110, 0, "9시 30분 3팁", "#ffd54a", side=-1.0)
+d.text((1400, 566), "역회전 — 당점판 왼쪽", font=f(28), fill="#9aa2b2")
+
+d.text((110, 760), "오전 7샷(20접점)에서 이미 나온 것", font=f(34), fill="#ffd54a")
+d.line([110, 806, 1300, 806], fill="#3a3f49", width=2)
+for i, (a, b, c2) in enumerate([("입사 11~23도  (서서)", "역회전이 순회전보다 13도 덜 벌어진다", "#ff78be"),
+                                ("입사 60~62도  (누워서)", "순회전과 거의 같다 (1.7도)", "#7fd8ff")]):
+    d.text((110, 826 + i * 50), a, font=f(29), fill=c2)
+    d.text((560, 826 + i * 50), b, font=f(29), fill="#e8eaee")
+d.text((110, 940), "한 접점은 입사 20.3도 → 반사 8.4도 로, 들어간 각보다 작게 나왔다.",
+       font=f(28), fill="#9aa2b2")
+d.text((110, 982), "역회전이 공을 되돌린 것이다 — 리버스가 숫자로 잡혔다.", font=f(28), fill="#9aa2b2")
+d.text((110, 1042), "※ 실측 반사표(0808, 385접점)는 순회전 전용이라 역회전에 쓸 수 없다.",
+       font=f(29), fill="#ff9f9a")
+d.text((110, 1084), "   되돌아오기 · 리버스 샷이 통째로 여기 걸려 있다.", font=f(27), fill="#9aa2b2")
+im.save(OUT / "촬영2.png")
+
+# ────────────────────────────────────────────── 3순위 · 충돌 양끝
+im, d = page("3순위 · 충돌 양끝 채우기  (두 공)",
+             "아주 얇게 5샷 + 두껍게 5샷.  당점은 오전과 같은 12시 2팁.   배치는 다시 하지 않는다")
+t = Table(im, 110, 250, 900)
+t.frame()
+t.ball(1224, 612, "#d6342c", txt="1적구", tf=f(26))
+t.ball(500, 612, "#f6f5ee", txt="수구", tf=f(26))
+for k, (lab, th, col) in enumerate([("아주 얇게", .1, "#7fd8ff"), ("두껍게", .85, "#ff78be")]):
+    off = (1 - th) * BALL
+    t.line([(500, 612), (2300, 612 + off * (2300 - 500) / (1224 - 500))], col, 4)
+
+cx, cy, R = 1450, 430, 135
+d.ellipse([cx - R, cy - R, cx + R, cy + R], fill="#d6342c", outline="#14161a", width=4)
+d.text((cx, cy - R - 34), "1적구", font=f(28), fill="#ffb0aa", anchor="ms")
+for lab, th, col in [("아주 얇게", .1, "#7fd8ff"), ("두껍게", .85, "#ff78be")]:
+    ox = (1 - th) * 2 * R
+    d.ellipse([cx - ox - R, cy - R, cx - ox + R, cy + R], outline=col, width=6)
+d.text((cx - 2 * R * .9, cy + R + 44), "아주 얇게", font=f(28), fill="#7fd8ff", anchor="ms")
+d.text((cx - 2 * R * .15, cy + R + 86), "두껍게", font=f(28), fill="#ff78be", anchor="ms")
+
+d.text((1700, 300), "오전에 잡힌 두께", font=f(30), fill="#ffd54a")
+for i, (lab, n) in enumerate([("1/8", 1), ("2/8", 4), ("3/8", 3), ("4/8", 4),
+                              ("5/8", 3), ("6/8", 0), ("7/8", 0)]):
+    yy = 350 + i * 44
+    col = "#ff9f9a" if n == 0 else ("#ffd54a" if n <= 1 else "#6eeb5a")
+    d.text((1710, yy), lab, font=f(28), fill="#c8ccd4")
+    d.rectangle([1780, yy + 6, 1780 + max(6, n * 18), yy + 26], fill=col)
+    d.text((1796 + max(6, n * 18), yy), str(n), font=f(26), fill=col)
+d.text((1700, 670), "6/8 · 7/8 이 비었고", font=f(26), fill="#ff9f9a")
+d.text((1700, 706), "1/8 은 1샷뿐이다", font=f(26), fill="#ffd54a")
+
+d.text((110, 800), "★ 최대 80% 로 치신 것이 있다고 했는데 잡힌 것은 68% 가 최대였다",
+       font=f(32), fill="#ffe98a")
+d.text((110, 852), "두껍게 5샷 · 아주 얇게 5샷이면 양끝이 채워진다. 가운데는 이미 충분하다.",
+       font=f(28), fill="#9aa2b2")
+d.text((110, 918), "※ 두 공이 60~80cm 이상 떨어지게. 너무 붙으면 버려진다",
+       font=f(29), fill="#ff9f9a")
+d.text((110, 962), "※ 충돌 후 1초는 건드리지 않는다", font=f(29), fill="#e8eaee")
+d.text((110, 1006), "※ 두께를 눈으로 잴 필요 없다 — collide.py 가 궤적에서 재준다",
+       font=f(29), fill="#e8eaee")
+d.text((110, 1062), "당점은 오전과 같은 12시 2팁으로. 조건이 다르면 같은 표에 못 넣는다.",
+       font=f(28), fill="#9aa2b2")
 im.save(OUT / "촬영3.png")
 
-# ────────────────────────────────────────────── 4순위
-im, d = page("4순위 · 역회전 빈쿠션  (시간 남으면)",
-             "공 하나.  역회전으로 20샷.   ※ 세기별 · 대회전은 2순위에 흡수됐다")
-t = Table(im, 150, 300, 1150)
-t.frame()
-t.line(bank((350, 300), 30, 3), "#7fd8ff", 5)
-t.line([(350, 300), (1500, 950), (900, 1224)], "#ff78be", 5, dash=True)
-t.ball(350, 300, "#f6f5ee")
-d.text((160, 1010), "실선 = 순회전 (지금 실측표에 있는 것)", font=f(30), fill="#7fd8ff")
-d.text((160, 1054), "점선 = 역회전 (표가 통째로 비어 있다)", font=f(30), fill="#ff78be")
-d.text((160, 1098), "되돌아오기 · 리버스 샷이 전부 여기 걸려 있다. 당점판에서 역회전 쪽을 막아 둔 이유다.",
-       font=f(27), fill="#9aa2b2")
+# ────────────────────────────────────────────── 4순위 · 여유
+im, d = page("4순위 · 시간 남으면  (공 하나)", "세게 5~10샷 · 아주 얕게 5샷.  당점 9시30분 3팁")
+for i, (lab, cn, fn, col, why1, why2) in enumerate([
+        ("세게", 50, 30, "#ff78be",
+         "오전 32샷 중 2.5m/s 넘는 것이 1샷뿐이다.",
+         "'내 힘으로 몇 쿠션까지' 의 위쪽 끝이 비어 있다"),
+        ("아주 얕게 눕혀서", 100, 20, "#7fd8ff",
+         "실측표가 입사 8~73도까지밖에 없다.",
+         "73도 넘는 각은 지금 외삽으로 그린다")]):
+    cue, pts, inc = five_half_shot(cn, fn, cushions=7 if i == 0 else 5)
+    tb = Table(im, 110 + i * 940, 260, 800)
+    tb.frame()
+    tb.line([cue] + pts, col, 4)
+    tb.ball(*cue, "#f6f5ee")
+    x = 110 + i * 940
+    d.text((x, 740), lab, font=f(40), fill=col)
+    d.text((x, 800), why1, font=f(28), fill="#e8eaee")
+    d.text((x, 842), why2, font=f(28), fill="#9aa2b2")
+    d.text((x, 900), f"1쿠션 입사 {inc:.0f}도", font=f(26), fill="#7f8898")
 
-d.rounded_rectangle([1420, 380, 1940, 700], radius=16, fill="#1e2128", outline="#3a3f49", width=2)
-d.text((1450, 400), "더 있으면 좋은 것", font=f(32), fill="#ffd54a")
-d.text((1450, 462), "아주 얕게 눕는 각  몇 샷", font=f(29), fill="#e8eaee")
-d.text((1450, 506), "실측표가 8~73도까지밖에 없다.", font=f(25), fill="#9aa2b2")
-d.text((1450, 544), "73도 넘는 쪽이 비어 있어서", font=f(25), fill="#9aa2b2")
-d.text((1450, 582), "그 각은 지금 외삽으로 그린다.", font=f(25), fill="#9aa2b2")
-d.text((1450, 634), "2·3순위 칠 때 섞어 주시면 된다", font=f(26), fill="#7fd8ff")
+d.rounded_rectangle([110, 970, 1940, 1120], radius=16, fill="#1e2128", outline="#3a3f49", width=2)
+d.text((140, 990), "이 둘은 없어도 오늘 목표는 달성된다", font=f(32), fill="#ffd54a")
+d.text((140, 1040), "1·2·3순위(45샷)가 먼저다. 시간이 남을 때만 하시면 된다.",
+       font=f(28), fill="#9aa2b2")
+d.text((140, 1080), "세게 치는 것은 2순위 역회전을 칠 때 몇 개 섞어도 된다.",
+       font=f(28), fill="#9aa2b2")
 im.save(OUT / "촬영4.png")
 
 print("만들었습니다:")
