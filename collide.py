@@ -2,6 +2,12 @@
 
     python collide.py 영상.mp4
     python collide.py 영상.mp4 --out 폴더 --step 2
+    python collide.py 영상.mp4 --from 0 --to 12      1순위 구간만 (분 단위)
+    python collide.py 영상.mp4 --ball 흰공,빨간공    쓴 공을 못 박는다
+    python collide.py 영상.mp4 --gap 6               두 공이 가까운 배치까지 잡는다
+
+★ 하나로 쭉 이어 찍은 영상이면 `--from/--to` 로 1순위 구간만 잘라 돌린다
+  (2026-08-10 촬영 방식. 순위가 바뀔 때 카메라에 손가락으로 1·2·3 을 찍어 두었다).
 
 내일(2026-08-11) 촬영 1순위가 이것이다. 시연화면과 키스 판정이 여기서 막혀 있다
 (data/speed.json 의 ⚠️_못_잰_것 참고).
@@ -61,16 +67,23 @@ def fit_dir(pts, i0, i1):
     return d / (np.linalg.norm(d) or 1)
 
 
-def pair_shots(shots, fps, ball_d):
+def pair_shots(shots, fps, ball_d, gap: int = GAP):
     """시간이 겹치는 두 궤적을 (수구, 1적구) 로 묶는다.
 
     ⚠️ 먼저 움직이기 시작한 쪽이 수구다. 1적구는 맞아야 움직이므로
        그 **시작 프레임이 곧 충돌 순간**이다.
+
+    gap  두 궤적의 출발이 이만큼(프레임) 안에서 갈리면 '거의 동시 출발' 로 보고 버린다.
+         손으로 두 공을 한꺼번에 건드린 장면을 걸러내려는 것이다.
+         ⚠️ 그런데 이 값이 크면 **두 공이 가까운 배치를 통째로 버린다** —
+         30fps 에서 12프레임은 0.4초, 수구가 1.5~2m/s 면 60~80cm 다.
+         내가 정한 값이라 실촬영본을 보고 낮춰야 한다. `--gap` 으로 바꾼다.
     """
     ok = [s for s in shots
           if len(s.points) >= MIN_POINTS and s.peak_speed / 1000.0 >= MIN_SPEED]
     ok.sort(key=lambda s: s.start_frame)
     used, out = set(), []
+    dropped_gap = 0
     for i, a in enumerate(ok):
         if i in used:
             continue
@@ -80,11 +93,15 @@ def pair_shots(shots, fps, ball_d):
             b = ok[j]
             if b.start_frame > a.end_frame:        # 겹치지 않으면 다른 샷
                 break
-            if b.start_frame - a.start_frame < GAP:
+            if b.start_frame - a.start_frame < gap:
+                dropped_gap += 1
                 continue                            # 거의 동시 출발 = 충돌이 아니다
             used.add(i); used.add(j)
             out.append((a, b))
             break
+    if dropped_gap:
+        print(f"  ⚠️ 출발 간격이 {gap}프레임 미만이라 버린 쌍 {dropped_gap}개"
+              f"  (두 공이 가까웠던 샷일 수 있다 — --gap 을 낮춰 보세요)")
     return out
 
 
@@ -157,6 +174,14 @@ def main(argv):
     video = Path(argv[0])
     out_dir = Path(argv[argv.index("--out") + 1]) if "--out" in argv else Path.cwd()
     step = int(argv[argv.index("--step") + 1]) if "--step" in argv else 1
+    gap = int(argv[argv.index("--gap") + 1]) if "--gap" in argv else GAP
+    t_from = float(argv[argv.index("--from") + 1]) if "--from" in argv else 0.0
+    t_to = float(argv[argv.index("--to") + 1]) if "--to" in argv else None
+    ball_kr = {"노란공": "yellow", "노랑": "yellow", "흰공": "white", "빨간공": "red"}
+    only = None
+    if "--ball" in argv:
+        only = tuple(ball_kr.get(n.strip(), n.strip().lower())
+                     for n in argv[argv.index("--ball") + 1].split(","))
     table = Table.load()
 
     import cv2
@@ -167,12 +192,21 @@ def main(argv):
     print(f"=== {video.name} ===  {fps:.1f}fps")
     quad = pick_corners.load(video)
     print("코너: " + ("사람이 찍어 둔 값" if quad is not None else "자동 검출"))
+    f0 = int(t_from * 60 * fps)
+    f1 = int(t_to * 60 * fps) if t_to is not None else None
+    if f0 or f1:
+        print(f"구간: {t_from:.1f}분 ~ {t_to if t_to is not None else '끝'}분")
+    if only:
+        print(f"추적 대상 공: {', '.join(only)}")
+    if gap != GAP:
+        print(f"출발 간격 기준: {gap}프레임 ({gap/fps:.2f}초)")
     top, shots = vtrack.track_video(str(video), table.width, table.height,
                                     step=step, quad=quad,
-                                    ball_diameter_mm=table.ball_diameter)
+                                    ball_diameter_mm=table.ball_diameter,
+                                    first_frame=f0, last_frame=f1, only=only)
     print(f"궤적 {len(shots)}개 검출")
 
-    pairs = pair_shots(shots, fps, table.ball_diameter)
+    pairs = pair_shots(shots, fps, table.ball_diameter, gap)
     print(f"두 공이 같이 움직인 쌍 {len(pairs)}개")
 
     rows = []
