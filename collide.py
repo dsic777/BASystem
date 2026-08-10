@@ -40,6 +40,12 @@ from vision import track as vtrack                # noqa: E402
 MIN_SPEED = 0.25        # m/s. 이보다 느리면 손으로 옮긴 것으로 본다
 MIN_POINTS = 6
 PRE, POST = 8, 10       # 충돌 앞뒤로 몇 프레임을 속도 재는 데 쓰나
+# ★ 충돌 프레임에서 이만큼 앞으로 물러나 '충돌 직전' 을 잡는다.
+#   1적구가 움직였다고 잡히는 순간은 이미 접촉 뒤라, 그때 두 공 사이가 90~200mm 다
+#   (지름 61.5mm). 수구는 이미 접촉점을 1~3프레임 지나쳤다는 뜻이다.
+#   물러나지 않으면 진행 방향을 **충돌 뒤 구간**으로 재게 되고, 그러면 1적구가
+#   그 선에서 지름보다 멀리 떨어져 두께가 0% 로 나온다 (17개 중 7개가 그랬다).
+BACKOFF = 3
 GAP = 12                # 두 궤적의 시작 프레임이 이만큼 안에서 갈리면 같은 샷
 
 
@@ -133,7 +139,16 @@ def measure(cue, obj, fps, ball_d):
     if k is None or k < 2 or k > len(cp) - 3:
         return None
 
-    d = fit_dir(cp, k - PRE, k - 1)            # 충돌 직전 진행 방향
+    # 확실히 충돌 앞쪽으로.
+    # ⚠️ 여유가 없을 때 kb = max(2, k - BACKOFF) 로 봐주면 안 된다. 그러면 개수는
+    #    17개로 늘지만 **표가 무너진다** — 앞 구간이 2~3점밖에 없어 진행 방향이
+    #    엉뚱하게 잡히고, 같은 샷의 두께가 30% → 91% 로 튀었다.
+    #    수구가 남기는 비율도 두께 순서를 잃었다 (0.686/0.658/0.643/0.774/0.842).
+    #    개수보다 정확도다. 앞 구간이 모자란 샷은 버린다.
+    kb = k - BACKOFF
+    if kb < 2:
+        return None
+    d = fit_dir(cp, kb - PRE, kb)              # 충돌 직전 진행 방향
     if d is None:
         return None
     # 두께 — 1적구 중심이 수구 진행선에서 얼마나 비켜 있나
@@ -142,13 +157,13 @@ def measure(cue, obj, fps, ball_d):
     oi = 0
     if len(obj.points) < 3:
         return None
-    c0 = np.array(cp[k][1:], float)
+    c0 = np.array(cp[kb][1:], float)
     ob = np.array(obj.points[oi][1:], float)
     # ⚠️ np.cross 는 numpy 2 에서 2차원 벡터를 안 받는다. 직접 쓴다.
     perp = abs(d[0] * (ob[1] - c0[1]) - d[1] * (ob[0] - c0[0]))
     thick = max(0.0, min(1.0, (ball_d - perp) / ball_d))
 
-    v_in = seg_speed(cp, k - PRE, k - 1, fps)
+    v_in = seg_speed(cp, kb - PRE, kb, fps)
     v_out = seg_speed(cp, k + 1, k + POST, fps)
     v_obj = seg_speed(obj.points, oi, oi + POST, fps)
     if not (v_in and v_out and v_obj):
