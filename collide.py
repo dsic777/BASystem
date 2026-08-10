@@ -46,6 +46,9 @@ PRE, POST = 8, 10       # 충돌 앞뒤로 몇 프레임을 속도 재는 데 �
 #   물러나지 않으면 진행 방향을 **충돌 뒤 구간**으로 재게 되고, 그러면 1적구가
 #   그 선에서 지름보다 멀리 떨어져 두께가 0% 로 나온다 (17개 중 7개가 그랬다).
 BACKOFF = 3
+# 충돌 후 속도를 재는 두 창 (프레임). 사용자 설명대로 '잠깐 멈춤 → 다시 전진' 을 가른다.
+NOW = 4                 # 충돌 직후 1~4프레임 (0.13초) — 거의 멈추는 구간
+ROLL0, ROLL1 = 9, 20    # 9~20프레임 (0.3~0.67초) — 전진회전이 되살린 뒤
 GAP = 12                # 두 궤적의 시작 프레임이 이만큼 안에서 갈리면 같은 샷
 
 
@@ -57,6 +60,17 @@ def seg_speed(pts, i0, i1, fps):
     d = sum(math.dist(pts[i][1:], pts[i + 1][1:]) for i in range(i0, i1))
     df = pts[i1][0] - pts[i0][0]
     return d / (df / fps) / 1000.0 if df > 0 else None
+
+
+def run_after(pts, i0):
+    """i0 이후 실제로 굴러간 거리 (mm). 순간속도보다 훨씬 안정적이다.
+
+    ★ 2026-08-11 — 30fps 로는 '잠깐 멈췄다 다시 전진' 을 못 잰다. 그 현상이
+      0.05~0.1초인데 한 프레임이 0.033초이고 충돌 프레임 자체가 ±2프레임 흔들린다.
+      그런데 우리가 알고 싶은 것은 '여기서 몇 쿠션 더 가나' 이므로,
+      **끝까지 굴러간 거리**를 재면 된다. 그건 프레임률과 무관하게 정확하다.
+    """
+    return sum(math.dist(pts[i][1:], pts[i + 1][1:]) for i in range(max(0, i0), len(pts) - 1))
 
 
 def fit_dir(pts, i0, i1):
@@ -163,17 +177,35 @@ def measure(cue, obj, fps, ball_d):
     perp = abs(d[0] * (ob[1] - c0[1]) - d[1] * (ob[0] - c0[0]))
     thick = max(0.0, min(1.0, (ball_d - perp) / ball_d))
 
+    # ★ 사용자 2026-08-11: '수구 정중앙으로 100% 두께로 맞히면 수구는 거의 정지한다.
+    #   **상단을 주고 치면 잠깐 멈춘 후 다시 전진**한다. 6시면 잠깐 멈춘 후 뒤로 온다.'
+    #   → 충돌 후 속도는 **언제 재느냐에 따라 다른 값**이다. 0.33초 평균 하나로
+    #     뭉개면 '멈춘 구간' 과 '되살아난 구간' 이 섞여 두께와 무관하게 평평해진다
+    #     (실제로 그랬다 — 두께 1/8~5/8 이 전부 0.49~0.59).
+    #   두 번 잰다. 이번 촬영은 12시 2팁이라 되살아나는 쪽이다.
     v_in = seg_speed(cp, kb - PRE, kb, fps)
-    v_out = seg_speed(cp, k + 1, k + POST, fps)
+    v_now = seg_speed(cp, k + 1, k + NOW, fps)          # 충돌 직후 (거의 멈추는 구간)
+    v_roll = seg_speed(cp, k + ROLL0, k + ROLL1, fps)   # 전진회전이 되살린 뒤
     v_obj = seg_speed(obj.points, oi, oi + POST, fps)
-    if not (v_in and v_out and v_obj):
+    if not (v_in and v_obj):
+        return None
+    v_out = v_roll or v_now
+    if not v_out:
         return None
     return {"frame": fc, "minute": fc / fps / 60,
             "thick": round(thick, 3),
-            "cue_in": round(v_in, 3), "cue_out": round(v_out, 3),
+            "cue_in": round(v_in, 3),
+            "cue_now": round(v_now, 3) if v_now else None,    # 직후
+            "cue_roll": round(v_roll, 3) if v_roll else None,  # 되살아난 뒤
+            "cue_out": round(v_out, 3),
             "obj_out": round(v_obj, 3),
+            "keep_now": round(v_now / v_in, 3) if v_now else None,
+            "keep_roll": round(v_roll / v_in, 3) if v_roll else None,
             "cue_keep": round(v_out / v_in, 3),      # 수구가 남긴 비율
-            "obj_take": round(v_obj / v_in, 3)}      # 1적구가 받아간 비율
+            "obj_take": round(v_obj / v_in, 3),      # 1적구가 받아간 비율
+            # ★ 충돌 뒤 **실제로 굴러간 거리** — '몇 쿠션 더 가나' 의 직접 재료
+            "cue_after_mm": round(run_after(cp, k), 0),
+            "obj_after_mm": round(run_after(obj.points, oi), 0)}
 
 
 def report(rows):
@@ -183,8 +215,9 @@ def report(rows):
         print("  · 손으로 공을 옮기는 장면이 많으면 MIN_SPEED 를 올려 보세요.")
         return
     print(f"\n충돌 {len(rows)}개\n")
-    print(f"{'두께':>8} {'개수':>5} {'충돌전 수구':>11} {'수구 남김':>10} {'1적구 받아감':>13}")
-    print("-" * 54)
+    print(f"{'두께':>8} {'개수':>5} {'충돌전 수구':>11} {'수구 더 굴러감':>13}"
+          f" {'1적구 굴러감':>12} {'직후 남김':>9} {'1적구 받아감':>12}")
+    print("-" * 78)
     bins = [(0, .1875, "1/8"), (.1875, .3125, "2/8"), (.3125, .4375, "3/8"),
             (.4375, .5625, "4/8"), (.5625, .6875, "5/8"), (.6875, .8125, "6/8"),
             (.8125, 1.01, "7/8")]
@@ -194,16 +227,44 @@ def report(rows):
         if not g:
             print(f"{lab:>8} {0:5d}          —          —             —")
             continue
-        keep = float(np.median([r["cue_keep"] for r in g]))
+        med = lambda key: (float(np.median([r[key] for r in g if r.get(key) is not None]))
+                           if any(r.get(key) is not None for r in g) else None)
+        now, roll = med("keep_now"), med("keep_roll")
         take = float(np.median([r["obj_take"] for r in g]))
         vin = float(np.median([r["cue_in"] for r in g]))
-        print(f"{lab:>8} {len(g):5d} {vin:10.2f}m/s {keep:9.3f} {take:12.3f}")
+        f2 = lambda v: f"{v:8.3f}" if v is not None else f"{'—':>8}"
+        cue_mm = float(np.median([r["cue_after_mm"] for r in g]))
+        obj_mm = float(np.median([r["obj_after_mm"] for r in g]))
+        print(f"{lab:>8} {len(g):5d} {vin:10.2f}m/s {cue_mm:9.0f}mm {obj_mm:9.0f}mm"
+              f" {f2(now)} {take:9.3f}")
         table.append([lab, round(np.mean([r['thick'] for r in g]), 3), len(g),
-                      round(keep, 3), round(take, 3)])
-    print("\n  수구 남김  = 충돌 직후 수구속도 ÷ 직전 수구속도")
-    print("  1적구 받아감 = 충돌 직후 1적구속도 ÷ 직전 수구속도")
-    print("  ★ 이 두 값이 시연화면·키스 판정의 마지막 조각이다 (data/speed.json)")
-    return table
+                      round(cue_mm), round(obj_mm),
+                      None if now is None else round(now, 3), round(take, 3)])
+
+    # ★ 사용자 2026-08-11: '수구 속도에 따라 충돌 후 수구의 경로, 1적구의 경로,
+    #   이동거리까지만 나오면 될 것 같은데요. 또 두께에 따라.'
+    #   → 두께별(위)과 속도별(아래) 둘 다 낸다. 실제로 거리는 속도가 더 크게 가른다.
+    print(f"\n{'충돌전 속도':>12} {'개수':>5} {'평균두께':>9} {'수구 더 굴러감':>14} {'1적구 굴러감':>13}")
+    print("-" * 58)
+    speed_rows = []
+    for lo, hi, lab in [(0, 1.0, "~1.0"), (1.0, 1.5, "1.0~1.5"), (1.5, 2.0, "1.5~2.0"),
+                        (2.0, 2.5, "2.0~2.5"), (2.5, 99, "2.5~")]:
+        g = [r for r in rows if lo <= r["cue_in"] < hi]
+        if not g:
+            print(f"{lab:>12} {0:5d}         —              —             —")
+            continue
+        th = float(np.mean([r["thick"] for r in g]))
+        cm = float(np.median([r["cue_after_mm"] for r in g]))
+        om = float(np.median([r["obj_after_mm"] for r in g]))
+        print(f"{lab:>12} {len(g):5d} {th*100:8.1f}% {cm:12.0f}mm {om:11.0f}mm")
+        speed_rows.append([lab, len(g), round(th, 3), round(cm), round(om)])
+
+    print("\n  ★ 굴러간 거리 = 충돌 뒤 공이 멈출 때까지 실제로 지나간 길이.")
+    print("    순간속도와 달리 30fps 로도 정확하다 — 이것이 '몇 쿠션 더 가나' 의 재료다.")
+    print("  직후 남김 = 충돌 뒤 1~4프레임(0.13초) 수구속도 ÷ 직전 수구속도")
+    print("  ⚠️ '잠깐 멈췄다 다시 전진' 은 30fps 로 못 잰다 (0.05~0.1초 현상, 한 프레임 0.033초).")
+    print("     사용자 확인: 오늘 촬영엔 그럴 만큼 두껍게 친 공이 없다.")
+    return table, speed_rows
 
 
 def main(argv):
@@ -265,13 +326,15 @@ def main(argv):
                   f"수구 {m['cue_in']:.2f} → {m['cue_out']:.2f} m/s  "
                   f"1적구 {m['obj_out']:.2f} m/s")
 
-    tbl = report(rows)
+    tbl, spd = report(rows) if rows else (None, None)
     js = out_dir / f"{video.stem}_collide.json"
     js.write_text(json.dumps({"_desc": "두께별 충돌 후 속도 (collide.py)",
                               "_source": video.name, "fps": fps,
-                              "_columns": ["두께", "평균두께", "표본수",
-                                           "수구 남김", "1적구 받아감"],
-                              "table": tbl, "shots": rows},
+                              "_columns": ["두께", "평균두께", "표본수", "수구 더 굴러감mm",
+                                           "1적구 굴러감mm", "직후 남김", "1적구 받아감"],
+                              "_by_speed_columns": ["충돌전 속도", "표본수", "평균두께",
+                                                    "수구 더 굴러감mm", "1적구 굴러감mm"],
+                              "table": tbl, "by_speed": spd, "shots": rows},
                              ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n저장: {js}")
     return 0
