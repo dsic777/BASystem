@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 112;
+const MOBILE_VER = 113;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2042,7 +2042,10 @@ function drawBrand(){
   const room = top - PANEL.y;
   if (room < 14) return;
   const cx = PANEL.x + PANEL.w / 2;
-  const cy = PANEL.y + room * 0.42;                // 위로 올린다 (전에는 0.60)
+  // 이름이 놓이는 높이. 위 여백과 아래 여백을 나누는 비율이다.
+  // ⚠️ 0.60 → 0.42 로 올렸더니 위에 딱 붙었다 (사용자: '아주 조금만 내려보세요,
+  //    상단 여백을 아주 조금만'). 0.52 로 살짝 내린다.
+  const cy = PANEL.y + room * 0.52;
   const face = 'px Georgia, "Times New Roman", serif';
   let fs = Math.min(room * 0.42, PANEL.w * 0.20);
   g.save();
@@ -2054,14 +2057,22 @@ function drawBrand(){
   for (let k = 0; k < 14 && width() > PANEL.w * 0.90 && fs > 8; k++) fs *= 0.92;
   if (fs < 8){ g.restore(); return; }
   const w = width(), bx = cx - w/2 + R(), tx = cx - w/2 + R()*2 + gap();
-  // 로고 표시 — 당구공 (흰 구 + 금색 링). 앱 아이콘과 같은 느낌으로.
-  const sph = g.createRadialGradient(bx - R()*0.35, cy - R()*0.38, R()*0.06, bx, cy, R()*1.05);
-  sph.addColorStop(0, '#ffffff'); sph.addColorStop(0.32, '#f2f1ea');
-  sph.addColorStop(1, '#a8a598');
-  g.fillStyle = sph;
-  g.beginPath(); g.arc(bx, cy, R(), 0, 7); g.fill();
-  g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(1.5, R()*0.22);
-  g.beginPath(); g.arc(bx, cy, R()*1.10, 0, 7); g.stroke();
+  // ★ 사용자 2026-08-11: '로고 테두리 노랑, 가운데 빨강, 안쪽 흰색 —
+  //   **공 색깔을 넣어보자**는 의미입니다.' 3쿠션에서 쓰는 세 공이 한 표시에 다 들어간다.
+  //   색은 앱에서 공을 그리는 값(TONE)을 그대로 쓴다 — 화면과 로고가 따로 놀지 않게.
+  const rr = R();
+  [[1.00, TONE.yellow], [0.70, TONE.red], [0.40, TONE.white]].forEach(([k, col], i) => {
+    // 각 고리마다 살짝 구면 음영을 준다 (평면 과녁이 아니라 공으로 보이게)
+    const sph = g.createRadialGradient(bx - rr*k*0.35, cy - rr*k*0.38, rr*k*0.05,
+                                       bx, cy, rr*k*1.05);
+    sph.addColorStop(0, '#ffffff');
+    sph.addColorStop(i === 2 ? 0.34 : 0.30, col);
+    sph.addColorStop(1, shade(col, 0.62));
+    g.fillStyle = sph;
+    g.beginPath(); g.arc(bx, cy, rr*k, 0, 7); g.fill();
+  });
+  g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1, rr*0.09);
+  g.beginPath(); g.arc(bx, cy, rr, 0, 7); g.stroke();
   // ⚠️ 폰에서는 화면이 어두워 반투명이 더 죽는다 (사용자 지적). 불투명 흰색에
   //    옅은 그림자를 둬서 뜨게 한다.
   g.shadowColor = 'rgba(0,0,0,0.85)';
