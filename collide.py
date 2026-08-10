@@ -173,6 +173,7 @@ def main(argv):
         return 1
     video = Path(argv[0])
     out_dir = Path(argv[argv.index("--out") + 1]) if "--out" in argv else Path.cwd()
+    out_dir.mkdir(parents=True, exist_ok=True)
     step = int(argv[argv.index("--step") + 1]) if "--step" in argv else 1
     gap = int(argv[argv.index("--gap") + 1]) if "--gap" in argv else GAP
     t_from = float(argv[argv.index("--from") + 1]) if "--from" in argv else 0.0
@@ -200,10 +201,17 @@ def main(argv):
         print(f"추적 대상 공: {', '.join(only)}")
     if gap != GAP:
         print(f"출발 간격 기준: {gap}프레임 ({gap/fps:.2f}초)")
+    # ★ 두 공 촬영이다 — 궤적을 2개로 묶는다 (사용자 지적 2026-08-10).
+    #   손·팔이 흰공 여러 개로 잡혀 궤적이 6개까지 늘어나고, 그 조각들이 서로
+    #   짝지어져 두께 0%·'수구 남김 16배' 같은 값이 나왔다.
+    # ⚠️ max_detections 로 프레임을 통째로 버리면 안 된다. 치는 동안은 팔이 화면에
+    #   있어서 충돌 **전** 구간이 통째로 날아가고, 두 궤적이 같은 프레임에서
+    #   시작해 버린다 (그러면 어느 쪽이 수구인지도 못 가린다).
     top, shots = vtrack.track_video(str(video), table.width, table.height,
                                     step=step, quad=quad,
                                     ball_diameter_mm=table.ball_diameter,
-                                    first_frame=f0, last_frame=f1, only=only)
+                                    first_frame=f0, last_frame=f1, only=only,
+                                    max_traces=2)
     print(f"궤적 {len(shots)}개 검출")
 
     pairs = pair_shots(shots, fps, table.ball_diameter, gap)

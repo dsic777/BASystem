@@ -140,7 +140,9 @@ def track_video(path: str, table_width: float, table_height: float,
                 first_frame: int = 0,
                 last_frame: int | None = None,
                 only: tuple[str, ...] | None = None,
-                keep_tail: bool = False) -> tuple[TopView, list[Track]]:
+                keep_tail: bool = False,
+                max_traces: int = 6,
+                max_detections: int | None = None) -> tuple[TopView, list[Track]]:
     """영상 → (상단뷰, 샷 목록).
 
     공을 **전부** 따라가고, 그 중 실제로 움직인 것만 샷으로 남긴다.
@@ -162,6 +164,7 @@ def track_video(path: str, table_width: float, table_height: float,
     traces: list[list[tuple[int, float, float]]] = []
     misses: list[int] = []
     extra_run = 0            # 공이 궤적 수보다 많이 보인 연속 프레임 수
+    skipped_busy = 0         # 사람이 들어와 통째로 건너뛴 프레임 수
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     cap_fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
@@ -201,8 +204,17 @@ def track_video(path: str, table_width: float, table_height: float,
         found = [top.to_mm(b.nx, b.ny, table_width, table_height)
                  for b in ball_detect.detect(_warp_frame(frame, top), cfg, ball_px)
                  if b.name in want]
+        # ★ 손·팔이 들어온 프레임을 통째로 버린다 (사용자 지적 2026-08-10).
+        #   공을 손으로 옮기는 장면에서 팔이 **흰공 여러 개**로 잡힌다 (한 프레임에
+        #   10개까지 봤다). --ball 로 색을 못 박아도 소용없다 — 손이 '흰공' 이다.
+        #   0808 은 그 장면을 사용자가 다 잘라내서 문제가 안 드러났다.
+        #   공 개수를 아는 촬영(예: 두 공)에서는 그보다 많이 보이는 프레임이 곧
+        #   '사람이 들어온 프레임' 이다. 건너뛰면 궤적은 놓친 것으로 처리된다.
+        if max_detections is not None and len(found) > max_detections:
+            found = []
+            skipped_busy += 1
         if not traces:
-            traces = [[(idx, *p)] for p in found]
+            traces = [[(idx, *p)] for p in found[:max_traces]]
             misses = [0] * len(traces)
             continue
         # ⚠️ 슬롯 순서대로 짝지으면 안 된다. 공이 다른 공 옆을 지날 때
@@ -238,7 +250,7 @@ def track_video(path: str, table_width: float, table_height: float,
                  and all(np.hypot(found[i][0] - tr[-1][1], found[i][1] - tr[-1][2]) > min_apart
                          for tr in traces)]
         extra_run = extra_run + 1 if spare else 0
-        if spare and extra_run >= 5 and len(traces) < 6:
+        if spare and extra_run >= 5 and len(traces) < max_traces:
             traces.append([(idx, *found[spare[0]])])
             misses.append(0)
             extra_run = 0
