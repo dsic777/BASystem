@@ -126,6 +126,7 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 1
     out_dir = Path(argv[argv.index("--out") + 1]) if "--out" in argv else Path.cwd()
+    out_dir.mkdir(parents=True, exist_ok=True)
     step = int(argv[argv.index("--step") + 1]) if "--step" in argv else 1
     t_from = float(argv[argv.index("--from") + 1]) if "--from" in argv else 0.0
     t_to = float(argv[argv.index("--to") + 1]) if "--to" in argv else None
