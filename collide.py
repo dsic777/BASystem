@@ -68,46 +68,66 @@ def fit_dir(pts, i0, i1):
 
 
 def pair_shots(shots, fps, ball_d, gap: int = GAP):
-    """시간이 겹치는 두 궤적을 (수구, 1적구) 로 묶는다.
+    """시간이 겹치는 (흰공, 빨간공) 궤적을 묶는다.
 
-    ⚠️ 먼저 움직이기 시작한 쪽이 수구다. 1적구는 맞아야 움직이므로
-       그 **시작 프레임이 곧 충돌 순간**이다.
+    ★ 사용자 확정 2026-08-10: **흰공 = 수구, 빨간공 = 1적구.**
+      전에는 '먼저 움직이기 시작한 쪽이 수구' 로 추측했다. 검출 잡음 때문에
+      시작 프레임이 ±3 흔들려 어느 쪽이 수구인지 뒤집히곤 했다.
+      색을 알면 추측할 필요가 없다.
 
-    gap  두 궤적의 출발이 이만큼(프레임) 안에서 갈리면 '거의 동시 출발' 로 보고 버린다.
-         손으로 두 공을 한꺼번에 건드린 장면을 걸러내려는 것이다.
-         ⚠️ 그런데 이 값이 크면 **두 공이 가까운 배치를 통째로 버린다** —
-         30fps 에서 12프레임은 0.4초, 수구가 1.5~2m/s 면 60~80cm 다.
-         내가 정한 값이라 실촬영본을 보고 낮춰야 한다. `--gap` 으로 바꾼다.
+    gap  두 궤적이 시간으로 이만큼도 안 겹치면 한 샷이 아니다.
     """
     ok = [s for s in shots
           if len(s.points) >= MIN_POINTS and s.peak_speed / 1000.0 >= MIN_SPEED]
-    ok.sort(key=lambda s: s.start_frame)
+    cue_all = sorted((s for s in ok if s.ball == "white"), key=lambda s: s.start_frame)
+    obj_all = sorted((s for s in ok if s.ball == "red"), key=lambda s: s.start_frame)
+    if not cue_all or not obj_all:
+        print(f"  ⚠️ 색이 안 붙었다 — 흰공 궤적 {len(cue_all)}개, 빨간공 궤적 {len(obj_all)}개")
+        return []
     used, out = set(), []
-    dropped_gap = 0
-    for i, a in enumerate(ok):
-        if i in used:
-            continue
-        for j in range(i + 1, len(ok)):
+    for a in cue_all:                       # 흰공 = 수구
+        best, best_ov = None, 0
+        for j, b in enumerate(obj_all):     # 빨간공 = 1적구
             if j in used:
                 continue
-            b = ok[j]
-            if b.start_frame > a.end_frame:        # 겹치지 않으면 다른 샷
-                break
-            if b.start_frame - a.start_frame < gap:
-                dropped_gap += 1
-                continue                            # 거의 동시 출발 = 충돌이 아니다
-            used.add(i); used.add(j)
-            out.append((a, b))
-            break
-    if dropped_gap:
-        print(f"  ⚠️ 출발 간격이 {gap}프레임 미만이라 버린 쌍 {dropped_gap}개"
-              f"  (두 공이 가까웠던 샷일 수 있다 — --gap 을 낮춰 보세요)")
+            ov = min(a.end_frame, b.end_frame) - max(a.start_frame, b.start_frame)
+            if ov > best_ov:
+                best, best_ov = j, ov
+        if best is not None and best_ov >= gap:
+            used.add(best)
+            out.append((a, obj_all[best]))
     return out
+
+
+MAX_MISS_MM = 400.0     # 두 궤적이 이보다 가까워진 적이 없으면 충돌이 아니다
+
+
+def contact_frame(cue, obj, ball_d, fps):
+    """충돌 순간과, 그때 두 공이 얼마나 가까웠나.
+
+    1적구가 **움직이기 시작한 프레임**을 충돌로 본다. split_shots 가 움직이기
+    직전 점부터 궤적에 넣으므로, `obj.points[0]` 이 곧 **멈춰 있던 자리**다.
+
+    ⚠️ '두 중심이 지름 거리까지 가까워지는 프레임' 으로 잡아 보았지만 못 쓴다.
+       실측하니 그 최소거리가 90~200mm 였다 (지름 61.5mm). 1적구가 이미 몇십 mm
+       움직인 뒤에야 궤적이 시작되기 때문이다. 지름 기준으로 걸면 전부 버려진다.
+    ★ 두께는 충돌 프레임을 정확히 몰라도 된다 — 1적구 중심에서 수구 진행 **선**
+      까지의 수선거리이고, 그 값은 선 위 어느 점을 잡든 같다.
+      충돌 프레임은 v_in / v_out 을 가르는 데만 쓴다.
+    """
+    op = {f: (x, y) for f, x, y in obj.points}
+    near = min((math.dist((x, y), op[f]) for f, x, y in cue.points if f in op),
+               default=None)
+    if near is None or near > MAX_MISS_MM:
+        return None, near
+    return obj.start_frame, near
 
 
 def measure(cue, obj, fps, ball_d):
     """한 쌍에서 두께와 속도 셋을 뽑는다."""
-    fc = obj.start_frame                       # 1적구가 움직이기 시작 = 충돌
+    fc, _gapmm = contact_frame(cue, obj, ball_d, fps)   # 두 공이 가장 가까워진 프레임
+    if fc is None:
+        return None
     cp = cue.points
     k = next((n for n, p in enumerate(cp) if p[0] >= fc), None)
     if k is None or k < 2 or k > len(cp) - 3:
@@ -118,15 +138,19 @@ def measure(cue, obj, fps, ball_d):
         return None
     # 두께 — 1적구 중심이 수구 진행선에서 얼마나 비켜 있나
     #        thick = (지름 − 수선거리) / 지름   (정면 1.0 · 반두께 0.5 · 스침 0)
+    # 1적구가 멈춰 있던 자리 = 그 궤적의 첫 점
+    oi = 0
+    if len(obj.points) < 3:
+        return None
     c0 = np.array(cp[k][1:], float)
-    ob = np.array(obj.points[0][1:], float)
+    ob = np.array(obj.points[oi][1:], float)
     # ⚠️ np.cross 는 numpy 2 에서 2차원 벡터를 안 받는다. 직접 쓴다.
     perp = abs(d[0] * (ob[1] - c0[1]) - d[1] * (ob[0] - c0[0]))
     thick = max(0.0, min(1.0, (ball_d - perp) / ball_d))
 
     v_in = seg_speed(cp, k - PRE, k - 1, fps)
     v_out = seg_speed(cp, k + 1, k + POST, fps)
-    v_obj = seg_speed(obj.points, 0, POST, fps)
+    v_obj = seg_speed(obj.points, oi, oi + POST, fps)
     if not (v_in and v_out and v_obj):
         return None
     return {"frame": fc, "minute": fc / fps / 60,

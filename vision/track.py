@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 import cv2
@@ -55,6 +56,10 @@ class Track:
     points: list[tuple[int, float, float]] = field(default_factory=list)  # (frame, x, y) mm
     contacts: list[Contact] = field(default_factory=list)
     fps: float = 30.0
+    # 이 궤적이 어느 공인가 (white/yellow/red). 검출된 색의 다수결.
+    # ★ 사용자 확정 2026-08-10: 흰공 = 수구, 빨간공 = 1적구.
+    #   색을 알면 '먼저 움직인 쪽이 수구' 라고 추측할 필요가 없다.
+    ball: str | None = None
 
     @property
     def path(self) -> list[tuple[float, float]]:
@@ -162,6 +167,7 @@ def track_video(path: str, table_width: float, table_height: float,
     # ⚠️ 첫 프레임에 공이 없을 수 있다 (촬영 시작 후 공을 놓는 경우).
     #    공이 나올 때까지 넘어가고, 중간에 새로 나타난 공도 새 궤적으로 잡는다.
     traces: list[list[tuple[int, float, float]]] = []
+    tnames: list[Counter] = []          # 궤적별로 어느 색이 몇 번 잡혔나
     misses: list[int] = []
     extra_run = 0            # 공이 궤적 수보다 많이 보인 연속 프레임 수
     skipped_busy = 0         # 사람이 들어와 통째로 건너뛴 프레임 수
@@ -201,9 +207,11 @@ def track_video(path: str, table_width: float, table_height: float,
         #    보정 전 좌표라 쿠션 근처가 몇십 mm 어긋나 있어서, 공이 쿠션에 닿는
         #    바로 그 순간을 통째로 버리게 된다. 제약은 보정 뒤에나 뜻이 있다.
         want = only or KNOWN
-        found = [top.to_mm(b.nx, b.ny, table_width, table_height)
-                 for b in ball_detect.detect(_warp_frame(frame, top), cfg, ball_px)
-                 if b.name in want]
+        det = [(top.to_mm(b.nx, b.ny, table_width, table_height), b.name)
+               for b in ball_detect.detect(_warp_frame(frame, top), cfg, ball_px)
+               if b.name in want]
+        found = [q for q, _ in det]
+        fname = [n for _, n in det]
         # ★ 손·팔이 들어온 프레임을 통째로 버린다 (사용자 지적 2026-08-10).
         #   공을 손으로 옮기는 장면에서 팔이 **흰공 여러 개**로 잡힌다 (한 프레임에
         #   10개까지 봤다). --ball 로 색을 못 박아도 소용없다 — 손이 '흰공' 이다.
@@ -215,6 +223,7 @@ def track_video(path: str, table_width: float, table_height: float,
             skipped_busy += 1
         if not traces:
             traces = [[(idx, *p)] for p in found[:max_traces]]
+            tnames = [Counter([fname[i]]) for i in range(len(traces))]
             misses = [0] * len(traces)
             continue
         # ⚠️ 슬롯 순서대로 짝지으면 안 된다. 공이 다른 공 옆을 지날 때
@@ -236,6 +245,7 @@ def track_video(path: str, table_width: float, table_height: float,
             used_slot.add(si)
             used_det.add(i)
             traces[si].append((idx, *found[i]))
+            tnames[si][fname[i]] += 1
         for si in range(len(traces)):
             misses[si] = 0 if si in used_slot else misses[si] + 1
 
@@ -252,6 +262,7 @@ def track_video(path: str, table_width: float, table_height: float,
         extra_run = extra_run + 1 if spare else 0
         if spare and extra_run >= 5 and len(traces) < max_traces:
             traces.append([(idx, *found[spare[0]])])
+            tnames.append(Counter([fname[spare[0]]]))
             misses.append(0)
             extra_run = 0
     cap.release()
@@ -264,8 +275,11 @@ def track_video(path: str, table_width: float, table_height: float,
 
     fps = cap_fps if cap_fps > 1 else 30.0
     shots: list[Track] = []
-    for tr in traces:
-        shots.extend(split_shots(tr, min_move_mm, fps, keep_tail=keep_tail))
+    for tr, nm in zip(traces, tnames):
+        ball = nm.most_common(1)[0][0] if nm else None
+        for s in split_shots(tr, min_move_mm, fps, keep_tail=keep_tail):
+            s.ball = ball
+            shots.append(s)
     shots.sort(key=lambda s: s.start_frame)
     return top, shots
 
