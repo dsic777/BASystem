@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 108;
+const MOBILE_VER = 109;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1648,9 +1648,12 @@ function drawPath(){
     } else if (i < DRAW_UPTO){
       seg(pts2[i], pts2[i+1], thin, i === BAND_UPTO ? 0.45 : 0.30, c);
     } else {
-      // 2적구까지 이어 붙이는 연장선. 표가 끊은 뒤라 얇고 흐리게 — 여기부터는
-      // '이만큼 굴러간다' 가 아니라 '이 길로 2적구에 닿는다' 를 보여주는 선이다.
-      seg(pts2[i], pts2[i+1], Math.max(2, thin*0.8), 0.42, c);
+      // ★ 사용자 2026-08-11 (4.jpg): '공 궤적이 빨간공에서 끊어지고 실선이 노란공까지
+      //   가는데, **공 궤적이 노란공까지 가야** 합니다.'
+      //   → 2적구까지 이어 붙이는 구간도 얇은 선이 아니라 **띠(공 두께 폭)** 로 그린다.
+      //   득점이 되는 길이라 폭까지 보여야 한다 — 키스도 여기서 보인다.
+      seg(pts2[i], pts2[i+1], band, 0.22, c);
+      seg(pts2[i], pts2[i+1], thin, 0.95, c);
     }
   }
   // 쿠션 점은 띠 구간까지만. 흐린 구간까지 찍으면 다시 지저분해진다.
