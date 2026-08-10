@@ -903,6 +903,8 @@ function sideButtons(){
     row.forEach((lb,j) => out.push({x:x0 + j*(bw+colGap), y:y0 + i*(bw+rowGap),
                                     w:bw, h:bw, lb})));
   // 판독창(누르는 것 아님) 자리를 잡아두고, 카메라는 그 아래에 둔다 (사용자 지시).
+  // ⚠️ 2026-08-11 에 카메라와 판독창을 맞바꿔 보자는 얘기가 나왔지만
+  //    사용자가 '카메라 버튼 그대로 유지' 로 정했다. 바꾸지 말 것.
   const roY = y0 + ROWS*(bw+rowGap);
   READOUT = {x:x0, y:roY, w:totalW, h:bw*RO_H};
   out.push({x:x0 + (totalW-camD)/2, y:roY + bw*RO_H + rowGap,
