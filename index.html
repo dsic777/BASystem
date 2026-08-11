@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 121;
+const MOBILE_VER = 122;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1561,6 +1561,36 @@ function drawNumbers(){
 }
 // 2뱅크 눈금 — 그 샷의 레일 배정대로 세 줄을 그린다. **레일 포인트** 기준이라
 // 프레임이 아니라 쿠션 날 위에 찍는다.
+// ★ 팁 가이드 — 사용자 2026-08-11: '무회전을 기본으로 하고 각이 안 나올 경우
+//   회전을 가이드 하는 겁니다.'
+//   목표는 **2적구**다. 0팁(무회전)부터 0.5씩 올려가며 2적구에 닿는 팁을 찾는다.
+//   ⚠️ 순회전만 본다. reflect() 가 0~3팁으로 묶여 있고, 역회전 표는 아직 없다
+//      (오전 촬영에서 7샷 20접점뿐). 역회전이 필요한 배치는 '못 만듦' 으로 나온다.
+function segNear(a, b, q, r){
+  const vx = b[0]-a[0], vy = b[1]-a[1], wx = q[0]-a[0], wy = q[1]-a[1];
+  const L = vx*vx + vy*vy;
+  const t = L < 1e-9 ? 0 : Math.max(0, Math.min(1, (wx*vx + wy*vy)/L));
+  return Math.hypot(a[0]+vx*t-q[0], a[1]+vy*t-q[1]) <= r;
+}
+function tipGuide(){
+  const cue = S.balls.cue;
+  const tgt = S.balls.obj2 || S.balls.obj1;
+  if (!cue || !S.aim || !tgt) return null;
+  const d = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
+  const save = S.tipH;
+  let found = null;
+  for (let t = 0; t <= 3.001; t += 0.5){
+    S.tipH = t;
+    const pts = [cue.p, ...roll(cue.p, d, 5, 0).map(h => h.p)];
+    let ok = false;
+    for (let i = 0; i < pts.length-1 && !ok; i++)
+      if (segNear(pts[i], pts[i+1], tgt.p, T.ball_diameter)) ok = true;
+    if (ok){ found = t; break; }
+  }
+  S.tipH = save;
+  return found;
+}
+
 function drawNumbers2Bank(){
   const tb = twoBank();
   const fs = Math.round(L.cloth.h * 0.065);
@@ -2390,6 +2420,15 @@ function drawReadout(){
   g.fillStyle = S.system === 1 ? '#ffd400' : 'rgba(238,243,250,0.60)';
   g.font = '800 ' + Math.round(r.h*0.20) + 'px system-ui, sans-serif';
   g.fillText(SYS_NAMES[S.system] + ' ▸', r.x + r.w/2, r.y + r.h*0.04);
+  if (S.system === 1){                       // 팁 가이드 — 무회전이 기본, 안 되면 회전
+    const tp = tipGuide();
+    g.textAlign = 'right';
+    g.font = '800 ' + Math.round(r.h*0.19) + 'px system-ui, sans-serif';
+    g.fillStyle = tp === null ? '#8b93a0' : (tp === 0 ? '#6eeb5a' : '#ffd400');
+    g.fillText(tp === null ? '—' : (tp === 0 ? '무회전' : tp.toFixed(1) + '팁'),
+               r.x + r.w - r.h*0.10, r.y + r.h*0.04);
+    g.textAlign = 'center';
+  }
   cols.forEach(([lb, v], i) => {
     const cx = r.x + r.w*(i + 0.5)/3;
     g.textBaseline = 'top';
