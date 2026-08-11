@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 122;
+const MOBILE_VER = 123;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -783,9 +783,12 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
            power:1,
-           // ★ 보고 있는 시스템. 0 파이브앤하프 · 1 무회전 2뱅크 곱셈.
-           //   판독창을 탭하면 돈다 (사용자 지시 2026-08-11).
-           system:0,
+           // ★ 시스템 고르기. 0 자동 · 1 파이브앤하프 고정 · 2 2뱅크 고정.
+           //   ★ 사용자 2026-08-11: '0에서 10 언저리로 경로를 이동하면 파이브앤하프에서
+           //     자동으로 2뱅크 시스템으로 안내하고 경로를 자동으로 설정.'
+           //   → 기본은 **자동**이다. 1쿠션이 코너 쪽 0~10 이면 파이브앤하프로는
+           //     못 읽는 영역이라 2뱅크로 넘어간다. 판독창 탭으로 고정할 수도 있다.
+           sysMode:0,
            // 상하 당점. +3 상단 3팁 · 0 중단 · −3 하단 3팁 (고르는 화면은 아직 없다)
            // 당점 — 시계 방향(30분 단위) + 거리(팁). ss1 기준.
            tipDir:6, tipR:2,   // 3시 2팁 = 지금까지와 같은 기본값
@@ -1135,7 +1138,7 @@ function frameAt(px,py){
   //   눈금과 조준점이 어긋난다. 레일(쿠션 날) 위로 붙인다.
   //   사용자 2026-08-11 (32.jpg): '하단 프레임 0에서 10 안쪽을 탭하면 자동으로
   //   지금의 경로로 안내를 하면 좋겠어요.' — 그 눈금을 그대로 겨냥하게 하는 것이다.
-  const off = S.system === 1 ? 0 : T.frame_offset;
+  const off = curSystem() === 1 ? 0 : T.frame_offset;
   let [x,y] = toMm(px,py);
   const cl = (v,m) => Math.min(Math.max(v,0), m);
   const cand = [[Math.abs(y-(T.height+off)), [cl(x,T.width), T.height+off]],
@@ -1208,7 +1211,7 @@ function down(px,py){
   if (READOUT && !previewOn() &&
       px >= READOUT.x - rm && px <= READOUT.x + READOUT.w + rm &&
       py >= READOUT.y - rm && py <= READOUT.y + READOUT.h + rm){
-    S.system = (S.system + 1) % SYS_NAMES.length;
+    S.sysMode = (S.sysMode + 1) % 3;   // 자동 → 파앤하 고정 → 2뱅크 고정 → 자동
     return;
   }
   const gb = ballAt(px,py);
@@ -1458,6 +1461,14 @@ function dim(rgb, k){
 // 수구가 단쿠션에서 출발하느냐 장쿠션에서 출발하느냐로 배정이 통째로 바뀌기 때문이다
 // (캡처 1~9 와 10~18. 사용자: '12를 반대로 보면 되잖아요').
 const SYS_NAMES = ['파이브앤하프', '2뱅크 곱셈'];
+const SYS_MODE_KR = ['자동', '파이브앤하프', '2뱅크 곱셈'];
+// 1쿠션이 이 값보다 작으면 파이브앤하프 눈금으로는 못 읽는 구간 = 2뱅크 영역
+const TWO_BANK_UNDER = 10;
+function curSystem(){
+  if (S.sysMode) return S.sysMode - 1;            // 손으로 고정했으면 그대로
+  const n = systemNumbers();
+  return (n && n.first !== null && n.first !== undefined && n.first < TWO_BANK_UNDER) ? 1 : 0;
+}
 function railHit(from, d){                       // 쿠션 날(플레이필드)과 만나는 점
   const n = Math.hypot(d[0], d[1]);
   if (n < 1e-9) return null;
@@ -1520,7 +1531,7 @@ function twoBank(){
 }
 
 function drawNumbers(){
-  if (S.system === 1){ drawNumbers2Bank(); return; }
+  if (curSystem() === 1){ drawNumbers2Bank(); return; }
   const o = orientation();
   for (const sc of SCALES){
     const third = sc.name === 'third_cushion';
@@ -1572,23 +1583,27 @@ function segNear(a, b, q, r){
   const t = L < 1e-9 ? 0 : Math.max(0, Math.min(1, (wx*vx + wy*vy)/L));
   return Math.hypot(a[0]+vx*t-q[0], a[1]+vy*t-q[1]) <= r;
 }
+function reaches(tip, cue, tgt, d){
+  const save = S.tipH; S.tipH = tip;
+  const pts = [cue.p, ...roll(cue.p, d, 5, 0).map(h => h.p)];
+  S.tipH = save;
+  for (let i = 0; i < pts.length-1; i++)
+    if (segNear(pts[i], pts[i+1], tgt.p, T.ball_diameter)) return true;
+  return false;
+}
+// ⚠️ 전에는 '0팁부터 훑어 닿는 가장 작은 팁' 을 보여줬다. 0팁이 닿으면 당점을
+//    뭘로 바꿔도 늘 '무회전' 이라 무슨 뜻인지 알 수 없었다 (사용자 지적 35·36.jpg).
+//    → **지금 당점으로 닿는지**를 먼저 보고, 안 닿으면 닿는 팁을 권한다.
 function tipGuide(){
   const cue = S.balls.cue;
   const tgt = S.balls.obj2 || S.balls.obj1;
   if (!cue || !S.aim || !tgt) return null;
   const d = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
-  const save = S.tipH;
-  let found = null;
-  for (let t = 0; t <= 3.001; t += 0.5){
-    S.tipH = t;
-    const pts = [cue.p, ...roll(cue.p, d, 5, 0).map(h => h.p)];
-    let ok = false;
-    for (let i = 0; i < pts.length-1 && !ok; i++)
-      if (segNear(pts[i], pts[i+1], tgt.p, T.ball_diameter)) ok = true;
-    if (ok){ found = t; break; }
-  }
-  S.tipH = save;
-  return found;
+  const now = Math.max(0, Math.min(3, S.tipH));
+  if (reaches(now, cue, tgt, d)) return {ok:true, tip:now};
+  for (let t = 0; t <= 3.001; t += 0.5)
+    if (reaches(t, cue, tgt, d)) return {ok:false, tip:t};
+  return {ok:false, tip:null};
 }
 
 function drawNumbers2Bank(){
@@ -2398,8 +2413,9 @@ function drawReadout(){
   // ★ 시스템에 따라 판독창 내용이 바뀐다. 탭하면 돈다 (사용자 지시 2026-08-11).
   //   파이브앤하프  수구수 | 1쿠션 | 3쿠션      출발 · 조준 · 도착
   //   2뱅크 곱셈    출발값 | 1쿠션 | 2쿠션값    〃 (1쿠션위치값 = 2쿠션값 × 출발값)
+  const sys = curSystem();
   let cols;
-  if (S.system === 1){
+  if (sys === 1){
     const tb = twoBank();
     cols = [['출발값', tb && tb.start], ['1쿠션', tb && tb.first], ['2쿠션', tb && tb.second]];
   } else {
@@ -2417,16 +2433,22 @@ function drawReadout(){
   // 어느 시스템을 보고 있는지 — 탭하면 바뀐다는 표시도 겸한다.
   // 2뱅크일 때 노란 글씨라 한눈에 갈린다.
   g.textBaseline = 'top';
-  g.fillStyle = S.system === 1 ? '#ffd400' : 'rgba(238,243,250,0.60)';
+  g.fillStyle = sys === 1 ? '#ffd400' : 'rgba(238,243,250,0.60)';
   g.font = '800 ' + Math.round(r.h*0.20) + 'px system-ui, sans-serif';
-  g.fillText(SYS_NAMES[S.system] + ' ▸', r.x + r.w/2, r.y + r.h*0.04);
-  if (S.system === 1){                       // 팁 가이드 — 무회전이 기본, 안 되면 회전
-    const tp = tipGuide();
+  g.fillText((S.sysMode ? '' : '자동 · ') + SYS_NAMES[sys] + ' ▸',
+             r.x + r.w/2, r.y + r.h*0.04);
+  if (sys === 1){                       // 팁 가이드 — 무회전이 기본, 안 되면 회전
+    const tg = tipGuide();
     g.textAlign = 'right';
     g.font = '800 ' + Math.round(r.h*0.19) + 'px system-ui, sans-serif';
-    g.fillStyle = tp === null ? '#8b93a0' : (tp === 0 ? '#6eeb5a' : '#ffd400');
-    g.fillText(tp === null ? '—' : (tp === 0 ? '무회전' : tp.toFixed(1) + '팁'),
-               r.x + r.w - r.h*0.10, r.y + r.h*0.04);
+    let txt = '—', col = '#8b93a0';
+    if (tg && tg.ok){                       // 지금 당점으로 닿는다
+      txt = tg.tip < 0.25 ? '무회전 ○' : tg.tip.toFixed(1) + '팁 ○'; col = '#6eeb5a';
+    } else if (tg && tg.tip !== null){      // 안 닿는다 — 이 팁이면 닿는다
+      txt = '→ ' + (tg.tip < 0.25 ? '무회전' : tg.tip.toFixed(1) + '팁'); col = '#ffd400';
+    }
+    g.fillStyle = col;
+    g.fillText(txt, r.x + r.w - r.h*0.10, r.y + r.h*0.04);
     g.textAlign = 'center';
   }
   cols.forEach(([lb, v], i) => {
@@ -2439,7 +2461,7 @@ function drawReadout(){
     g.fillStyle = v === null || v === undefined ? '#8b93a0' : '#ffffff';
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
     const txt = (v === null || v === undefined) ? '—'
-              : (S.system === 1 ? (Math.round(v*10)/10).toFixed(1) : String(Math.round(v)));
+              : (sys === 1 ? (Math.round(v*10)/10).toFixed(1) : String(Math.round(v)));
     // ⚠️ 2뱅크는 소수점이 들어가 세 값이 붙어 '1.63.11.9' 로 읽혔다 (사용자 지적 31.jpg).
     //    칸 안에 들어갈 때까지 글자를 줄인다.
     let vf = r.h*0.50;
