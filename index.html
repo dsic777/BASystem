@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 129;
+const MOBILE_VER = 130;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1573,9 +1573,14 @@ const ROUTE_SHOW = 5;         // 6칸 리스트에서 직접조준 한 칸을 �
 const SWEEP_STEP_DEG = 0.2;   // 굵게 훑기. 0.2도짜리 창도 표본 하나는 반드시 걸린다
 const EDGE_ITER = 12;         // 가장자리 이분법 횟수 (0.2/2^12 이면 충분히 정밀하다)
 const SWEEP_MAX_C = 5;        // 3~5쿠션. 그 이상은 실전에서 치는 길이 아니다
-const ROUTE_MIN_DEG = 0.10;   // 이보다 좁으면 사람이 못 친다 — 추천하지 않는다
+const ROUTE_MIN_DEG = 0.10;
+const DROP_REVERSE = false;   // 역각 제외 — 정의 확인 전까지 꺼 둔다 (위 ⚠️ 참고)   // 이보다 좁으면 사람이 못 친다 — 추천하지 않는다
 
 // 이 방향으로 쳤을 때 득점하는가. 하면 그 길의 생김새를 돌려준다.
+function dirOf(a, b){
+  const dx = b[0]-a[0], dy = b[1]-a[1], n = Math.hypot(dx, dy);
+  return n < 1e-9 ? [0,0] : [dx/n, dy/n];
+}
 function simulate(dir, k){
   const cue = S.balls.cue;
   const seq = roll(cue.p, dir, SWEEP_MAX_C, k);
@@ -1583,6 +1588,11 @@ function simulate(dir, k){
   const cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!cut1.hit) return null;                       // 1적구를 못 맞힌다
   const c1 = cut1.pts.length - 2;                   // 1적구 전에 쓴 쿠션 수
+  // ★ 사용자 지시 2026-08-11: '뱅크샷은 일단 제외하세요. 배치별로 뱅크샷이 가능한
+  //   상황들만 골라서 알려드릴게요.' → 쿠션을 먼저 치는 길은 추천하지 않는다.
+  //   ⚠️ 뱅크샷이 나쁜 길이라서가 아니다. **되는 배치가 따로 있어서** 사용자가
+  //      그 목록을 줄 때까지 미루는 것이다. 목록이 오면 이 줄을 조건부로 바꾼다.
+  if (c1 > 0) return null;
   const P = cut1.pts[cut1.pts.length-1];
   const af = afterHit(cut1.from, P, cut1.obj);
   if (!af) return null;
@@ -1604,6 +1614,27 @@ function simulate(dir, k){
   // ⚠️ 같은 쿠션이 연달아 나오면 쿠션을 **스치며 미끄러진** 것이지 경로가 아니다.
   //    (파이썬 검증에서 'bottom-bottom-left' 같은 것이 잔뜩 잡혔다.)
   for (let i = 1; i < rails.length; i++) if (rails[i] === rails[i-1]) return null;
+  // ★ 사용자 지시 2026-08-11: '역각으로 돌아오는 경로는 추천하지 않습니다.'
+  //   순각 = 공이 한 방향으로 계속 돈다. 역각 = 도는 방향이 도중에 뒤집힌다.
+  //   쿠션마다 꺾이는 회전 방향(외적 부호)을 재서, 한 번이라도 뒤집히면 뺀다.
+  //
+  // ⚠️⚠️ 지금 **꺼 두었다** (DROP_REVERSE = false). '역각' 을 위와 같이 옮긴 것은
+  //   내 정리이고, 켜고 파이썬으로 채점해 보니 사용자가 OK 한 경로와 같은 두께대
+  //   (30%)가 사라졌다. 6·7 배치에서 경로 4개 → 1개가 됐다.
+  //   정의가 맞는지 사용자에게 확인받은 뒤에 켠다. 켜는 것은 이 한 줄이다.
+  //   (뱅크샷 제외만으로도 1~5 배치가 6개 → 1개로 준다 — 무게가 거기 있다.)
+  // ⚠️ 이 조건은 bend() 문제와도 맞물린다. bend() 는 모든 쿠션에 **순회전** 실측표를
+  //    쓰므로, 도는 방향이 뒤집힌 뒤 구간은 애초에 그림 자체가 못 믿을 값이다.
+  let turn = 0;
+  for (let i = 0; i < seq2.length && i < c2; i++){
+    const a = i === 0 ? af.dir : dirOf(seq2[i-1].p, seq2[i].p);
+    const b = dirOf(seq2[i].p, i+1 < seq2.length ? seq2[i+1].p : cut2.pts[cut2.pts.length-1]);
+    const cr = a[0]*b[1] - a[1]*b[0];
+    if (Math.abs(cr) < 1e-6) continue;
+    const sg = cr > 0 ? 1 : -1;
+    if (DROP_REVERSE && turn && sg !== turn) return null;   // 도는 방향이 뒤집혔다 = 역각
+    turn = sg;
+  }
   // 먼저 맞는 공이 어느 것인지까지 넣어야 '빨강 먼저' 와 '노랑 먼저' 가 갈린다
   let who = '?';
   for (const kk in S.balls){
