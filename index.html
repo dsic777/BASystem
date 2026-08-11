@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 130;
+const MOBILE_VER = 131;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -126,14 +126,35 @@ function nextRail(p, d, w, h){
   return [best[0], [p[0]+d[0]*best[1], p[1]+d[1]*best[1]]];
 }
 
+// ★ 회전이 **어느 쪽으로 미는지**는 공에 붙은 회전이 정한다. 지금 진행 방향이 아니다.
+//   +1 = 접선 tg 쪽으로 민다.  ⚠️ 부호가 반대면 이 한 글자만 바꾼다.
+//   기준: 사용자 2026-08-11 (2.jpg) — '3시 방향으로 당점을 주고 정면을 치면
+//         우측으로 공이 돌아야 하는데 반대로 꺾이고 있어요.'
+const ENGLISH_SIDE = 1;
+
 function bend(d, rail, k){
   const n = RAILS[rail], tg = [-n[1], n[0]];
   const dn = d[0]*n[0] + d[1]*n[1], dt = d[0]*tg[0] + d[1]*tg[1];
   const ain = Math.atan2(Math.abs(dt), Math.abs(dn)) * 180/Math.PI;
-  const aout = Math.max(ain, Math.min(reflect(ain) + (k||0), 89.9));
-  const r = aout * Math.PI/180, s = dt >= 0 ? 1 : -1;
-  return [[n[0]*Math.cos(r) + tg[0]*s*Math.sin(r),
-           n[1]*Math.cos(r) + tg[1]*s*Math.sin(r)], ain, aout];
+  // ⚠️⚠️ 옛 코드는 이랬다 —
+  //        const s = dt >= 0 ? 1 : -1;          // 들어올 때 흐른 쪽
+  //        aout = max(ain, reflect(ain)+k)      // 늘 더 길게
+  //      두 가지가 틀렸다.
+  //      ① s 가 **회전과 무관**하다. 정면(dt=0)이면 부동소수점 찌꺼기로 좌우가 갈린다
+  //         (사용자 2.jpg — 정면인데 반대쪽으로 꺾여 나갔다).
+  //      ② max(ain, ...) 이라 **거울보다 짧게 튕기는 그림을 구조적으로 못 그린다.**
+  //         역회전으로 맞는 쿠션이 그렇다.
+  //   → 부호 있는 각으로 바꾼다.
+  //        나가는 각 = (들어온 각, 흐른 쪽 부호) + 회전이 더해 주는 각 × 회전이 미는 쪽
+  //      회전이 진행 쪽과 같으면 순회전(길어진다), 반대면 역회전(짧아진다).
+  //      정면이면 들어온 각이 0 이라 **회전이 미는 쪽으로만** 나간다 — 이게 맞는 그림이다.
+  const sIn = dt >= 0 ? 1 : -1;
+  const add = Math.max(0, reflect(ain) - ain) + (k || 0);   // 회전 + 현장 보정
+  const signed = sIn * ain + ENGLISH_SIDE * add;
+  const mag = Math.min(Math.abs(signed), 89.9), sOut = signed >= 0 ? 1 : -1;
+  const r = mag * Math.PI/180;
+  return [[n[0]*Math.cos(r) + tg[0]*sOut*Math.sin(r),
+           n[1]*Math.cos(r) + tg[1]*sOut*Math.sin(r)], ain, mag];
 }
 
 function roll(start, d, cushions, k){
