@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 124;
+const MOBILE_VER = 125;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1260,6 +1260,9 @@ function up(px, py){
       }
     }
   }
+  // ★ 손을 뗄 때 경로를 시스템이 다듬는다 (사용자 지시 2026-08-11).
+  //   조준하는 내내 걸면 손가락을 따라오지 못해 답답하다 — 놓는 순간에만 붙인다.
+  if (S.aiming) snapAim();
   S.drag = null; S.aiming = false;
 }
 
@@ -1519,15 +1522,14 @@ function railPos(rail, corner, dia){              // 코너에서 dia 칸 떨어
             : [rail==='right'?T.width:0, corner[1]+away];
 }
 // 이 샷의 레일 배정과 값. 못 정하면 null.
+// ⚠️ 출발은 수구 자리가 아니라 systemBase() 가 정한 자리다. 1적구를 먼저 맞고 도는
+//    배치(38.jpg)에서는 **충돌 지점부터** 여정이 시작되므로 거기서 재야 한다.
 function twoBank(){
-  const cue = S.balls.cue;
-  if (!cue || !S.aim) return null;
-  const d = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
-  let hits = null;
-  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ return null; }
-  if (!hits || hits.length < 2) return null;
-  const r1 = railOf(hits[0].p), r2 = railOf(hits[1].p);
-  const back = railHit(cue.p, [-d[0], -d[1]]);     // 조준선을 뒤로 늘린 자리 = 출발
+  const b = systemBase();
+  if (!b || !b.hits || b.hits.length < 2) return null;
+  const hits = b.hits, d = b.dir;
+  const r1 = hits[0].rail, r2 = hits[1].rail;
+  const back = railHit(b.from, [-d[0], -d[1]]);    // 기준선을 뒤로 늘린 자리 = 출발
   const r0 = back ? railOf(back) : null;
   if (!r0 || !r1 || !r2 || r1 === r2) return null;
   const cS = cornerOf(r0, r2), cF = cornerOf(r1, r2);
@@ -1536,6 +1538,98 @@ function twoBank(){
   const first  = diamondsFrom(r1, hits[0].p, cF) * 10;             // 한 칸에 10
   const second = start > 0.05 ? first / start : null;              // 곱셈식을 뒤집는다
   return {r0, r1, r2, cS, cF, start, first, second};
+}
+
+// ─────────────────────────────── 경로 자동설정 (사용자 선택 '나' · 2026-08-11)
+// '궤적을 유도하는 방향으로 가면 경로 자동설정 이것이 주문사항입니다.'
+//   탭한 방향은 **어느 길로 도느냐**만 정한다. 정확한 조준각은 **목표 공**이 정한다.
+//   사용자: '실전에서는 공의 위치가 소수점이 되고 도착지점도 그러하니 계산이 힘들어요.'
+// ⚠️ 눈금에서 도착값을 읽어 역산하지 않는다. 목표 공이 쿠션에 붙어 있지 않으면
+//    '이 공은 눈금 몇으로 친다' 를 내가 임의로 정해야 하는데 그건 지어내는 것이다
+//    (CLAUDE.md — 당구 이론은 사용자가 진실 원천). 대신 실측 반사표로 굴린 궤적이
+//    그 공을 지나가는 각을 직접 찾는다. 지어낼 여지가 없다.
+// ⚠️ 목표 공이 없으면 아무것도 안 한다 (사용자 확정: '2적구가 없으면 작용이 불필요').
+const SNAP_WIN_DEG = 8;     // 탭한 방향에서 이만큼 안에서만 고친다 (길 자체는 안 바꾼다)
+
+function segDist(a, b, q){
+  const dx = b[0]-a[0], dy = b[1]-a[1], ll = dx*dx + dy*dy;
+  let t = ll > 1e-9 ? ((q[0]-a[0])*dx + (q[1]-a[1])*dy) / ll : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(a[0]+dx*t - q[0], a[1]+dy*t - q[1]);
+}
+// 이 방향으로 쳤을 때의 궤적. except 로 준 공은 **끊지 않고 지나가게** 둔다 —
+// 그래야 '얼마나 빗나갔나' 를 잴 수 있다 (끊어 버리면 늘 지름 거리로 나온다).
+function snapPoly(dir, except){
+  const cue = S.balls.cue;
+  const aim = [cue.p[0] + dir[0]*4000, cue.p[1] + dir[1]*4000];
+  let hits = null;
+  try { hits = pathFromAim(cue.p, aim, S.corr); } catch(e){ return null; }
+  if (!hits || !hits.length) return null;
+  const cut = cutAtBall([cue.p, ...hits.map(h => h.p)], except);
+  if (!cut.hit)
+    return {pts:[cue.p, ...hits.map(h => h.p)], rails:hits.map(h => h.rail), n0:0, obj:null};
+  const P = cut.pts[cut.pts.length-1];
+  const a = afterHit(cut.from, P, cut.obj);
+  if (!a) return null;
+  const later = roll(P, a.dir, 6, 0);
+  return {pts:[...cut.pts, ...later.map(h => h.p)], rails:later.map(h => h.rail),
+          n0:cut.pts.length - 1, obj:cut.obj};
+}
+// 필요한 쿠션을 다 쓴 뒤 목표 공 중심에 얼마나 가까이 지나가는가 (mm).
+// want 를 주면 레일 차례가 그대로여야 한다 — 탭한 길에서 딴 데로 새지 않게.
+function snapMiss(dir, tgt, need, want){
+  const P = snapPoly(dir, tgt.p);
+  if (!P || P.rails.length < need) return null;
+  for (let i = 0; i < need; i++) if (want && P.rails[i] !== want[i]) return null;
+  let best = null;
+  for (let i = P.n0 + need; i < P.pts.length - 1; i++){
+    const d = segDist(P.pts[i], P.pts[i+1], tgt.p);
+    if (best === null || d < best) best = d;
+  }
+  return best;
+}
+function snapAim(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return false;
+  const d0 = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
+  const len = Math.hypot(d0[0], d0[1]);
+  if (len < 1e-6) return false;
+  const u = [d0[0]/len, d0[1]/len];
+  // ★ 목표 공 = 탭한 궤적이 **먼저 맞는 공이 아닌 쪽** (사용자 39.jpg 에서 확인 —
+  //   빨간공을 먼저 맞는 배치라 색으로 고정하면 목표가 뒤집힌다).
+  const raw = snapPoly(u, null);
+  if (!raw) return false;
+  let tgt = null;
+  for (const k of ['obj2','obj1']){
+    const b = S.balls[k];
+    if (!b) continue;
+    if (raw.obj && Math.hypot(b.p[0]-raw.obj[0], b.p[1]-raw.obj[1]) < 1) continue;
+    tgt = b; break;
+  }
+  if (!tgt) return false;
+  const need = curSystem() === 1 ? 2 : 3;      // 2뱅크는 2쿠션, 파이브앤하프는 3쿠션
+  const base = snapPoly(u, tgt.p);
+  if (!base || base.rails.length < need) return false;
+  const want = base.rails.slice(0, need);
+  const a0 = Math.atan2(u[1], u[0]), W = SNAP_WIN_DEG * Math.PI/180;
+  let bestA = null, bestD = null;
+  const scan = (lo, hi, n) => {
+    for (let i = 0; i <= n; i++){
+      const a = lo + (hi-lo)*i/n;
+      const m = snapMiss([Math.cos(a), Math.sin(a)], tgt, need, want);
+      if (m !== null && (bestD === null || m < bestD)){ bestD = m; bestA = a; }
+    }
+  };
+  // ⚠️ 훑는 간격은 공보다 촘촘해야 건너뛰지 않는다. ±8도를 48칸 = 0.33도 인데
+  //    2m 거리에서 공(지름 61.5)이 1.8도쯤 되므로 넉넉하다.
+  //    보정이 걸려 있으면 pathFromAim 이 한 번에 40번씩 이분법을 도니 더 늘리지 말 것.
+  scan(a0-W, a0+W, 48);
+  // 지름보다 멀면 그 방향엔 길이 없다 — 없는 것을 만들어 보여주지 않는다. 탭 그대로.
+  if (bestA === null || bestD > T.ball_diameter) return false;
+  const step = W/48;
+  scan(bestA-step, bestA+step, 12);
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(bestA)*len, cue.p[1] + Math.sin(bestA)*len];
+  return true;
 }
 
 function drawNumbers(){
