@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 131;
+const MOBILE_VER = 132;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -150,7 +150,13 @@ function bend(d, rail, k){
   //      정면이면 들어온 각이 0 이라 **회전이 미는 쪽으로만** 나간다 — 이게 맞는 그림이다.
   const sIn = dt >= 0 ? 1 : -1;
   const add = Math.max(0, reflect(ain) - ain) + (k || 0);   // 회전 + 현장 보정
-  const signed = sIn * ain + ENGLISH_SIDE * add;
+  let signed = sIn * ain + ENGLISH_SIDE * add;
+  // ★ 사용자 2026-08-11 (3.jpg): '3쿠션으로 솟아오릅니다. 회전을 아무리 주더라도
+  //   직선 정도로 갈 텐데.' → 역회전은 **거울을 지나 반대쪽으로 넘어가지 못한다.**
+  //   넘어가면 거기서 멈춘다(거울반사). 짧아지는 것까지는 둔다 — 그게 역회전이다.
+  //   ⚠️ 정면(들어온 각이 0)은 예외다. '흐른 쪽' 이 없으니 회전이 미는 쪽으로 나간다
+  //      (2.jpg 에서 확인한 것). 그래서 ain 이 0 일 때는 이 제한을 걸지 않는다.
+  if (ain > 1e-6 && (signed >= 0 ? 1 : -1) !== sIn) signed = sIn * ain;
   const mag = Math.min(Math.abs(signed), 89.9), sOut = signed >= 0 ? 1 : -1;
   const r = mag * Math.PI/180;
   return [[n[0]*Math.cos(r) + tg[0]*sOut*Math.sin(r),
