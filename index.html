@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 116;
+const MOBILE_VER = 117;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1363,12 +1363,14 @@ function systemBase(){
   let from = cue.p, dir = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]], hits = null;
   try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
   const cut = hits ? cutAtBall([cue.p, ...hits.map(h => h.p)]) : null;
-  // ★ 충돌 후 라인에서 숫자를 읽는 것은 **직접 1적구를 치는 경우**(앞·뒤·제각돌리기)
-  //   뿐이다. 그때는 충돌한 자리부터 3쿠션 시스템이 시작되므로 그게 맞다.
-  // ⚠️ 사용자 지적 2026-08-10 (1.jpg): 쓰리뱅크로 **3쿠션을 다 돌고 나서** 1적구를
-  //   맞은 배치인데도 충돌 후 라인에서 읽어, 수구수 36 / 1쿠션 — / 3쿠션 13 이
-  //   나왔다. 실제 수구는 좌측 60 눈금이고 1쿠션은 하단 10 이다.
-  //   → 충돌 **전에 쿠션을 쓴 적이 있으면** 원래 큐선 그대로 읽는다.
+  // ★ 기준은 '충돌 **후에 갈 길이 남아 있는가**' 다 (사용자 지적 2026-08-11, 26.jpg:
+  //   '수구수가 노란공과 충돌시 결정이 됩니다').
+  //   남아 있으면 거기서 3쿠션 여정이 시작되므로 **충돌점이 새 출발점**이다.
+  //     1.jpg   쓰리뱅크 다 돌고 충돌 → 충돌 후 0쿠션 → 여정이 끝났다 → 원래 큐선
+  //     24·26   1쿠션 후 충돌        → 충돌 후 6쿠션 → 충돌점
+  //     20·23   바로 충돌            → 충돌 후 7쿠션 → 충돌점
+  //   ⚠️ 전에는 '충돌 전에 쿠션을 썼는가' 로 갈랐다. 그러면 24·26 이 원래 큐선으로
+  //      읽혀 수구수가 틀렸다. afterCushions() 표와 같은 갈림이라 규칙이 하나로 준다.
   // ★ 3쿠션수는 성격이 다르다 (사용자 지적 2026-08-11, 24.jpg).
   //   수구수·1쿠션수는 **출발**을 설명하므로 원래 큐선에서 읽는 것이 맞다.
   //   3쿠션수는 **도착**을 설명하므로 공이 **실제로 가는 경로**에서 읽어야 한다.
@@ -1382,7 +1384,7 @@ function systemBase(){
     const af = afterHit(cut.from, P, cut.obj);
     if (af){
       arrival = roll(P, af.dir, 3, 0);
-      if (cut.pts.length === 2){ from = P; dir = af.dir; hits = arrival; }
+      if (afterCushions(cut.pts.length - 2) > 0){ from = P; dir = af.dir; hits = arrival; }
     }
   }
   const val = {from, dir, hits, arrival};
