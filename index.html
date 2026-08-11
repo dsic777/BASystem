@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 140;
+const MOBILE_VER = 141;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1273,7 +1273,8 @@ function down(px,py){
   if (READOUT && !previewOn() &&
       px >= READOUT.x - rm && px <= READOUT.x + READOUT.w + rm &&
       py >= READOUT.y - rm && py <= READOUT.y + READOUT.h + rm){
-    S.sysMode = (S.sysMode + 1) % 4;   // 자동 → 파앤하 → 2뱅크 → 기울기 → 자동
+    S.sysMode = (S.sysMode + 1) % 4;   // 자동 → 파앤하 → 2뱅크 → 횡단샷 → 자동
+    if (S.sysMode === 3) aimForCross();   // 횡단샷을 고르면 그 두께·팁으로 조준선을 잡는다
     return;
   }
   const gb = ballAt(px,py);
@@ -2364,6 +2365,52 @@ function drawClock(){
   g.beginPath(); g.arc(x + dx, y + dy, R*0.155, 0, 7); g.fill();
 }
 // 교본이 낸 추천 팁수. 지금은 더불횡단 식만 있다 (책 145쪽).
+// ★ 사용자 2026-08-12: '추천에서 횡단샷을 선택하던 추천경로에서 넘어오던
+//   이런 궤적을 자동으로 보여줬으면 합니다.'
+//   교본이 낸 **두께**로 조준선을 잡고, **팁수**만큼 회전을 준다.
+//   두께 t 로 맞히려면 조준선이 1적구 중심에서 지름×(1−t) 만큼 비켜 지나가야 한다.
+//   좌·우 두 갈래가 나오므로 **2적구에 닿는 쪽**을 고른다.
+function aimForCross(){
+  const cue = S.balls.cue, o1 = S.balls.obj1, o2 = S.balls.obj2;
+  if (!cue || !o1) return false;
+  const sl = slopes();
+  if (!sl || sl.cue1 === null) return false;
+  const t = thick8(sl.cue1 / 2) / 8;                 // 칠 수 있는 두께 (2·4·6 /8)
+  const D = T.ball_diameter;
+  const wx = o1.p[0]-cue.p[0], wy = o1.p[1]-cue.p[1], L = Math.hypot(wx, wy);
+  const perp = D * (1 - t);
+  if (L < 1e-6 || perp >= L) return false;
+  const th0 = Math.atan2(wy, wx), off = Math.asin(perp / L);
+  const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
+  const rt = sl.o12 === null ? null : sl.o12 - sl.cue1 + 2;
+  const save = S.tipR;
+  if (rt !== null) S.tipR = Math.max(0, Math.min(3, rt));   // 팁수만큼 회전
+  S.tipV = S.tipR * Math.cos(S.tipDir * Math.PI/12);
+  S.tipH = S.tipR * Math.sin(S.tipDir * Math.PI/12);
+  let best = null;
+  for (const sgn of [1, -1]){
+    const a = th0 + off*sgn;
+    S.aim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+    let sc = 0;
+    if (o2){
+      const E = englishSideFor(cue.p, [Math.cos(a), Math.sin(a)]);
+      const seq = roll(cue.p, [Math.cos(a), Math.sin(a)], 6, 0, E);
+      const c1 = cutAtBall([cue.p, ...seq.map(h=>h.p)]);
+      if (c1.hit && Math.hypot(c1.obj[0]-o1.p[0], c1.obj[1]-o1.p[1]) < 1){
+        const P = c1.pts[c1.pts.length-1], af = afterHit(c1.from, P, c1.obj);
+        if (af){
+          const s2 = roll(P, af.dir, 6, 0, E);
+          const c2 = cutAtBall([P, ...s2.map(h=>h.p)], c1.obj);
+          if (c2.hit) sc = 100 - (c2.pts.length - 2);      // 적게 돌고 닿을수록 좋다
+        }
+      }
+    }
+    if (best === null || sc > best[0]) best = [sc, a];
+  }
+  if (best === null){ S.tipR = save; return false; }
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(best[1])*len, cue.p[1] + Math.sin(best[1])*len];
+  return true;
+}
 function recTip(){
   const sl = slopes();
   if (!sl || sl.cue1 === null || sl.o12 === null) return null;
@@ -2794,7 +2841,8 @@ function drawReadout(){
     //   '너무 복잡하면 안 돼요. 우리 앱의 성격, 개발배경과도 안 맞아요.'
     //   → 1적구-2적구 기울기는 **속으로만** 쓴다 (팁수를 내는 데 필요하다 —
     //     그 값이 곧 '어디로 보낼 것인가' 다). 화면에는 셋만.
-    cols = [['기울기', sl && sl.cue1], ['두께/8', th === null ? null : thick8(th)],
+    // ★ 사용자 2026-08-12: '두께는 8/2 8/4 8/6 이렇게 표현.'
+    cols = [['기울기', sl && sl.cue1], ['두께', th === null ? null : '8/' + thick8(th)],
             ['팁수', tip]];
   } else if (sys === 1){
     const tb = twoBank();
@@ -2848,6 +2896,7 @@ function drawReadout(){
     g.fillStyle = v === null || v === undefined ? '#8b93a0' : '#ffffff';
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
     const txt = (v === null || v === undefined) ? '—'
+              : (typeof v === 'string') ? v
               : (sys >= 1 ? (Math.round(v*10)/10).toFixed(1) : String(Math.round(v)));
     // ⚠️ 2뱅크는 소수점이 들어가 세 값이 붙어 '1.63.11.9' 로 읽혔다 (사용자 지적 31.jpg).
     //    칸 안에 들어갈 때까지 글자를 줄인다.
