@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 138;
+const MOBILE_VER = 139;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1555,6 +1555,14 @@ function slopePts(a, b){
   return v > 8.05 ? null : v;
 }
 // 지금 배치의 기울기들. 없으면 null.
+// ★ 사용자 2026-08-12: '두께는 너무 세분하면 힘든데 공을 8등분 해서 2 4 6 정도만.'
+//   1.75/8 같은 값은 칠 수가 없다. 셋 중 제일 가까운 것으로 붙인다.
+const THICK_STEPS = [2, 4, 6];
+function thick8(v){
+  let best = THICK_STEPS[0];
+  for (const t of THICK_STEPS) if (Math.abs(t - v) < Math.abs(best - v)) best = t;
+  return best;
+}
 function slopes(){
   const c = S.balls.cue, o1 = S.balls.obj1, o2 = S.balls.obj2;
   if (!c) return null;
@@ -2336,9 +2344,27 @@ function drawClock(){
   //    '원 위에 얹힌 자리' 로 읽히게 한다.
   g.strokeStyle = 'rgba(190,40,32,0.40)'; g.lineWidth = Math.max(1, R*0.045);
   g.beginPath(); g.arc(x, y, R*TIP_R*3, 0, 7); g.stroke();
+  // ★ 사용자 2026-08-12: '팁의 위치는 공에 직접 표시를 해주면 되고 …
+  //   팁수는 숫자도 표시하지만 그림에 당점이 나와있으니 해결이 되는 거구요.'
+  //   교본이 낸 **추천 팁수**를 초록 점으로 같이 찍는다. 빨간 점은 지금 고른 당점.
+  //   방향은 순회전 쪽 (앱의 기준), 거리는 팁수.
+  const rt = recTip();
+  if (rt !== null){
+    const rr = Math.max(0, Math.min(4, rt));
+    const [rx, ry] = tipXY(6, rr, R * TIP_R);      // 6 = 3시(순회전) 쪽
+    g.strokeStyle = '#1d7a34'; g.lineWidth = Math.max(1.5, R*0.055);
+    g.beginPath(); g.arc(x + rx, y + ry, R*0.175, 0, 7); g.stroke();
+    g.fillStyle = 'rgba(90,220,120,0.85)'; g.fill();
+  }
   const [dx,dy] = tipOffset(R);
   g.fillStyle = '#de342c';
   g.beginPath(); g.arc(x + dx, y + dy, R*0.155, 0, 7); g.fill();
+}
+// 교본이 낸 추천 팁수. 지금은 더불횡단 식만 있다 (책 145쪽).
+function recTip(){
+  const sl = slopes();
+  if (!sl || sl.cue1 === null || sl.o12 === null) return null;
+  return sl.o12 - sl.cue1 + 2;
 }
 function goingLeft(){
   // ⚠️ 전에는 pathFromAim() 을 불렀다. 이제 bend() 가 englishSide() → tipSide() →
@@ -2758,10 +2784,15 @@ function drawReadout(){
     //   책의 예: 1 − 3 + 2 = 0팁
     const th  = (sl && sl.cue1 !== null) ? sl.cue1 / 2 : null;
     const tip = (sl && sl.cue1 !== null && sl.o12 !== null) ? sl.o12 - sl.cue1 + 2 : null;
-    // ★ 사용자 2026-08-12: '범례가 잘리니 수 원1 원2 이렇게 표시해 주세요,
-    //   동그라미 안에 숫자표시.'  수구 = 수, 1적구 = ①, 2적구 = ②
-    cols = [['수 — ①', sl && sl.cue1], ['① — ②', sl && sl.o12],
-            ['두께/8', th], ['팁수', tip]];
+    // ★ 사용자 2026-08-12 —
+    //   '내가 알고 싶은 정보는 수구와 1적구간의 기울기, 두께, 팁수만 있으면 됩니다.
+    //    1적구와 2적구간의 숫자는 필요없는데요.'
+    //   '두께는 너무 세분하면 힘든데 공을 8등분 해서 2 4 6 정도만 지정을 해 줘야 합니다.'
+    //   '너무 복잡하면 안 돼요. 우리 앱의 성격, 개발배경과도 안 맞아요.'
+    //   → 1적구-2적구 기울기는 **속으로만** 쓴다 (팁수를 내는 데 필요하다 —
+    //     그 값이 곧 '어디로 보낼 것인가' 다). 화면에는 셋만.
+    cols = [['기울기', sl && sl.cue1], ['두께/8', th === null ? null : thick8(th)],
+            ['팁수', tip]];
   } else if (sys === 1){
     const tb = twoBank();
     cols = [['출발값', tb && tb.start], ['1쿠션', tb && tb.first], ['2쿠션', tb && tb.second]];
