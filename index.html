@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 128;
+const MOBILE_VER = 129;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1551,55 +1551,6 @@ function twoBank(){
   return {r0, r1, r2, cS, cF, start, first, second};
 }
 
-// ─────────────────────────────── 경로 자동설정 (사용자 선택 '나' · 2026-08-11)
-// '궤적을 유도하는 방향으로 가면 경로 자동설정 이것이 주문사항입니다.'
-//   탭한 방향은 **어느 길로 도느냐**만 정한다. 정확한 조준각은 **목표 공**이 정한다.
-//   사용자: '실전에서는 공의 위치가 소수점이 되고 도착지점도 그러하니 계산이 힘들어요.'
-// ⚠️ 눈금에서 도착값을 읽어 역산하지 않는다. 목표 공이 쿠션에 붙어 있지 않으면
-//    '이 공은 눈금 몇으로 친다' 를 내가 임의로 정해야 하는데 그건 지어내는 것이다
-//    (CLAUDE.md — 당구 이론은 사용자가 진실 원천). 대신 실측 반사표로 굴린 궤적이
-//    그 공을 지나가는 각을 직접 찾는다. 지어낼 여지가 없다.
-// ⚠️ 목표 공이 없으면 아무것도 안 한다 (사용자 확정: '2적구가 없으면 작용이 불필요').
-const SNAP_WIN_DEG = 8;     // 탭한 방향에서 이만큼 안에서만 고친다 (길 자체는 안 바꾼다)
-
-function segDist(a, b, q){
-  const dx = b[0]-a[0], dy = b[1]-a[1], ll = dx*dx + dy*dy;
-  let t = ll > 1e-9 ? ((q[0]-a[0])*dx + (q[1]-a[1])*dy) / ll : 0;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(a[0]+dx*t - q[0], a[1]+dy*t - q[1]);
-}
-// 이 방향으로 쳤을 때의 궤적. except 로 준 공은 **끊지 않고 지나가게** 둔다 —
-// 그래야 '얼마나 빗나갔나' 를 잴 수 있다 (끊어 버리면 늘 지름 거리로 나온다).
-function snapPoly(dir, except){
-  const cue = S.balls.cue;
-  const aim = [cue.p[0] + dir[0]*4000, cue.p[1] + dir[1]*4000];
-  let hits = null;
-  let kk = 0;
-  try { hits = pathFromAim(cue.p, aim, S.corr); kk = LAST_K; } catch(e){ return null; }
-  if (!hits || !hits.length) return null;
-  const cut = cutAtBall([cue.p, ...hits.map(h => h.p)], except);
-  if (!cut.hit)
-    return {pts:[cue.p, ...hits.map(h => h.p)], rails:hits.map(h => h.rail), n0:0, obj:null};
-  const P = cut.pts[cut.pts.length-1];
-  const a = afterHit(cut.from, P, cut.obj);
-  if (!a) return null;
-  const later = roll(P, a.dir, 6, kk);    // 충돌 뒤 쿠션에도 보정이 걸린다
-  return {pts:[...cut.pts, ...later.map(h => h.p)], rails:later.map(h => h.rail),
-          n0:cut.pts.length - 1, obj:cut.obj};
-}
-// 필요한 쿠션을 다 쓴 뒤 목표 공 중심에 얼마나 가까이 지나가는가 (mm).
-// want 를 주면 레일 차례가 그대로여야 한다 — 탭한 길에서 딴 데로 새지 않게.
-function snapMiss(dir, tgt, need, want){
-  const P = snapPoly(dir, tgt.p);
-  if (!P || P.rails.length < need) return null;
-  for (let i = 0; i < need; i++) if (want && P.rails[i] !== want[i]) return null;
-  let best = null;
-  for (let i = P.n0 + need; i < P.pts.length - 1; i++){
-    const d = segDist(P.pts[i], P.pts[i+1], tgt.p);
-    if (best === null || d < best) best = d;
-  }
-  return best;
-}
 // ─────────────────────────────── 경로 찾기 (360도 훑기 + 묶기) · 사용자 승인 2026-08-11
 // '공의 배치에 따라 경로를 파악하여 가능한 경로를 모두 리스트로 보여주기.'
 // '없는 경로는 추천하지 않습니다. 추천버튼에서 제외합니다.'
@@ -1751,47 +1702,36 @@ function nextRoute(){
   S.aim = S.lastAim = [cue.p[0] + Math.cos(r.a)*len, cue.p[1] + Math.sin(r.a)*len];
 }
 
+// ─────────────────────────────── 자석 (사용자 지시 2026-08-11)
+// '경로를 설정하고 손을 놓으면 지맘대로 경로가 변해버려요. 또 자석 같은 기능이
+//  없나요 — 경로가 맞으면 붙여주는 기능.'
+//
+// ⚠️ 처음엔 ±8도를 훑어 '목표 공에 제일 가까운 각' 으로 옮겼다. 두 가지가 틀렸다 —
+//    ① 8도는 너무 넓다. 손댄 곳에서 멀리 끌려가니 '지맘대로' 로 느껴진다.
+//    ② 붙이는 대상이 **득점하는 길인지를 안 봤다.** 공에 가깝기만 하면 붙였다.
+// 지금은 findRoutes() 가 찾아 둔 **득점 경로에만** 붙는다. 그 안에 없으면
+// 손댄 각을 그대로 둔다. 붙으면 추천 버튼에 몇 번째 경로인지 뜬다.
+const MAGNET_DEG = 1.5;   // 이 안에 들어와야 붙는다. 경로 폭이 0.2~0.6도라 이만하면 넉넉하다
+
 function snapAim(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return false;
   const d0 = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
   const len = Math.hypot(d0[0], d0[1]);
   if (len < 1e-6) return false;
-  const u = [d0[0]/len, d0[1]/len];
-  // ★ 목표 공 = 탭한 궤적이 **먼저 맞는 공이 아닌 쪽** (사용자 39.jpg 에서 확인 —
-  //   빨간공을 먼저 맞는 배치라 색으로 고정하면 목표가 뒤집힌다).
-  const raw = snapPoly(u, null);
-  if (!raw) return false;
-  let tgt = null;
-  for (const k of ['obj2','obj1']){
-    const b = S.balls[k];
-    if (!b) continue;
-    if (raw.obj && Math.hypot(b.p[0]-raw.obj[0], b.p[1]-raw.obj[1]) < 1) continue;
-    tgt = b; break;
+  const list = findRoutes();
+  if (!list.length){ S.routeIx = -1; return false; }
+  const a0 = Math.atan2(d0[1], d0[0]);
+  let bi = -1, bd = Infinity;
+  for (let i = 0; i < Math.min(list.length, ROUTE_SHOW); i++){
+    // 각도 차이를 -180~180 으로 접어서 잰다 (0도 이음매에서 뒤집히지 않게)
+    const df = Math.abs(((list[i].a - a0 + Math.PI*3) % (Math.PI*2)) - Math.PI);
+    if (df < bd){ bd = df; bi = i; }
   }
-  if (!tgt) return false;
-  const need = curSystem() === 1 ? 2 : 3;      // 2뱅크는 2쿠션, 파이브앤하프는 3쿠션
-  const base = snapPoly(u, tgt.p);
-  if (!base || base.rails.length < need) return false;
-  const want = base.rails.slice(0, need);
-  const a0 = Math.atan2(u[1], u[0]), W = SNAP_WIN_DEG * Math.PI/180;
-  let bestA = null, bestD = null;
-  const scan = (lo, hi, n) => {
-    for (let i = 0; i <= n; i++){
-      const a = lo + (hi-lo)*i/n;
-      const m = snapMiss([Math.cos(a), Math.sin(a)], tgt, need, want);
-      if (m !== null && (bestD === null || m < bestD)){ bestD = m; bestA = a; }
-    }
-  };
-  // ⚠️ 훑는 간격은 공보다 촘촘해야 건너뛰지 않는다. ±8도를 48칸 = 0.33도 인데
-  //    2m 거리에서 공(지름 61.5)이 1.8도쯤 되므로 넉넉하다.
-  //    보정이 걸려 있으면 pathFromAim 이 한 번에 40번씩 이분법을 도니 더 늘리지 말 것.
-  scan(a0-W, a0+W, 48);
-  // 지름보다 멀면 그 방향엔 길이 없다 — 없는 것을 만들어 보여주지 않는다. 탭 그대로.
-  if (bestA === null || bestD > T.ball_diameter) return false;
-  const step = W/48;
-  scan(bestA-step, bestA+step, 12);
-  S.aim = S.lastAim = [cue.p[0] + Math.cos(bestA)*len, cue.p[1] + Math.sin(bestA)*len];
+  if (bi < 0 || bd > MAGNET_DEG * Math.PI/180){ S.routeIx = -1; return false; }
+  S.routeIx = bi;
+  const a = list[bi].a;
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
   return true;
 }
 
