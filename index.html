@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 125;
+const MOBILE_VER = 126;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -155,9 +155,17 @@ const STEP_MM = 30.6;   // 보정 한 눈금. 단쿠션 1224/40 = 장쿠션 2448
 
 // 보정은 **모든 쿠션의 반사각**에 같은 양(k도)을 더한다. 실측표가 이 당구대에서
 // 안 맞는 것이라면 한 쿠션만 안 맞을 리가 없다 (윈도우판과 같은 방식).
+// ★ 사용자 확정 2026-08-11: '보정은 공간의 충돌로 인한 각도 변경과는 관계가 없습니다.
+//   쿠션에 부딪힐 때만 적용하는 겁니다.' 그리고 '충돌 뒤 쿠션 보정이 걸립니다.'
+//     1적구와 부딪혀 꺾이는 각      보정 안 걸린다 (공끼리라 다이와 무관)
+//     쿠션                          충돌 전이든 후든 **다 걸린다**
+//   → 풀린 k 를 LAST_K 에 남겨서, 충돌 뒤 구간도 같은 k 로 굴린다.
+//     ⚠️ pathFromAim 을 부른 **직후**에 읽어야 한다. 다른 조준으로 또 부르면 덮인다.
+let LAST_K = 0;
 function pathFromAim(cue, aim, shift){
   const d = [aim[0]-cue[0], aim[1]-cue[1]];
   const base = roll(cue, d, 5, 0);
+  LAST_K = 0;
   if (!shift || base.length < 2) return base;
   const rail = base[1].rail, n = RAILS[rail], tg = [-n[1], n[0]];
   const v = [base[1].p[0]-base[0].p[0], base[1].p[1]-base[0].p[1]];
@@ -175,8 +183,11 @@ function pathFromAim(cue, aim, shift){
     if (got === null) break;
     if (got < want) lo = mid; else hi = mid;
   }
-  const out = roll(cue, d, 5, (lo+hi)/2);
-  return out.length >= 2 ? out : base;
+  const k = (lo+hi)/2;
+  const out = roll(cue, d, 5, k);
+  if (out.length < 2) return base;
+  LAST_K = k;
+  return out;
 }
 
 
@@ -1385,8 +1396,8 @@ function systemBase(){
   const key = cue.p + '|' + S.aim + '|' + S.corr + '|' + S.tipDir + '|' + S.tipR + '|' +
               Object.keys(S.balls).map(k => S.balls[k].p).join(';');
   if (BASE_CACHE.key === key) return BASE_CACHE.val;
-  let from = cue.p, dir = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]], hits = null;
-  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ hits = null; }
+  let from = cue.p, dir = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]], hits = null, kk = 0;
+  try { hits = pathFromAim(cue.p, S.aim, S.corr); kk = LAST_K; } catch(e){ hits = null; }
   const cut = hits ? cutAtBall([cue.p, ...hits.map(h => h.p)]) : null;
   // ★ 기준은 '충돌 **후에 갈 길이 남아 있는가**' 다 (사용자 지적 2026-08-11, 26.jpg:
   //   '수구수가 노란공과 충돌시 결정이 됩니다').
@@ -1408,7 +1419,7 @@ function systemBase(){
     const P = cut.pts[cut.pts.length-1];
     const af = afterHit(cut.from, P, cut.obj);
     if (af){
-      arrival = roll(P, af.dir, 3, 0);
+      arrival = roll(P, af.dir, 3, kk);   // 충돌 뒤 쿠션에도 보정이 걸린다
       if (afterCushions(cut.pts.length - 2) > 0){ from = P; dir = af.dir; hits = arrival; }
     }
   }
@@ -1563,7 +1574,8 @@ function snapPoly(dir, except){
   const cue = S.balls.cue;
   const aim = [cue.p[0] + dir[0]*4000, cue.p[1] + dir[1]*4000];
   let hits = null;
-  try { hits = pathFromAim(cue.p, aim, S.corr); } catch(e){ return null; }
+  let kk = 0;
+  try { hits = pathFromAim(cue.p, aim, S.corr); kk = LAST_K; } catch(e){ return null; }
   if (!hits || !hits.length) return null;
   const cut = cutAtBall([cue.p, ...hits.map(h => h.p)], except);
   if (!cut.hit)
@@ -1571,7 +1583,7 @@ function snapPoly(dir, except){
   const P = cut.pts[cut.pts.length-1];
   const a = afterHit(cut.from, P, cut.obj);
   if (!a) return null;
-  const later = roll(P, a.dir, 6, 0);
+  const later = roll(P, a.dir, 6, kk);    // 충돌 뒤 쿠션에도 보정이 걸린다
   return {pts:[...cut.pts, ...later.map(h => h.p)], rails:later.map(h => h.rail),
           n0:cut.pts.length - 1, obj:cut.obj};
 }
@@ -1894,7 +1906,7 @@ function afterCushions(used){
 function drawPath(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return;
-  const hits = pathFromAim(cue.p, S.aim, S.corr);
+  const hits = pathFromAim(cue.p, S.aim, S.corr), kk = LAST_K;
   if (!hits.length) return;
   const full = [cue.p, ...hits.map(h => h.p)];
   const cut = cutAtBall(full);
@@ -1932,8 +1944,10 @@ function drawPath(){
   g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   if (!a) return;
 
-  // ⚠️ 현장 보정(S.corr)은 아직 충돌 뒤 구간에 안 걸린다. 보정은 조준선 기준으로
-  //    풀린 값이라 여기에 그대로 못 쓴다 — 필요해지면 따로 풀어야 한다.
+  // ★ 사용자 확정 2026-08-11: '충돌 뒤 쿠션 보정이 걸립니다.'
+  //   조준선에서 풀린 k 를 그대로 이어 쓴다 (LAST_K). 보정은 **다이(쿠션)** 의 값이라
+  //   같은 다이면 충돌 전이든 후든 같은 값이 걸리는 것이 맞다.
+  //   ⚠️ 1적구와 부딪혀 꺾이는 각에는 안 걸린다 — 그건 공끼리라 다이와 무관하다.
   // ★ 사용자 확정 2026-08-10 — **두께로 자르지 않고 굵기·진하기로 가른다.**
   //   1~5쿠션   궤적 띠 + 선   진하게 (지금까지와 같다)
   //   6~7쿠션   얇은 선만      흐리게, 띠 없음
@@ -1953,7 +1967,7 @@ function drawPath(){
   //   2적구에 닿는 경로는 보여야 한다. 표는 **진하게 그리는 한도**이고,
   //   그 뒤는 2적구에 닿을 때만 얇고 흐린 연장선으로 이어 붙인다.
   const REACH_UPTO = 7;                                 // 2적구를 여기까지 찾아본다
-  const later = roll(P, a.dir, REACH_UPTO + 1, 0);
+  const later = roll(P, a.dir, REACH_UPTO + 1, kk);   // 충돌 뒤 쿠션에도 보정
   const post = cutAtBall([P, ...later.slice(0, REACH_UPTO).map(h => h.p)], cut.obj);
   // 2적구에 닿으면 거기까지, 아니면 표대로만
   const lastSeg = post.hit ? post.pts.length - 1
