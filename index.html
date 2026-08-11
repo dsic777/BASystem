@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 137;
+const MOBILE_VER = 138;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1548,7 +1548,11 @@ function slopePts(a, b){
   if (Math.abs(dy) < 1e-6) return null;        // 장축과 나란하면 잴 수 없다
   const xAt = y => a[0] + dx * (y - a[1]) / dy;
   const x0 = xAt(0), x1 = xAt(T.height);       // 하단·상단 장축과 만나는 자리
-  return Math.abs(x1 - x0) / (T.width / 8);    // 다이아 한 칸 = 1 포인트
+  const v = Math.abs(x1 - x0) / (T.width / 8); // 다이아 한 칸 = 1 포인트
+  // ⚠️ 두 공이 가로로 나란하면 교점이 저 멀리로 가서 값이 터진다 (사용자 지적 1.jpg — 26.0).
+  //    8칸을 넘으면 그 선은 **장쿠션 두 개를 다 못 지나는** 것이다 = 이 시스템의 배치가 아니다.
+  //    억지로 숫자를 내지 않고 비운다.
+  return v > 8.05 ? null : v;
 }
 // 지금 배치의 기울기들. 없으면 null.
 function slopes(){
@@ -2816,7 +2820,7 @@ function drawReadout(){
     let vf = r.h*0.50;
     for (let k = 0; k < 10; k++){
       g.font = '800 ' + Math.round(vf) + 'px system-ui, sans-serif';
-      if (g.measureText(txt).width <= r.w/cols.length - r.h*0.14 || vf < 9) break;
+      if (g.measureText(txt).width <= r.w/cols.length - r.h*0.26 || vf < 9) break;
       vf *= 0.92;
     }
     g.fillText(txt, cx, r.y + r.h*0.95);
