@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 142;
+const MOBILE_VER = 143;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1677,6 +1677,26 @@ const ROUTE_MIN_DEG = 0.10;
 const DROP_REVERSE = false;   // ★ 켜지 말 것 — '역각은 쓰리쿠션에서 발생하지 않습니다' (사용자 2026-08-11)   // 이보다 좁으면 사람이 못 친다 — 추천하지 않는다
 
 // 이 방향으로 쳤을 때 득점하는가. 하면 그 길의 생김새를 돌려준다.
+// ★ 진로 이름 — data/shot_types.json 의 '_코드로_쓸_수_있는_것' 규칙 그대로.
+//   쿠션 순서로 가른다. 장쿠션(top·bottom) = 장, 단쿠션(left·right) = 단.
+//     단-장-단  앞돌리기
+//     장-단-장  옆돌리기 또는 뒤돌리기  ← 쿠션 순서만으로는 못 가른다 (아래 ⚠️)
+//     장-장-장  횡단샷 (더블 쿠션)
+//     단-단-단  종단샷 (세워치기)
+//     쿠션을 먼저 맞으면 뱅크샷 (몇 번인지로 원/투/쓰리)
+// ⚠️ 옆돌리기와 뒤돌리기는 쿠션 순서가 같다. 차이는 '수구가 1적구의 어느 쪽으로
+//    빠지는가' (뒤돌리기 = 1적구 뒤쪽 공간). 사용자 규칙을 받기 전까지 묶어 둔다.
+const BANK_KR = ['', '원뱅크', '투뱅크', '쓰리뱅크'];
+function shotName(c1, rails){
+  if (c1 > 0) return BANK_KR[Math.min(c1, 3)] || '뱅크샷';
+  const k = rails.slice(0, 3).map(r => isLong(r) ? '장' : '단').join('');
+  if (k === '단장단') return '앞돌리기';
+  if (k === '장단장') return '옆·뒤돌리기';
+  if (k === '장장장') return '횡단샷';
+  if (k === '단단단') return '종단샷';
+  return k || '진로';
+}
+
 function dirOf(a, b){
   const dx = b[0]-a[0], dy = b[1]-a[1], n = Math.hypot(dx, dy);
   return n < 1e-9 ? [0,0] : [dx/n, dy/n];
@@ -1689,11 +1709,10 @@ function simulate(dir, k){
   const cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!cut1.hit) return null;                       // 1적구를 못 맞힌다
   const c1 = cut1.pts.length - 2;                   // 1적구 전에 쓴 쿠션 수
-  // ★ 사용자 지시 2026-08-11: '뱅크샷은 일단 제외하세요. 배치별로 뱅크샷이 가능한
-  //   상황들만 골라서 알려드릴게요.' → 쿠션을 먼저 치는 길은 추천하지 않는다.
-  //   ⚠️ 뱅크샷이 나쁜 길이라서가 아니다. **되는 배치가 따로 있어서** 사용자가
-  //      그 목록을 줄 때까지 미루는 것이다. 목록이 오면 이 줄을 조건부로 바꾼다.
-  if (c1 > 0) return null;
+  // ★ 사용자 2026-08-12: '추천도 직접 겨냥만으로 한정을 했는데 책에서 학습한 대로
+  //   영역을 넓혀보시죠.' → 뱅크샷(걸어치기)을 다시 넣는다.
+  //   ⚠️ 2026-08-11 에는 '뱅크샷은 일단 제외' 였다. 책에 걸어치기 장이 통째로
+  //      있으므로 이제 **이름을 붙여** 내놓는다 — 어떤 길인지 보이면 고를 수 있다.
   const P = cut1.pts[cut1.pts.length-1];
   const af = afterHit(cut1.from, P, cut1.obj);
   if (!af) return null;
@@ -1742,7 +1761,9 @@ function simulate(dir, k){
     const q = S.balls[kk].p;
     if (kk !== 'cue' && Math.hypot(q[0]-cut1.obj[0], q[1]-cut1.obj[1]) < 1){ who = kk; break; }
   }
-  return {key: who + '|' + rails.join('-'), rails, first: who, cushions: c1 + c2};
+  const name = shotName(c1, rails);
+  return {key: who + '|' + rails.join('-'), rails, first: who,
+          cushions: c1 + c2, name, before: c1};
 }
 
 let ROUTES = {key:null, list:[]};
@@ -1782,7 +1803,8 @@ function findRoutes(){
     if (cur && (!r || r.key !== cur.key)){ runs.push(cur); cur = null; }
     if (r){
       if (cur) cur.iHi = i;
-      else cur = {key:r.key, iLo:i, iHi:i, rails:r.rails, first:r.first, cushions:r.cushions};
+      else cur = {key:r.key, iLo:i, iHi:i, rails:r.rails, first:r.first,
+                  cushions:r.cushions, name:r.name, before:r.before};
     }
   }
   if (cur) runs.push(cur);
@@ -1818,6 +1840,7 @@ function findRoutes(){
     a: (r.lo + r.hi)/2,
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
+    name: r.name, before: r.before,
   })).sort((x, y) => y.w - x.w);                    // 넓은 것부터 = 쉬운 것부터
   ROUTES = {key, list};
   return list;
@@ -3025,8 +3048,9 @@ function drawButtons(){
       //   허용오차가 곧 난이도다 — 3.2도짜리와 0.4도짜리는 다른 샷이다.
       const rl = routesReady(), ns = rl ? Math.min(rl.length, ROUTE_SHOW) : 0;
       if (rl && S.routeIx >= 0 && rl[S.routeIx]){
+        // ★ 사용자 2026-08-12 — 허용오차(도)보다 **어떤 길인지**가 먼저다.
         heavy((S.routeIx+1) + '/' + ns, cx, cy + u*0.24, u*0.27, '#ffd400');
-        heavy(rl[S.routeIx].w.toFixed(2) + '도', cx, cy + u*0.46, u*0.22, '#f2f4f8');
+        heavy(rl[S.routeIx].name || '', cx, cy + u*0.46, u*0.20, '#f2f4f8');
       } else {
         heavy('추천', cx, cy + u*0.24, u*0.27, '#f2f4f8');
         heavy(rl ? (ns ? ns + '개' : '없음') : '', cx, cy + u*0.46, u*0.22,
