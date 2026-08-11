@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 143;
+const MOBILE_VER = 144;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1686,15 +1686,26 @@ const DROP_REVERSE = false;   // ★ 켜지 말 것 — '역각은 쓰리쿠션�
 //     쿠션을 먼저 맞으면 뱅크샷 (몇 번인지로 원/투/쓰리)
 // ⚠️ 옆돌리기와 뒤돌리기는 쿠션 순서가 같다. 차이는 '수구가 1적구의 어느 쪽으로
 //    빠지는가' (뒤돌리기 = 1적구 뒤쪽 공간). 사용자 규칙을 받기 전까지 묶어 둔다.
+// ★ 사용자 확정 2026-08-12 — 진로 판별 규칙 (AI용으로 정리해 주신 것)
+//     반사 벡터가 **단쿠션에 먼저** 닿으면        →  뒤돌리기
+//     반사 벡터가 **장쿠션에 먼저** 닿으면        →  옆돌리기 또는 앞돌리기
+//       그중 1적구를 **아주 얇게(1/8 이하)** 맞히면  →  앞돌리기
+//       그 밖                                    →  옆돌리기
+//   옆돌리기 : 1적구의 **당구대 중심 방향** 면을 맞힌다
+//   뒤돌리기 : 1적구의 **쿠션에 가까운 쪽** 면을 맞힌다. 에러 마진이 제일 적다
+//   앞돌리기 : 1적구의 **수구가 서 있던 방향 쪽** 면을 얇게. 종방향으로 크게 왕복
+// ⚠️ 사용자가 준 9·10·11.jpg 의 **그려진 선**은 이 규칙과 두 군데 어긋난다
+//    (10 은 장 먼저, 11 은 단 먼저였다). 그림의 선은 그때 조준한 방향이지
+//    그 배치의 정석 경로가 아니라고 보고, **글로 준 규칙**을 따른다.
 const BANK_KR = ['', '원뱅크', '투뱅크', '쓰리뱅크'];
-function shotName(c1, rails){
+const THIN_FRONT = 0.125;          // 1/8 — 이보다 얇으면 앞돌리기
+function shotName(c1, rails, thick){
   if (c1 > 0) return BANK_KR[Math.min(c1, 3)] || '뱅크샷';
   const k = rails.slice(0, 3).map(r => isLong(r) ? '장' : '단').join('');
-  if (k === '단장단') return '앞돌리기';
-  if (k === '장단장') return '옆·뒤돌리기';
   if (k === '장장장') return '횡단샷';
   if (k === '단단단') return '종단샷';
-  return k || '진로';
+  if (!isLong(rails[0])) return '뒤돌리기';                   // 단쿠션 먼저
+  return (thick !== undefined && thick <= THIN_FRONT) ? '앞돌리기' : '옆돌리기';
 }
 
 function dirOf(a, b){
@@ -1716,6 +1727,7 @@ function simulate(dir, k){
   const P = cut1.pts[cut1.pts.length-1];
   const af = afterHit(cut1.from, P, cut1.obj);
   if (!af) return null;
+  const thick = af.thick;                    // 진로 판별에 쓴다 (앞돌리기는 1/8 이하)
   // ★ 충돌 뒤에 갈 수 있는 쿠션 수는 **충돌 전에 쓴 쿠션 수**로 정해진다.
   //   data/speed.json 의 사용자 표 그대로 (0→7 · 1→6 · 2→3 · 3→0).
   //   ⚠️ 경로 찾기에서 이걸 안 쓰고 있었다 — 그래서 쿠션을 잔뜩 쓴 뒤 두껍게 맞고도
@@ -1761,7 +1773,7 @@ function simulate(dir, k){
     const q = S.balls[kk].p;
     if (kk !== 'cue' && Math.hypot(q[0]-cut1.obj[0], q[1]-cut1.obj[1]) < 1){ who = kk; break; }
   }
-  const name = shotName(c1, rails);
+  const name = shotName(c1, rails, thick);
   return {key: who + '|' + rails.join('-'), rails, first: who,
           cushions: c1 + c2, name, before: c1};
 }
