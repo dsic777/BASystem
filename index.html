@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 117;
+const MOBILE_VER = 118;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -783,6 +783,9 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
            power:1,
+           // ★ 보고 있는 시스템. 0 파이브앤하프 · 1 무회전 2뱅크 곱셈.
+           //   판독창을 탭하면 돈다 (사용자 지시 2026-08-11).
+           system:0,
            // 상하 당점. +3 상단 3팁 · 0 중단 · −3 하단 3팁 (고르는 화면은 아직 없다)
            // 당점 — 시계 방향(30분 단위) + 거리(팁). ss1 기준.
            tipDir:6, tipR:2,   // 3시 2팁 = 지금까지와 같은 기본값
@@ -1192,6 +1195,14 @@ function down(px,py){
     }
     return;
   }
+  // ★ 판독창을 탭하면 시스템이 돈다 — 파이브앤하프 ↔ 2뱅크 곱셈 (사용자 지시 2026-08-11).
+  //   버튼을 늘리지 않으려고 여기 붙였다. 바뀌는 것이 바로 그 창이라 눈에 띈다.
+  if (READOUT && !previewOn() &&
+      px >= READOUT.x && px <= READOUT.x + READOUT.w &&
+      py >= READOUT.y && py <= READOUT.y + READOUT.h){
+    S.system = (S.system + 1) % SYS_NAMES.length;
+    return;
+  }
   const gb = ballAt(px,py);
   if (gb){ S.drag = gb; blink(); return; }
   // 작은 시계판을 탭하면 크게 띄운다.
@@ -1433,7 +1444,75 @@ function dim(rgb, k){
   return rgb.replace(/\d+/g, m => Math.round(m * k));
 }
 
+// ─────────────────────────────── 무회전 2뱅크 곱셈 시스템 (data/system_2bank.json)
+// 1쿠션 위치값 = 2쿠션값 × 출발값.  셋 다 **레일 포인트** 다 (파이브앤하프와 기준이 다르다).
+// 눈금은 고정 표가 아니라 **그 샷의 레일 배정**에 따라 그때그때 만든다 —
+// 수구가 단쿠션에서 출발하느냐 장쿠션에서 출발하느냐로 배정이 통째로 바뀌기 때문이다
+// (캡처 1~9 와 10~18. 사용자: '12를 반대로 보면 되잖아요').
+const SYS_NAMES = ['파이브앤하프', '2뱅크 곱셈'];
+function railHit(from, d){                       // 쿠션 날(플레이필드)과 만나는 점
+  const n = Math.hypot(d[0], d[1]);
+  if (n < 1e-9) return null;
+  const dx = d[0]/n, dy = d[1]/n, e = 1e-6, cand = [];
+  if (dy < -e) cand.push(-from[1]/dy);
+  if (dy >  e) cand.push((T.height-from[1])/dy);
+  if (dx < -e) cand.push(-from[0]/dx);
+  if (dx >  e) cand.push((T.width-from[0])/dx);
+  let best = null;
+  for (const t of cand){
+    if (t <= 1e-6) continue;
+    const q = [from[0]+dx*t, from[1]+dy*t];
+    if (q[0] < -1 || q[0] > T.width+1 || q[1] < -1 || q[1] > T.height+1) continue;
+    if (best === null || t < best[0]) best = [t, q];
+  }
+  return best ? best[1] : null;
+}
+function railOf(mm){
+  const e = 2.0;
+  if (Math.abs(mm[1]) < e) return 'bottom';
+  if (Math.abs(mm[1]-T.height) < e) return 'top';
+  if (Math.abs(mm[0]) < e) return 'left';
+  if (Math.abs(mm[0]-T.width) < e) return 'right';
+  return null;
+}
+function cornerOf(a, b){                          // 두 레일이 만나는 코너
+  const x = (a==='left'||b==='left') ? 0 : (a==='right'||b==='right') ? T.width : null;
+  const y = (a==='bottom'||b==='bottom') ? 0 : (a==='top'||b==='top') ? T.height : null;
+  return (x===null||y===null) ? null : [x,y];
+}
+const isLong = r => r==='bottom' || r==='top';
+function diamondsFrom(rail, mm, corner){          // 코너에서 몇 칸 (다이아몬드)
+  const lg = isLong(rail);
+  return Math.abs((lg?mm[0]:mm[1]) - (lg?corner[0]:corner[1])) / (lg?T.width:T.height) * (lg?8:4);
+}
+function railPos(rail, corner, dia){              // 코너에서 dia 칸 떨어진 자리 (mm)
+  const lg = isLong(rail), span = lg ? T.width : T.height, n = lg ? 8 : 4;
+  const away = dia/n*span * ((lg ? corner[0] : corner[1]) > 0 ? -1 : 1);
+  return lg ? [corner[0]+away, rail==='top'?T.height:0]
+            : [rail==='right'?T.width:0, corner[1]+away];
+}
+// 이 샷의 레일 배정과 값. 못 정하면 null.
+function twoBank(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return null;
+  const d = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
+  let hits = null;
+  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ return null; }
+  if (!hits || hits.length < 2) return null;
+  const r1 = railOf(hits[0].p), r2 = railOf(hits[1].p);
+  const back = railHit(cue.p, [-d[0], -d[1]]);     // 조준선을 뒤로 늘린 자리 = 출발
+  const r0 = back ? railOf(back) : null;
+  if (!r0 || !r1 || !r2 || r1 === r2) return null;
+  const cS = cornerOf(r0, r2), cF = cornerOf(r1, r2);
+  if (!cS || !cF) return null;
+  const start  = diamondsFrom(r0, back, cS);                       // 한 칸에 1
+  const first  = diamondsFrom(r1, hits[0].p, cF) * 10;             // 한 칸에 10
+  const second = start > 0.05 ? first / start : null;              // 곱셈식을 뒤집는다
+  return {r0, r1, r2, cS, cF, start, first, second};
+}
+
 function drawNumbers(){
+  if (S.system === 1){ drawNumbers2Bank(); return; }
   const o = orientation();
   for (const sc of SCALES){
     const third = sc.name === 'third_cushion';
@@ -1472,6 +1551,41 @@ function drawNumbers(){
     }
   }
 }
+// 2뱅크 눈금 — 그 샷의 레일 배정대로 세 줄을 그린다. **레일 포인트** 기준이라
+// 프레임이 아니라 쿠션 날 위에 찍는다.
+function drawNumbers2Bank(){
+  const tb = twoBank();
+  const fs = Math.round(L.cloth.h * 0.065);
+  g.font = 'bold ' + fs + 'px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  if (!tb){                                     // 아직 조준 전 — 안내만
+    g.fillStyle = 'rgba(255,255,255,0.45)';
+    g.fillText('2뱅크 — 조준하면 눈금이 나옵니다', L.cloth.x + L.cloth.w/2, L.cloth.y + L.cloth.h/2);
+    return;
+  }
+  const put = (rail, corner, dia, txt, col) => {
+    const mm = railPos(rail, corner, dia);
+    let [x,y] = toPx(...mm);
+    if (rail === 'top')    y += fs * 0.70;
+    if (rail === 'bottom') y -= fs * 0.70;
+    if (rail === 'left')   x += fs * 0.85;
+    if (rail === 'right')  x -= fs * 0.85;
+    g.fillStyle = col;
+    g.strokeStyle = '#101014'; g.lineWidth = Math.max(3, fs*0.28);
+    g.strokeText(txt, x, y); g.fillText(txt, x, y);
+  };
+  const n0 = isLong(tb.r0) ? 8 : 4, n1 = isLong(tb.r1) ? 8 : 4;
+  // 출발값 — 한 칸에 1 (흰색)
+  for (let v = 1; v <= Math.min(4, n0); v++) put(tb.r0, tb.cS, v, String(v), '#f6f5ee');
+  // 2쿠션값 — 5 − 칸수×단위 (노랑). 화면에서 확인된 2·3·4 만 찍는다
+  for (const v of [2,3,4]){
+    const dia = (5 - v) / (isLong(tb.r2) ? 0.5 : 1);
+    if (dia <= (isLong(tb.r2) ? 8 : 4)) put(tb.r2, tb.cS, dia, String(v), '#f0be28');
+  }
+  // 1쿠션 위치값 — 한 칸에 10 (빨강)
+  for (let k = 1; k <= n1; k++) put(tb.r1, tb.cF, k, String(k*10), '#ff5a4e');
+}
+
 function railPoint(sc, rail, idx){
   const off = sc.reference === 'rail' ? 0 : T.frame_offset;
   const n = (rail === 'bottom' || rail === 'top') ? 8 : 4;
@@ -2242,7 +2356,18 @@ function systemNumbers(){
 // 카메라 버튼 위 판독창 — 수구수 / 1쿠션 / 3쿠션
 function drawReadout(){
   if (!READOUT) return;
-  const r = READOUT, n = systemNumbers();
+  const r = READOUT;
+  // ★ 시스템에 따라 판독창 내용이 바뀐다. 탭하면 돈다 (사용자 지시 2026-08-11).
+  //   파이브앤하프  수구수 | 1쿠션 | 3쿠션      출발 · 조준 · 도착
+  //   2뱅크 곱셈    출발값 | 1쿠션 | 2쿠션값    〃 (1쿠션위치값 = 2쿠션값 × 출발값)
+  let cols;
+  if (S.system === 1){
+    const tb = twoBank();
+    cols = [['출발값', tb && tb.start], ['1쿠션', tb && tb.first], ['2쿠션', tb && tb.second]];
+  } else {
+    const n = systemNumbers();
+    cols = [['수구수', n && n.start], ['1쿠션', n && n.first], ['3쿠션', n && n.third]];
+  }
   // ⚠️ 어두우면 안 보인다 (사용자 지적). 버튼과 같은 무게로 띄운다.
   const bg = g.createLinearGradient(0, r.y, 0, r.y + r.h);
   bg.addColorStop(0, '#6c7683'); bg.addColorStop(0.5, '#49505b'); bg.addColorStop(1, '#323841');
@@ -2250,7 +2375,6 @@ function drawReadout(){
   round(r.x, r.y, r.w, r.h, r.h*0.14); g.fill();
   g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, r.h*0.06); g.stroke();
   g.strokeStyle = 'rgba(228,235,245,0.80)'; g.lineWidth = Math.max(1, r.h*0.026); g.stroke();
-  const cols = [['수구수', n && n.start], ['1쿠션', n && n.first], ['3쿠션', n && n.third]];
   g.textAlign = 'center';
   cols.forEach(([lb, v], i) => {
     const cx = r.x + r.w*(i + 0.5)/3;
@@ -2261,7 +2385,9 @@ function drawReadout(){
     g.textBaseline = 'bottom';
     g.fillStyle = v === null || v === undefined ? '#8b93a0' : '#ffffff';
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
-    g.fillText(v === null || v === undefined ? '—' : Math.round(v), cx, r.y + r.h*0.95);
+    const txt = (v === null || v === undefined) ? '—'
+              : (S.system === 1 ? (Math.round(v*10)/10).toFixed(1) : String(Math.round(v)));
+    g.fillText(txt, cx, r.y + r.h*0.95);
     if (i < 2){
       g.strokeStyle = 'rgba(228,235,245,0.45)'; g.lineWidth = Math.max(1, r.h*0.022);
       g.beginPath();
@@ -2269,6 +2395,11 @@ function drawReadout(){
       g.lineTo(r.x + r.w*(i+1)/3, r.y + r.h*0.82); g.stroke();
     }
   });
+  // 어느 시스템을 보고 있는지 — 탭해서 바꾼다는 표시도 겸한다
+  g.textAlign = 'center'; g.textBaseline = 'bottom';
+  g.fillStyle = S.system === 1 ? '#ffd400' : 'rgba(238,243,250,0.55)';
+  g.font = '700 ' + Math.round(r.h*0.21) + 'px system-ui, sans-serif';
+  g.fillText(SYS_NAMES[S.system], r.x + r.w/2, r.y - r.h*0.10);
 }
 
 function drawButtons(){
