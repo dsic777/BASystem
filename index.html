@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 127;
+const MOBILE_VER = 128;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1635,10 +1635,18 @@ function simulate(dir, k){
   const P = cut1.pts[cut1.pts.length-1];
   const af = afterHit(cut1.from, P, cut1.obj);
   if (!af) return null;
-  const seq2 = roll(P, af.dir, SWEEP_MAX_C - c1, k);
+  // ★ 충돌 뒤에 갈 수 있는 쿠션 수는 **충돌 전에 쓴 쿠션 수**로 정해진다.
+  //   data/speed.json 의 사용자 표 그대로 (0→7 · 1→6 · 2→3 · 3→0).
+  //   ⚠️ 경로 찾기에서 이걸 안 쓰고 있었다 — 그래서 쿠션을 잔뜩 쓴 뒤 두껍게 맞고도
+  //      또 멀리 굴러가는 길이 추천에 올라왔다 (사용자 1~5.jpg: '공이 그렇게
+  //      움직이지 않습니다'). 그리기(drawPath)는 이미 이 표를 쓰고 있었다.
+  const budget = afterCushions(c1);
+  if (budget <= 0) return null;                     // 3쿠션 다 돌고 맞으면 거기서 선다
+  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_MAX_C - c1), k);
   const cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
   if (!cut2.hit) return null;                       // 2적구를 못 맞힌다
   const c2 = cut2.pts.length - 2;                   // 충돌 후 2적구 전까지 쿠션 수
+  if (c2 > budget) return null;                     // 표가 허락한 것보다 멀리 갔다
   if (c1 + c2 < 3) return null;                     // ★ 3쿠션 미달 — 득점이 아니다
   const rails = seq.slice(0, c1).map(h => h.rail)
            .concat(seq2.slice(0, c2).map(h => h.rail));
