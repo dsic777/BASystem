@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 120;
+const MOBILE_VER = 121;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1131,7 +1131,11 @@ function frameAt(px,py){
   const c = L.cloth, r = L.rail;
   if (px > c.x && px < c.x+c.w && py > c.y && py < c.y+c.h) return null;
   if (px < r.x || px > r.x+r.w || py < r.y || py > r.y+r.h) return null;
-  const off = T.frame_offset;
+  // ★ 2뱅크는 **레일 포인트** 기준이다 (사용자 확정). 프레임 포인트로 조준하면
+  //   눈금과 조준점이 어긋난다. 레일(쿠션 날) 위로 붙인다.
+  //   사용자 2026-08-11 (32.jpg): '하단 프레임 0에서 10 안쪽을 탭하면 자동으로
+  //   지금의 경로로 안내를 하면 좋겠어요.' — 그 눈금을 그대로 겨냥하게 하는 것이다.
+  const off = S.system === 1 ? 0 : T.frame_offset;
   let [x,y] = toMm(px,py);
   const cl = (v,m) => Math.min(Math.max(v,0), m);
   const cand = [[Math.abs(y-(T.height+off)), [cl(x,T.width), T.height+off]],
