@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 123;
+const MOBILE_VER = 124;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1462,12 +1462,20 @@ function dim(rgb, k){
 // (캡처 1~9 와 10~18. 사용자: '12를 반대로 보면 되잖아요').
 const SYS_NAMES = ['파이브앤하프', '2뱅크 곱셈'];
 const SYS_MODE_KR = ['자동', '파이브앤하프', '2뱅크 곱셈'];
-// 1쿠션이 이 값보다 작으면 파이브앤하프 눈금으로는 못 읽는 구간 = 2뱅크 영역
-const TWO_BANK_UNDER = 10;
+// ★ 자동 전환 기준 — **1쿠션 접점이 코너에서 몇 칸이냐** (사용자 38·39.jpg 2026-08-11).
+//   ⚠️ 처음엔 '1쿠션수 < 10' 으로 갈랐는데 반쪽짜리였다. 1쿠션 눈금은 한쪽 코너가 0,
+//      **반대쪽 코너가 50** 이라 오른쪽 코너로 들어가는 배치(38)는 숫자가 작아질 수 없다.
+//      숫자가 아니라 **자리**로 봐야 좌우 코너가 같이 잡힌다.
+//   맞춰 본 네 예제:  38 → 0.7칸(2뱅크) · 39 → 2.4칸(파앤하) · 32 → 1칸 안(2뱅크) · 37 → 4칸(파앤하)
+const TWO_BANK_CORNER_DIA = 1.5;
 function curSystem(){
   if (S.sysMode) return S.sysMode - 1;            // 손으로 고정했으면 그대로
-  const n = systemNumbers();
-  return (n && n.first !== null && n.first !== undefined && n.first < TWO_BANK_UNDER) ? 1 : 0;
+  const b = systemBase();
+  if (!b || !b.hits || !b.hits.length) return 0;
+  const h = b.hits[0], lg = isLong(h.rail);
+  const span = lg ? T.width : T.height, n = lg ? 8 : 4;
+  const dia = (lg ? h.p[0] : h.p[1]) / span * n;  // 코너(0쪽)에서 몇 칸
+  return Math.min(dia, n - dia) <= TWO_BANK_CORNER_DIA ? 1 : 0;
 }
 function railHit(from, d){                       // 쿠션 날(플레이필드)과 만나는 점
   const n = Math.hypot(d[0], d[1]);
