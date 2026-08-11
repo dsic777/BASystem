@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 132;
+const MOBILE_VER = 133;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -127,10 +127,17 @@ function nextRail(p, d, w, h){
 }
 
 // ★ 회전이 **어느 쪽으로 미는지**는 공에 붙은 회전이 정한다. 지금 진행 방향이 아니다.
-//   +1 = 접선 tg 쪽으로 민다.  ⚠️ 부호가 반대면 이 한 글자만 바꾼다.
-//   기준: 사용자 2026-08-11 (2.jpg) — '3시 방향으로 당점을 주고 정면을 치면
-//         우측으로 공이 돌아야 하는데 반대로 꺾이고 있어요.'
-const ENGLISH_SIDE = 1;
+//   +1 = 접선 tg 쪽으로 민다.
+//   ⚠️ 상수로 박아 두면 3시든 9시든 같은 쪽으로 민다 (사용자 4.jpg: '9시인데
+//      우측으로 꺾입니다'). **화면에 읽히는 당점 쪽**을 그대로 따라가야 한다.
+//      tipClock() 이 공이 왼쪽으로 가는 배치에서 3시를 9시로 뒤집어 읽어 주므로,
+//      회전의 쪽도 같이 뒤집는다 — 그래야 화면 글자와 그림이 어긋나지 않는다.
+//   기준 부호: 사용자 2026-08-11 (2.jpg) — 3시 · 정면 → 진행방향 우측으로 나온다.
+function englishSide(){
+  const h = S.tipH;
+  if (Math.abs(h) < 1e-6) return 0;          // 무회전이면 거울반사
+  return (h > 0 ? 1 : -1) * tipSide();
+}
 
 function bend(d, rail, k){
   const n = RAILS[rail], tg = [-n[1], n[0]];
@@ -150,7 +157,8 @@ function bend(d, rail, k){
   //      정면이면 들어온 각이 0 이라 **회전이 미는 쪽으로만** 나간다 — 이게 맞는 그림이다.
   const sIn = dt >= 0 ? 1 : -1;
   const add = Math.max(0, reflect(ain) - ain) + (k || 0);   // 회전 + 현장 보정
-  let signed = sIn * ain + ENGLISH_SIDE * add;
+  const E = englishSide();
+  let signed = sIn * ain + E * add;
   // ★ 사용자 2026-08-11 (3.jpg): '3쿠션으로 솟아오릅니다. 회전을 아무리 주더라도
   //   직선 정도로 갈 텐데.' → 역회전은 **거울을 지나 반대쪽으로 넘어가지 못한다.**
   //   넘어가면 거기서 멈춘다(거울반사). 짧아지는 것까지는 둔다 — 그게 역회전이다.
@@ -2279,10 +2287,16 @@ function drawClock(){
   g.beginPath(); g.arc(x + dx, y + dy, R*0.155, 0, 7); g.fill();
 }
 function goingLeft(){
+  // ⚠️ 전에는 pathFromAim() 을 불렀다. 이제 bend() 가 englishSide() → tipSide() →
+  //    goingLeft() 를 부르므로 그러면 무한재귀가 된다.
+  //    첫 쿠션이 어디인지는 반사와 무관하니 nextRail 로 바로 구한다 (더 싸기도 하다).
   const cue = S.balls.cue;
   if (!cue || !S.aim) return false;
-  const h = pathFromAim(cue.p, S.aim, S.corr);
-  return h.length ? h[0].p[0] < cue.p[0] : false;
+  const d = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
+  const n = Math.hypot(d[0], d[1]);
+  if (n < 1e-9) return false;
+  const nx = nextRail(cue.p, [d[0]/n, d[1]/n], T.width, T.height);
+  return nx ? nx[1][0] < cue.p[0] : false;
 }
 
 // ---------------------------------------------------------------- 당점판
