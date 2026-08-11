@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 133;
+const MOBILE_VER = 134;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -133,13 +133,26 @@ function nextRail(p, d, w, h){
 //      tipClock() 이 공이 왼쪽으로 가는 배치에서 3시를 9시로 뒤집어 읽어 주므로,
 //      회전의 쪽도 같이 뒤집는다 — 그래야 화면 글자와 그림이 어긋나지 않는다.
 //   기준 부호: 사용자 2026-08-11 (2.jpg) — 3시 · 정면 → 진행방향 우측으로 나온다.
-function englishSide(){
+// ⚠️ 회전의 쪽은 **그 샷의 조준**으로 정해진다. 화면의 지금 조준(S.aim)으로 정하면
+//    360도 훑기가 딴 방향을 시험할 때 옛 조준 기준으로 계산해 버린다.
+//    그러면 **찾은 경로와 그려지는 궤적이 서로 다른 공**이 된다
+//    (사용자 6.jpg — 3쿠션으로 찾았는데 1쿠션짜리가 그려졌다).
+function englishSideFor(p, d){
   const h = S.tipH;
   if (Math.abs(h) < 1e-6) return 0;          // 무회전이면 거울반사
-  return (h > 0 ? 1 : -1) * tipSide();
+  const n = Math.hypot(d[0], d[1]);
+  if (n < 1e-9) return 0;
+  const nx = nextRail(p, [d[0]/n, d[1]/n], T.width, T.height);
+  const left = nx ? nx[1][0] < p[0] : false;   // goingLeft() 와 같은 기준
+  return (h > 0 ? 1 : -1) * (left ? -1 : 1);
+}
+function englishSide(){                       // 화면의 지금 조준 기준
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return 0;
+  return englishSideFor(cue.p, [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]]);
 }
 
-function bend(d, rail, k){
+function bend(d, rail, k, E){
   const n = RAILS[rail], tg = [-n[1], n[0]];
   const dn = d[0]*n[0] + d[1]*n[1], dt = d[0]*tg[0] + d[1]*tg[1];
   const ain = Math.atan2(Math.abs(dt), Math.abs(dn)) * 180/Math.PI;
@@ -157,8 +170,8 @@ function bend(d, rail, k){
   //      정면이면 들어온 각이 0 이라 **회전이 미는 쪽으로만** 나간다 — 이게 맞는 그림이다.
   const sIn = dt >= 0 ? 1 : -1;
   const add = Math.max(0, reflect(ain) - ain) + (k || 0);   // 회전 + 현장 보정
-  const E = englishSide();
-  let signed = sIn * ain + E * add;
+  const e = (E === undefined) ? englishSide() : E;
+  let signed = sIn * ain + e * add;
   // ★ 사용자 2026-08-11 (3.jpg): '3쿠션으로 솟아오릅니다. 회전을 아무리 주더라도
   //   직선 정도로 갈 텐데.' → 역회전은 **거울을 지나 반대쪽으로 넘어가지 못한다.**
   //   넘어가면 거기서 멈춘다(거울반사). 짧아지는 것까지는 둔다 — 그게 역회전이다.
@@ -171,7 +184,10 @@ function bend(d, rail, k){
            n[1]*Math.cos(r) + tg[1]*sOut*Math.sin(r)], ain, mag];
 }
 
-function roll(start, d, cushions, k){
+// E — 이 샷의 회전 쪽. 안 주면 화면의 지금 조준으로 정한다.
+//     ⚠️ 충돌 뒤 구간도 **그 샷의 조준**으로 정한 값을 그대로 이어 써야 한다.
+//        회전은 공에 붙어 있고 충돌로 바뀌지 않는다.
+function roll(start, d, cushions, k, E){
   const n = Math.hypot(d[0], d[1]);
   if (n < 1e-9) return [];
   let p = start.slice(), dir = [d[0]/n, d[1]/n], out = [];
@@ -179,7 +195,7 @@ function roll(start, d, cushions, k){
     const nx = nextRail(p, dir, T.width, T.height);
     if (!nx) break;
     const [rail, q] = nx;
-    const [nd] = bend(dir, rail, k);
+    const [nd] = bend(dir, rail, k, E);
     out.push({rail, p: q});
     dir = nd; p = q;
   }
@@ -1618,7 +1634,8 @@ function dirOf(a, b){
 }
 function simulate(dir, k){
   const cue = S.balls.cue;
-  const seq = roll(cue.p, dir, SWEEP_MAX_C, k);
+  const E = englishSideFor(cue.p, dir);       // 이 후보 방향의 회전 쪽 (위 ⚠️ 참고)
+  const seq = roll(cue.p, dir, SWEEP_MAX_C, k, E);
   if (!seq.length) return null;
   const cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!cut1.hit) return null;                       // 1적구를 못 맞힌다
@@ -1638,7 +1655,7 @@ function simulate(dir, k){
   //      움직이지 않습니다'). 그리기(drawPath)는 이미 이 표를 쓰고 있었다.
   const budget = afterCushions(c1);
   if (budget <= 0) return null;                     // 3쿠션 다 돌고 맞으면 거기서 선다
-  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_MAX_C - c1), k);
+  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_MAX_C - c1), k, E);
   const cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
   if (!cut2.hit) return null;                       // 2적구를 못 맞힌다
   const c2 = cut2.pts.length - 2;                   // 충돌 후 2적구 전까지 쿠션 수
