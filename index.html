@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 141;
+const MOBILE_VER = 142;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2348,21 +2348,14 @@ function drawClock(){
   //    '원 위에 얹힌 자리' 로 읽히게 한다.
   g.strokeStyle = 'rgba(190,40,32,0.40)'; g.lineWidth = Math.max(1, R*0.045);
   g.beginPath(); g.arc(x, y, R*TIP_R*3, 0, 7); g.stroke();
-  // ★ 사용자 2026-08-12: '팁의 위치는 공에 직접 표시를 해주면 되고 …
-  //   팁수는 숫자도 표시하지만 그림에 당점이 나와있으니 해결이 되는 거구요.'
-  //   교본이 낸 **추천 팁수**를 초록 점으로 같이 찍는다. 빨간 점은 지금 고른 당점.
-  //   방향은 순회전 쪽 (앱의 기준), 거리는 팁수.
-  const rt = recTip();
-  if (rt !== null){
-    const rr = Math.max(0, Math.min(4, rt));
-    const [rx, ry] = tipXY(6, rr, R * TIP_R);      // 6 = 3시(순회전) 쪽
-    g.strokeStyle = '#1d7a34'; g.lineWidth = Math.max(1.5, R*0.055);
-    g.beginPath(); g.arc(x + rx, y + ry, R*0.175, 0, 7); g.stroke();
-    g.fillStyle = 'rgba(90,220,120,0.85)'; g.fill();
-  }
+  // ★ 사용자 2026-08-12: '그림으로 표시한 당점은 빨간점 하나만 표시해야 합니다.
+  //   초록점 위치에 빨간점 하나만 표시.'
+  //   → 추천 당점을 따로 그리지 않는다. 횡단샷을 고르면 **당점 자체가 추천 자리로 간다**
+  //     (aimForCross 가 S.tipDir·S.tipR 을 옮긴다). 그래서 빨간 점 하나로 끝난다.
+  //   크기는 20% 키웠다 (0.155 → 0.186) — 폰에서 당점이 작아 안 보인다.
   const [dx,dy] = tipOffset(R);
   g.fillStyle = '#de342c';
-  g.beginPath(); g.arc(x + dx, y + dy, R*0.155, 0, 7); g.fill();
+  g.beginPath(); g.arc(x + dx, y + dy, R*0.186, 0, 7); g.fill();
 }
 // 교본이 낸 추천 팁수. 지금은 더불횡단 식만 있다 (책 145쪽).
 // ★ 사용자 2026-08-12: '추천에서 횡단샷을 선택하던 추천경로에서 넘어오던
@@ -2384,7 +2377,10 @@ function aimForCross(){
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   const rt = sl.o12 === null ? null : sl.o12 - sl.cue1 + 2;
   const save = S.tipR;
-  if (rt !== null) S.tipR = Math.max(0, Math.min(3, rt));   // 팁수만큼 회전
+  if (rt !== null){
+    S.tipR = Math.max(0, Math.min(3, rt));   // 팁수만큼 회전
+    S.tipDir = 6;                            // 3시(순회전) 쪽 — 빨간 점이 곧 추천 자리가 된다
+  }
   S.tipV = S.tipR * Math.cos(S.tipDir * Math.PI/12);
   S.tipH = S.tipR * Math.sin(S.tipDir * Math.PI/12);
   let best = null;
@@ -2401,20 +2397,23 @@ function aimForCross(){
         if (af){
           const s2 = roll(P, af.dir, 6, 0, E);
           const c2 = cutAtBall([P, ...s2.map(h=>h.p)], c1.obj);
-          if (c2.hit) sc = 100 - (c2.pts.length - 2);      // 적게 돌고 닿을수록 좋다
+          // ★ 사용자 2026-08-12: '가이드는 쓰리쿠션 이상이 형성되어야 합니다.'
+          const n2 = c2.pts.length - 2;
+          if (c2.hit && n2 >= 3) sc = 100 - n2;               // 적게 돌고 닿을수록 좋다
         }
       }
     }
     if (best === null || sc > best[0]) best = [sc, a];
   }
-  if (best === null){ S.tipR = save; return false; }
+  // 3쿠션이 되는 쪽이 없으면 아무것도 안 한다 — 없는 가이드를 내지 않는다
+  if (best === null || best[0] === 0){
+    S.tipR = save;
+    S.tipV = save * Math.cos(S.tipDir*Math.PI/12);
+    S.tipH = save * Math.sin(S.tipDir*Math.PI/12);
+    return false;
+  }
   S.aim = S.lastAim = [cue.p[0] + Math.cos(best[1])*len, cue.p[1] + Math.sin(best[1])*len];
   return true;
-}
-function recTip(){
-  const sl = slopes();
-  if (!sl || sl.cue1 === null || sl.o12 === null) return null;
-  return sl.o12 - sl.cue1 + 2;
 }
 function goingLeft(){
   // ⚠️ 전에는 pathFromAim() 을 불렀다. 이제 bend() 가 englishSide() → tipSide() →
@@ -2566,7 +2565,7 @@ function drawTipPanel(){
     const x = q.cx + ox, y = q.cy + oy;
     const on = d.dir === S.tipDir && d.r === S.tipR;
     const rr = Math.max(3, q.unit * (d.r === 3 ? 0.17 : 0.14));
-    g.beginPath(); g.arc(x, y, on ? q.unit*0.30 : rr, 0, 7);
+    g.beginPath(); g.arc(x, y, on ? q.unit*0.36 : rr, 0, 7);   // 20% 키움 (사용자 2026-08-12)
     g.fillStyle = on ? '#de342c' : 'rgba(58,60,68,0.55)'; g.fill();
     if (on){ g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, q.unit*0.13); g.stroke(); }
   }
