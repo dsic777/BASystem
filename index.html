@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 207;
+const MOBILE_VER = 208;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3268,9 +3268,19 @@ function drawPath(){
       if (post.hit && post.obj){
         const Q = pts2[pts2.length-1];
         const a2 = afterHit(post.from, Q, post.obj);
-        if (a2) cuePoly = cuePoly.concat(roll(Q, a2.dir, 2, kk).map(h => h.p));
+        // ★ 사용자 2026-08-13: '흰공이 마지막에 너무 많이 굴러가네요.'
+        //   2적구에 힘을 넘겨줬으니 멀리 못 간다. 두 쿠션 → **한 쿠션**, 그리고
+        //   그 한 구간도 절반만 간다.
+        if (a2){
+          const ext = roll(Q, a2.dir, 1, kk).map(h => h.p);
+          if (ext.length){
+            const E1 = ext[0];
+            cuePoly = cuePoly.concat([[Q[0] + (E1[0]-Q[0])*0.5, Q[1] + (E1[1]-Q[1])*0.5]]);
+          }
+        }
       }
-      const opSim = [cut.obj, ...rollPlain(cut.obj, a.objDir, 4).map(h => h.p)];
+      // ★ 사용자 2026-08-13: '노란공도 조금 더 굴러가고' → 4 → 5 쿠션
+      const opSim = [cut.obj, ...rollPlain(cut.obj, a.objDir, 5).map(h => h.p)];
       const V0 = 2600;                          // mm/s — 눈에 편한 빠르기 (실측 아님)
       let preLen = 0;
       for (let i2 = 0; i2 < before.length-1; i2++)
