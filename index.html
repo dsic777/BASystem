@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 157;
+const MOBILE_VER = 158;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1914,6 +1914,14 @@ function simulate(dir, k){
   }
   const name = shotName(c1, rails, cue.p, cut1.obj);
   if (!name) return null;                            // 교본에 없는 진로는 추천하지 않는다
+  // ★ 사용자 2026-08-12 (3.jpg): '프로도 이렇게 못 쳐요, 매우 억지스러운 경로입니다.'
+  //   원뱅크로 쿠션을 돌고 **93% 두께 · 분리각 70도** 로 맞은 뒤 또 세 쿠션을 가는 길이었다.
+  //   쿠션을 한 번 돌고 나면 힘이 없다 — 거기서 두껍게 맞으면 더 못 간다.
+  //   교본 근거: 뒤돌리기는 **분리각 20~45도** 에서 최적이고 에러 마진이 제일 적다.
+  //   → 뱅크샷은 **얇게(1/2 이하) · 분리각 20~45도** 인 것만 남긴다.
+  //   ⚠️ 직접 치는 길에는 안 건다. 사용자가 93% 두께 옆돌리기를 OK 한 적이 있다
+  //      (route_verdicts.json 배치_A 1번).
+  if (c1 > 0 && (af.thick > 0.5 || af.deg < 20 || af.deg > 45)) return null;
   const kiss = kissAt(P, af, cut2.pts, cut1.obj);      // 두 길이 겹치나
   const sep = af.deg;                                  // 분리각 — 순서 매길 때 쓴다
   return {key: who + '|' + rails.join('-'), rails, first: who,
