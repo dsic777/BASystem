@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 200;
+const MOBILE_VER = 201;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -974,7 +974,7 @@ function buttonRects(){
     const [bx,by] = toPx(...S.balls[k].p), r = ballR()+6;
     busy.push([bx-r, by-r, r*2, r*2]);
   }
-  const [ex,ey] = clockCenter(), CR = clockR();
+  const [ex,ey] = tipCenter(), CR = clockR();
   busy.push([ex-CR-8, ey-CR-8, CR*2+16, CR*2+16]);
   const hit = (a,b) => a[0] < b[0]+b[2] && b[0] < a[0]+a[2] && a[1] < b[1]+b[3] && b[1] < a[1]+a[3];
   let best = spots[0];
@@ -1061,7 +1061,7 @@ function corrGeom(ex, ey){
 }
 
 function corrButtons(){
-  const [ex,ey] = clockCenter();
+  const [ex,ey] = tipCenter();
   const q = corrGeom(ex, ey);
   return ['-','0','+'].map((lb,i) =>
     ({x: q.x + i*(q.bw+q.gap), y: q.y, w: q.bw, h: q.bw, lb}));
@@ -1121,13 +1121,19 @@ function rectD(b, p){
                     Math.max(b[1] - p[1], 0, p[1] - b[3]));
 }
 
-// 당점 원 + 보정 바를 묶은 상자 [x0,y0,x1,y1]
+// 당점 원 + 시뮬레이션 원 + 보정 바를 묶은 상자 [x0,y0,x1,y1]
 function clusterBox(t){
   const r = clockR(), q = corrGeom(t[0], t[1]);
-  return [Math.min(t[0]-r, q.x), Math.min(t[1]-r, q.y),
-          Math.max(t[0]+r, q.x+q.w), Math.max(t[1]+r, q.y+q.h)];
+  return [Math.min(t[0]-r*2.2, q.x), Math.min(t[1]-r, q.y),
+          Math.max(t[0]+r*2.2, q.x+q.w), Math.max(t[1]+r, q.y+q.h)];
 }
 
+// ★★ 사용자 2026-08-13 (ss.jpg): '보정 아래에 공을 **2개** 배치하세요.
+//   좌측은 당점, 우측은 시뮬레이션(공 모양 · 수구 색깔 · 가운데 큰 화살표).
+//   추천 경로에서 시뮬레이션은 제거.'
+//   → clockCenter() 가 정하는 자리를 가운데로 보고 좌우로 갈라 놓는다.
+function tipCenter(){ const [x,y] = clockCenter(), r = clockR(); return [x - r*1.15, y]; }
+function simCenter(){ const [x,y] = clockCenter(), r = clockR(); return [x + r*1.15, y]; }
 function clockCenter(){
   const r = clockR(), m = r * 0.5, c = L.cloth;
   const spot = [[c.x + r + m,       c.y + r + m],          // 왼쪽 위 (기본)
@@ -1360,8 +1366,11 @@ function down(px,py){
   //    안 되는데 손가락 접촉은 40~50 px 다 (사용자: 'v90 안되는데요'). 넉넉히 잡는다.
   // ⚠️ 공보다 뒤에 둔다. 당점 원이 공 위에 겹쳤을 때 공을 못 잡으면 안 된다.
   if (!previewOn()){
-    const [cx,cy] = clockCenter();
-    if (Math.hypot(px-cx, py-cy) <= clockR()*2.4){ S.tipPanel = true; return; }
+    // 시뮬레이션 공을 먼저 본다 (당점 공보다 오른쪽에 붙어 있다)
+    const [sx,sy] = simCenter(), CRr = clockR();
+    if (Math.hypot(px-sx, py-sy) <= CRr*1.25){ S.anim = performance.now(); return; }
+    const [cx,cy] = tipCenter();
+    if (Math.hypot(px-cx, py-cy) <= CRr*1.6){ S.tipPanel = true; return; }
   }
   const f = frameAt(px,py);
   if (f){ S.aim = S.lastAim = f; S.aiming = true; }
@@ -2471,7 +2480,8 @@ function pickRoute(r){
   // ★ 사용자 UI 안: '누르면 공의 진행을 시뮬레이션 보여주기'
   //   ⚠️ 충돌 뒤 속도가 없으므로 **시간을 흉내내지 않는다.** 수구가 지나간 길을
   //      차례대로 **그려 나가기만** 한다 — 순서는 맞고, 빠르기는 주장하지 않는다.
-  S.anim = performance.now();
+  // ⚠️ 경로를 고를 때 자동으로 굴리지 않는다 (사용자 2026-08-13:
+  //    '추천경로에서 시뮬레이션은 제거'). 시뮬레이션 공을 눌러야 굴러간다.
   // ★★ 사용자 2026-08-12 정정 —
   //   '옆돌리기는 조금 고민이 되네요. 지금과 같은 이론도 있지만 **우리는 파이브앤하프
   //    기준으로 하거든요.** 수구수는 40초반, 1구수는 ?, 3구수는 28 이런 기준으로 칩니다.
@@ -3392,7 +3402,24 @@ function drawRouteList(){
 
 function drawClock(){
   if (previewOn()) return;                        // 촬영 중에는 다이 안을 비운다
-  const [x,y] = clockCenter(), R = clockR();
+  // ★ 시뮬레이션 공 — 수구 색 + 가운데 큰 화살표 (사용자 2026-08-13)
+  {
+    const [sx,sy] = simCenter(), sr = clockR();
+    const cue = S.balls.cue;
+    g.beginPath(); g.arc(sx, sy, sr, 0, 7);
+    g.fillStyle = (cue && TONE[cue.color]) || '#f2f1ea'; g.fill();
+    g.strokeStyle = S.anim ? '#ffd400' : '#14161a';
+    g.lineWidth = Math.max(2, sr*(S.anim ? 0.20 : 0.12)); g.stroke();
+    // 큰 화살표 (▶)
+    const a = sr*0.62;
+    g.beginPath();
+    g.moveTo(sx - a*0.45, sy - a*0.62);
+    g.lineTo(sx + a*0.72, sy);
+    g.lineTo(sx - a*0.45, sy + a*0.62);
+    g.closePath();
+    g.fillStyle = 'rgba(24,26,30,0.88)'; g.fill();
+  }
+  const [x,y] = tipCenter(), R = clockR();
   g.fillStyle = '#f0f0ea'; g.beginPath(); g.arc(x,y,R,0,7); g.fill();
   g.strokeStyle = '#3c3e46'; g.lineWidth = 2; g.stroke();
   // 누르면 커진다는 표시. 크기는 그대로 두고(사용자가 줄이라고 했다) 테두리만 두른다.
