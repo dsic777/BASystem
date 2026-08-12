@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 202;
+const MOBILE_VER = 203;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1998,26 +1998,52 @@ function segMinDist(a, b, c, d){
 }
 // 수구 길과 1적구 길이 겹치는 자리. 없으면 null.
 // P = 충돌점, af = afterHit 결과, cuePts = 충돌 뒤 수구 점들 (P 포함)
+// ★★ 키스 판정 — **시간까지 본다** (사용자 2026-08-13)
+//   '10 이 경우 흰공이 돌아서 먼저 빨간공과 키스가 나는데 이것까지 처리를 할 수 없나요.
+//    현재는 공의 속도 데이터가 없는 것이 문제이지만 **소설을 써 보세요.**
+//    수구와 2적구의 충돌, 1적구와 2적구의 충돌, 1적구와 수구의 충돌 등'
+//
+// ⚠️⚠️ **속도는 소설이다.** 충돌 뒤 속도를 재 본 적이 없다 (data/speed.json).
+//    쓴 것 두 가지 —
+//      ① 쿠션마다 31% 느려진다              ← speed.json 실측
+//      ② 1적구가 가져가는 몫 = 두께          ← 중심선 성분(물리)의 근사
+//    v200 시뮬레이션과 **같은 모델**이라, 화면에서 굴러가는 것과 판정이 일치한다.
+//    그래서 틀리더라도 **눈으로 확인할 수 있다.** 그 점이 '겹치나' 만 보던 것보다 낫다.
+//
+// 세 가지를 다 본다 —
+//   ① 1적구 ↔ 수구   돌아온 수구가 1적구를 다시 만난다 (전형적인 키스)
+//   ② 1적구 ↔ 2적구   1적구가 2적구를 건드려 밀어낸다 — 득점이 깨진다
+//   ③ 수구 ↔ 2적구    3쿠션 전에 만나는 것은 cutAtBall 이 이미 잘라 낸다 (여기서는 안 본다)
+const KISS_V0 = 2600, KISS_DECAY = 0.69;   // v200 시뮬레이션과 같은 값
 function kissAt(P, af, cuePts, obj){
   if (!af || !af.objDir || cuePts.length < 2) return null;
+  const D = T.ball_diameter, SKIP = D * 2.2;   // 충돌 직후는 원래 붙어 있다
   // 1적구는 3쿠션까지 (kiss.json 기준). 큐에 안 맞은 공이라 거울반사로 굴린다.
   const op = [obj, ...rollPlain(obj, af.objDir, 3).map(h => h.p)];
-  const D = T.ball_diameter, SKIP = D * 2.2;   // 충돌 직후는 원래 붙어 있다 — 건너뛴다
-  let run = 0;
-  for (let i = 0; i < cuePts.length-1; i++){
-    const segLen = Math.hypot(cuePts[i+1][0]-cuePts[i][0], cuePts[i+1][1]-cuePts[i][1]);
-    if (run + segLen > SKIP){
-      let orun = 0;
-      for (let j = 0; j < op.length-1; j++){
-        const oLen = Math.hypot(op[j+1][0]-op[j][0], op[j+1][1]-op[j][1]);
-        if (orun + oLen > SKIP){
-          const m = segMinDist(cuePts[i], cuePts[i+1], op[j], op[j+1]);
-          if (m.d < D && Math.hypot(m.at[0]-P[0], m.at[1]-P[1]) > SKIP) return m.at;
-        }
-        orun += oLen;
+  // ② 1적구가 2적구를 건드리나 — 2적구는 서 있으므로 거리만 보면 된다
+  for (const k2 in S.balls){
+    if (k2 === 'cue') continue;
+    const q = S.balls[k2].p;
+    if (Math.hypot(q[0]-obj[0], q[1]-obj[1]) < 1) continue;   // 이게 1적구다
+    let run0 = 0;
+    for (let j = 0; j < op.length-1; j++){
+      const L = Math.hypot(op[j+1][0]-op[j][0], op[j+1][1]-op[j][1]);
+      if (run0 > SKIP){
+        const m = segMinDist(op[j], op[j+1], q, q);
+        if (m.d < D) return m.at;
       }
+      run0 += L;
     }
-    run += segLen;
+  }
+  // ① 1적구 ↔ 수구 — 자리와 **시각**을 같이 본다
+  const tc = trackOf(cuePts, KISS_V0, KISS_DECAY);
+  const to = trackOf(op, KISS_V0 * Math.max(0.10, Math.min(0.95, af.thick)), KISS_DECAY);
+  const end = Math.max(tc.total, to.total);
+  for (let t = 0.02; t <= end; t += 0.006){
+    const a = atTime(tc, t), b = atTime(to, t);
+    if (!a || !b) continue;
+    if (Math.hypot(a[0]-P[0], a[1]-P[1]) < SKIP) continue;    // 충돌점 근처는 건너뛴다
+    if (Math.hypot(a[0]-b[0], a[1]-b[1]) < D) return [(a[0]+b[0])/2, (a[1]+b[1])/2];
   }
   return null;
 }
