@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 217;
+const MOBILE_VER = 218;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3088,6 +3088,18 @@ function afterCushions(used){
 //     '쿠션에서 얼마나 붙는지' 숫자를 주면 위 표에서 짝을 골라 같이 바꾸면 된다.
 //   ⚠️ 1.06 은 내 짐작이다. 크기는 아직 못 받았다.
 const PLAY_RATE = 0.5;                    // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
+// ★★ 사용자 2026-08-13: '수구가 3쿠션 후 다이에서 **가속도가 붙습니다.**'
+//   ⚠️ 내가 **모든 꺾임점마다** 쿠션 이득(×1.06)을 걸고 있었다. 쿠션이 아닌 곳
+//      (1적구·2적구 충돌점, 연장 구간)에서도. 구간이 짧으면 마찰로 잃는 것보다
+//      1.06 이 커져서 **속도가 올라간다** —
+//        구간 600mm 씩: 1675 1522 1329 1071 673  (정상)
+//        구간 150mm 씩: 1852 1910 1972 2040 2113  (가속!)
+//   → 꺾임점이 **쿠션 위인지** 보고 건다. 공에 부딪힌 자리에서는 오히려 잃는다.
+function onRail(p){
+  const e = 8;                            // mm — 쿠션 날에 닿았다고 볼 여유
+  return p[0] < e || p[0] > T.width - e || p[1] < e || p[1] > T.height - e;
+}
+const BALL_KEEP = 0.55;                   // 공에 부딪히면 남는 몫 (넘겨준 만큼 잃는다)
 const ROLL_A = 620;                       // mm/s^2 — 바닥 마찰 감속
 // ★★ 사용자 2026-08-13 — 붙는 **이유**가 둘이다.
 //   '**쿠션은 고무로 되어 있어서 튕겨나오는 현상**이 있습니다.
@@ -3114,7 +3126,9 @@ function trackOf(poly, v0, decay){
       const ve = Math.sqrt(Math.max(0, v*v - 2*ROLL_A*L));
       const dt = (v - ve) / ROLL_A;
       seg.push({a: poly[i], b: poly[i+1], t0: t, dt, v, L, full: true});
-      t += dt; v = Math.max(ve * decay, 1);   // decay = CUSHION_GAIN (아래 호출부)
+      t += dt;
+      // ★ 쿠션 위면 이득, 공에 부딪힌 자리면 손실 (위 onRail 주석 참고)
+      v = Math.max(ve * (onRail(poly[i+1]) ? decay : BALL_KEEP), 1);
     } else {                              // 이 구간 안에서 선다
       const dt = v / ROLL_A;
       const u = dmax / L;
