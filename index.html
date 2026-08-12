@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 171;
+const MOBILE_VER = 172;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -893,7 +893,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
-           power:1, routeIx:-1, routeList:false, anim:0, listShown:null,
+           power:1, routeIx:-1, routeList:false, anim:0, listShown:null, blink:0,
            // ★ 시스템 고르기. 0 자동 · 1 파이브앤하프 고정 · 2 2뱅크 고정.
            //   ★ 사용자 2026-08-11: '0에서 10 언저리로 경로를 이동하면 파이브앤하프에서
            //     자동으로 2뱅크 시스템으로 안내하고 경로를 자동으로 설정.'
@@ -2170,9 +2170,13 @@ function nextRoute(){
 //     옆·뒤·앞돌리기  파이브앤하프 (교본이 이 셋을 5&하프로 푼다 — 책 102·92쪽)
 //     횡단샷          횡단샷 (기울기·두께·팁수)
 //     뱅크샷·그 밖     자동 (코너 거리로 파앤하/2뱅크가 갈린다)
+// ★ 3쿠션 경로가 확정되면 3초간 깜빡인다 (사용자 2026-08-12: '탭을 떼면 확정').
+//   자석이 붙을 때도, 리스트에서 고를 때도 여기를 지난다.
+const BLINK_MS = 3000, BLINK_HZ = 4;      // 3초 · 4번
 function pickRoute(r){
   const cue = S.balls.cue;
   if (!cue || !r) return;
+  S.blink = (typeof performance !== 'undefined' ? performance.now() : Date.now());
   // ★ 사용자 UI 안: '누르면 공의 진행을 시뮬레이션 보여주기'
   //   ⚠️ 충돌 뒤 속도가 없으므로 **시간을 흉내내지 않는다.** 수구가 지나간 길을
   //      차례대로 **그려 나가기만** 한다 — 순서는 맞고, 빠르기는 주장하지 않는다.
@@ -2579,8 +2583,13 @@ function drawPath(){
   const full = [cue.p, ...hits.map(h => h.p)];
   const cut = cutAtBall(full);
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
+  // ★ 확정 직후 3초간 깜빡임. 0.30 ~ 1.00 사이를 4번 오간다.
+  const el = S.blink ? ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - S.blink) : 1e9;
+  const BK = el < BLINK_MS
+    ? 0.30 + 0.70 * (0.5 + 0.5*Math.cos(el / BLINK_MS * Math.PI * 2 * BLINK_HZ))
+    : 1;
   const seg = (a, b, w, alpha, col) => {
-    g.strokeStyle = col; g.globalAlpha = alpha; g.lineWidth = w; g.lineCap = 'round';
+    g.strokeStyle = col; g.globalAlpha = alpha * BK; g.lineWidth = w; g.lineCap = 'round';
     g.beginPath(); g.moveTo(...toPx(...a)); g.lineTo(...toPx(...b)); g.stroke();
     g.globalAlpha = 1;
   };
