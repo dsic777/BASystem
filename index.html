@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 160;
+const MOBILE_VER = 161;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -139,14 +139,29 @@ function nextRail(p, d, w, h){
 //    360도 훑기가 딴 방향을 시험할 때 옛 조준 기준으로 계산해 버린다.
 //    그러면 **찾은 경로와 그려지는 궤적이 서로 다른 공**이 된다
 //    (사용자 6.jpg — 3쿠션으로 찾았는데 1쿠션짜리가 그려졌다).
+// ★★ 2026-08-12 전면 수정 —
+//   회전이 **미는 쪽은 당점 하나로 정해진다.** 3시면 오른쪽, 9시면 왼쪽.
+//   당점판의 위(12시)가 **수구가 가는 방향**이므로 이 오른쪽/왼쪽은
+//   화면이 아니라 **진행 방향 기준**이고, 그래서 화면 좌표를 볼 일이 없다.
+//
+//   근거 — 사용자 확인 (2026-08-11, 1·2.jpg):
+//     '3시방향으로 당점을 주고 **정면**을 치면 **우측으로** 공이 돌아야 한다'
+//   정면은 '흐른 쪽' 이 없으니 회전이 미는 쪽으로만 나간다. 정면에서 조금 틀어졌다고
+//   미는 쪽이 갑자기 반대가 될 수는 없으니, 빗겨 맞을 때도 같아야 한다.
+//
+// ⚠️ 옛 코드는 `다음 쿠션이 공보다 화면 왼쪽인가` 로 뒤집었다. 당구가 아니라 화면
+//    좌표였고, **수직으로 치면 좌우가 없어 부동소수점이 정했다** (사용자 1·2.jpg —
+//    순회전 쪽이 뒤집혀 나왔다). 그 뒤집기는 검증된 적이 한 번도 없다.
+//
+// ★ 순회전/역회전은 **당점의 성질이 아니라 쿠션마다 갈리는 것**이다.
+//   회전이 미는 쪽과 공이 그 쿠션을 따라 흐르는 쪽이 같으면 넓어지고(순),
+//   반대면 좁아진다(역). 한 경로 안에서 1쿠션은 순, 2쿠션은 역일 수 있다.
+//   그래서 당점판에는 순/역 딱지를 붙이지 않는다 (사용자 2026-08-12).
+//   p·d 는 안 쓰지만 호출부를 그대로 두려고 인자는 남긴다.
 function englishSideFor(p, d){
   const h = S.tipH;
   if (Math.abs(h) < 1e-6) return 0;          // 무회전이면 거울반사
-  const n = Math.hypot(d[0], d[1]);
-  if (n < 1e-9) return 0;
-  const nx = nextRail(p, [d[0]/n, d[1]/n], T.width, T.height);
-  const left = nx ? nx[1][0] < p[0] : false;   // goingLeft() 와 같은 기준
-  return (h > 0 ? 1 : -1) * (left ? -1 : 1);
+  return h > 0 ? 1 : -1;
 }
 function englishSide(){                       // 화면의 지금 조준 기준
   const cue = S.balls.cue;
@@ -1257,7 +1272,6 @@ function tapTipPanel(px,py){
     }
   const dx = px - q.cx, dy = py - q.cy, dist = Math.hypot(dx, dy);
   if (dist <= q.R){
-    if (dx * tipSide() < -q.unit*0.5){ flash('역회전은 실측 데이터가 없습니다'); return; }
     if (dist > q.R*TIP_EDGE){ flash('바깥 7mm 는 큐가 미끄러집니다'); return; }
     // ⚠️ 아무 데나 찍히게 하지 않는다. 표가 팁 단위로만 있어서, 사이를 허용하면
     //    없는 값을 지어내 쓰게 된다. **가장 가까운 자리**로 붙인다.
@@ -2865,18 +2879,6 @@ function aimForCross(){
   S.aim = S.lastAim = [cue.p[0] + Math.cos(best[1])*len, cue.p[1] + Math.sin(best[1])*len];
   return true;
 }
-function goingLeft(){
-  // ⚠️ 전에는 pathFromAim() 을 불렀다. 이제 bend() 가 englishSide() → tipSide() →
-  //    goingLeft() 를 부르므로 그러면 무한재귀가 된다.
-  //    첫 쿠션이 어디인지는 반사와 무관하니 nextRail 로 바로 구한다 (더 싸기도 하다).
-  const cue = S.balls.cue;
-  if (!cue || !S.aim) return false;
-  const d = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
-  const n = Math.hypot(d[0], d[1]);
-  if (n < 1e-9) return false;
-  const nx = nextRail(cue.p, [d[0]/n, d[1]/n], T.width, T.height);
-  return nx ? nx[1][0] < cue.p[0] : false;
-}
 
 // ---------------------------------------------------------------- 당점판
 // ★ 2026-08-10 사용자 확정 (C:/sc/ss1.jpg):
@@ -2894,7 +2896,6 @@ function goingLeft(){
 const TIP_R    = 6.0 / 30.75;      // 1팁 6mm / 공 반지름 30.75mm = 0.195  (3팁 = 18mm)
 const TIP_EDGE = 23.75 / 30.75;    // 칠 수 있는 바깥 끝 = 반지름 − 7mm. 그 밖은 삑사리.
 const TIP_DIRS = 24;               // 30분 단위. 0=12시 · 5=2시30분 · 6=3시 · 12=6시
-const TIP_RUN  = 12;               // 여기까지가 순회전 쪽 (12시 → 3시 → 6시)
 // 어느 원에 어느 방향을 놓나. ss1 을 따른다 — 바깥 원(3팁)은 30분 단위로 촘촘하게,
 // 안쪽은 성기게 (ss1 의 중상단·중하단이 12시·6시 절반 자리에만 있다).
 const TIP_RING = [{r:3, step:1}, {r:2, step:2}, {r:1, step:6}];
@@ -2908,24 +2909,29 @@ const PRESET = [
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
-function tipSide(){ return goingLeft() ? -1 : 1; }
+// ⚠️ tipSide() 는 없앴다. 화면 좌우로 당점판을 뒤집던 함수인데, 당점판은
+//    **진행 방향 기준**이라 뒤집을 일이 없다 (englishSideFor 주석 참고).
 
 // 반지름 R 인 작은 공에서 지금 당점이 중심에서 얼마나 떨어져 있나 (px)
 function tipOffset(R){ return tipXY(S.tipDir, S.tipR, R * TIP_R); }
 
-// 고를 수 있는 자리 — 가운데 하나 + 세 원. 24자리.
+// 고를 수 있는 자리 — 가운데 하나 + 세 원. **시계 한 바퀴 전부.**
+// ★ 2026-08-12 — 전에는 12시→3시→6시 반쪽만 냈다. 나머지 반은 '역회전 실측 없음'
+//   으로 덮어 못 고르게 했는데, v160 에서 역회전 반사가 들어갔으니 다 연다.
+//   (사용자 6.jpg: '3시방향이 순각인데 회전을 줄 수가 없어요 당점변경이 안돼요')
 function tipDots(){
   const out = [{dir:0, r:0}];
   for (const g of TIP_RING)
-    for (let d = 0; d <= TIP_RUN; d += g.step) out.push({dir:d, r:g.r});
+    for (let d = 0; d < TIP_DIRS; d += g.step) out.push({dir:d, r:g.r});
   return out;
 }
 
 // 방향(30분 단위) · 거리(팁) → 중심에서의 화면 오프셋.
-// ⚠️ 순회전이 왼쪽이면 좌우를 뒤집는다. 시계 읽기도 같이 뒤집힌다.
+// ★ 위(12시) = **수구가 가는 방향.** 그래서 3시는 늘 진행 방향의 오른쪽이고,
+//   화면 어디로 가든 뒤집지 않는다 (사용자 2026-08-12).
 function tipXY(dir, r, unit){
   const a = dir * Math.PI / 12;                    // 15도씩
-  return [Math.sin(a) * r * unit * tipSide(), -Math.cos(a) * r * unit];
+  return [Math.sin(a) * r * unit, -Math.cos(a) * r * unit];
 }
 
 // 고른 자리를 상하·좌우 성분으로 풀어 둔다.
@@ -2941,8 +2947,7 @@ function setTip(dir, r){
 // 사용자가 실제로 쓰는 말로 읽는다 — systems.json '2시30분 3팁', kiss.json '5시'.
 function tipClock(dir, r){
   if (!r) return '중단 무팁';
-  const d = tipSide() > 0 ? dir : (TIP_DIRS - dir) % TIP_DIRS;
-  let hh = d / 2; if (hh === 0) hh = 12;
+  let hh = dir / 2; if (hh === 0) hh = 12;
   const h = Math.floor(hh), m = hh - h;
   return (m ? h + '시30분' : h + '시') + ' · ' + r + '팁';
 }
@@ -2972,7 +2977,7 @@ function tipGeom(){
 
 function drawTipPanel(){
   if (!S.tipPanel) return;
-  const q = tipGeom(), sd = tipSide();
+  const q = tipGeom();
   g.save();
   g.fillStyle = '#0a0b0d'; g.fillRect(0,0,L.w,L.h);   // 뒤가 비치면 당점이 안 읽힌다
 
@@ -3000,14 +3005,8 @@ function drawTipPanel(){
   g.strokeStyle = 'rgba(70,74,84,0.45)'; g.lineWidth = Math.max(1, q.unit*0.05);
   g.beginPath(); g.arc(q.cx,q.cy,q.unit*3,0,7); g.stroke();
 
-  // 역회전 쪽 = 실측 데이터가 없다. 덮어서 못 고르게 한다.
-  // ⚠️ arc 의 시작·끝 각으로 반쪽을 그리려다 **반대쪽**이 칠해졌다 (7.jpg).
-  //    원으로 자른 뒤 사각형을 칠한다 — 어느 쪽인지 눈으로 확인된다.
-  g.save();
-  g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7); g.clip();
-  g.fillStyle = 'rgba(12,13,15,0.66)';
-  g.fillRect(sd > 0 ? q.cx - q.R : q.cx, q.cy - q.R, q.R, q.R*2);
-  g.restore();
+  // ⚠️ 여기에 '역회전 실측 없음' 가리개가 있었다. 2026-08-12 걷어냈다 —
+  //    시계 한 바퀴 전부 고를 수 있다.
 
   // 팁 자리 — 방향 × 거리
   for (const d of q.dots){
@@ -3020,17 +3019,17 @@ function drawTipPanel(){
     if (on){ g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, q.unit*0.13); g.stroke(); }
   }
 
-  // 시계 눈금 — ss1 처럼 바깥에 시각을 적는다 (12 1 2 3 4 5 6)
+  // 시계 눈금 — ss1 처럼 바깥에 시각을 적는다. 한 바퀴 전부 (12 1 2 … 11)
   g.fillStyle = 'rgba(40,42,48,0.85)'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.font = '700 ' + Math.round(q.unit*0.44) + 'px system-ui, sans-serif';
-  for (let d = 0; d <= TIP_RUN; d += 2){
+  for (let d = 0; d < TIP_DIRS; d += 2){
     const [ox,oy] = tipXY(d, 3.62, q.unit);
     g.fillText(String(d === 0 ? 12 : d/2), q.cx + ox, q.cy + oy);
   }
-  g.fillStyle = 'rgba(230,232,238,0.75)';
-  g.font = '700 ' + Math.round(q.unit*0.40) + 'px system-ui, sans-serif';
-  g.fillText('역회전', q.cx - q.unit*2.0*sd, q.cy - q.unit*0.32);
-  g.fillText('실측 없음', q.cx - q.unit*2.0*sd, q.cy + q.unit*0.32);
+  // 위가 어디인지 알려 준다 — 당점판은 진행 방향에서 본 공이다
+  g.fillStyle = 'rgba(150,155,166,0.85)';
+  g.font = '700 ' + Math.round(q.unit*0.34) + 'px system-ui, sans-serif';
+  g.fillText('↑ 가는 방향', q.cx, q.cy - q.R - q.unit*1.15);
 
   // 지금 값
   // 글자 띠 — 버튼(0.30h 부터)과 안 겹치게 TIP_TOP ~ 0.27h 안에 넣는다.
