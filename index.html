@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 191;
+const MOBILE_VER = 192;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1720,11 +1720,26 @@ function slopePts(a, b){
 // ★ 사용자 2026-08-12: '두께는 너무 세분하면 힘든데 공을 8등분 해서 2 4 6 정도만.'
 //   1.75/8 같은 값은 칠 수가 없다. 셋 중 제일 가까운 것으로 붙인다.
 const THICK_STEPS = [2, 4, 6];
-// 팁수를 사람 말로 — 음수는 역회전
-function tipKR(t){
-  if (t === undefined || t === null) return '—';
-  if (!t) return '무회전';
-  return (t < 0 ? '역 ' : '') + Math.abs(t) + '팁';
+// ★★ 사용자 2026-08-13: '역 3팁 이런 거 말고 **실제 그림으로** 표시합시다.
+//   수구 색깔 그대로 공에 빨간 점을 찍읍시다. 역·순 이상합니다.'
+//   맞는 지적이다 — **순/역은 당점의 성질이 아니라 쿠션마다 갈리는 것**이다
+//   (2026-08-12 사용자 정정). 당점에 '역' 을 붙이면 틀린 정보가 된다.
+//   공 그림 위의 점 하나면 어느 쪽 몇 팁인지가 그대로 보인다. 당점판이
+//   **진행 방향 기준**(12시 = 가는 방향)이라 그림이 곧 실제 당점이다.
+//
+//   cx,cy 가운데 · R 반지름 · tipH 좌우(−3~3) · tipV 상하(−3~3)
+function drawTipBall(cx, cy, R, tipH, tipV){
+  const cue = S.balls.cue;
+  g.beginPath(); g.arc(cx, cy, R, 0, 7);
+  g.fillStyle = (cue && TONE[cue.color]) || '#f2f1ea'; g.fill();
+  g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1, R*0.10); g.stroke();
+  // 3팁이 공 가장자리 조금 안쪽에 오게 (당점판과 같은 비율 — 1팁 = 반지름의 0.195)
+  const k = R * TIP_R;
+  const x = cx + (tipH || 0) * k, y = cy - (tipV || 0) * k;
+  const rr = Math.max(2, R*0.30);                    // 빨간 점 (앱 전체와 같은 크기감)
+  g.beginPath(); g.arc(x, y, rr, 0, 7);
+  g.fillStyle = '#de342c'; g.fill();
+  g.strokeStyle = 'rgba(20,22,26,0.55)'; g.lineWidth = Math.max(0.8, R*0.05); g.stroke();
 }
 function thick8(v){
   let best = THICK_STEPS[0];
@@ -3136,8 +3151,9 @@ function drawRouteList(){
     g.lineWidth = Math.max(2, chh*(on || (r&&r.kiss) ? 0.035 : 0.018));
     g.stroke();
     // ★ 사용자 2026-08-12: '3쿠션이 성공할 수 있는 두께와 당점을 제공해 주세요.'
+    // 글자는 진로와 두께까지. **당점은 글자가 아니라 공 그림으로** 낸다 (아래).
     const label = last ? '직접 조준'
-      : (r.name || '') + '  8/' + thick8(r.thick*8) + ' · ' + tipKR(r.tip);
+      : (r.name || '') + '  8/' + thick8(r.thick*8);
     if (!last){
       // 작은 당구대 — 2:1 로 넣고 그 안에 공과 길을 그린다
       const m = chh*0.14, aw = cw - m*2, ah = chh*0.62;
@@ -3161,6 +3177,10 @@ function drawRouteList(){
         g.beginPath(); g.arc(bx, by, Math.max(2, k*40), 0, 7); g.fill();
         g.strokeStyle = '#14161a'; g.lineWidth = Math.max(0.8, k*10); g.stroke();
       }
+      // ★ 당점 — 수구 색 그대로의 작은 공에 빨간 점 (사용자 2026-08-13)
+      const br = chh*0.155;
+      drawTipBall(gx + cw - br - chh*0.10, gy + chh - br - chh*0.06, br,
+                  r.tip, S.tipV);
     }
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = last ? '#cfd6e0' : (r.kiss ? '#ff8a80' : '#f2f4f8');
@@ -3888,8 +3908,8 @@ function drawButtons(){
         const rr0 = rl[S.routeIx];
         heavy(rr0.name || '', cx, cy + u*0.44, u*0.19,
               rr0.kiss ? '#ff5a4a' : '#f2f4f8');
-        heavy('8/' + thick8(rr0.thick*8) + ' · ' + tipKR(rr0.tip),
-              cx, cy + u*0.64, u*0.17, '#cfd6e0');
+        heavy('8/' + thick8(rr0.thick*8), cx - u*0.28, cy + u*0.64, u*0.17, '#cfd6e0');
+        drawTipBall(cx + u*0.40, cy + u*0.62, u*0.20, rr0.tip, S.tipV);
       } else {
         heavy('추천', cx, cy + u*0.24, u*0.27, '#f2f4f8');
         heavy(rl ? (ns ? ns + '개' : '없음') : '', cx, cy + u*0.46, u*0.22,
