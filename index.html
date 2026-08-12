@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 176;
+const MOBILE_VER = 177;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1649,8 +1649,16 @@ function sideTurnNums(){
   const sl = slopePts(cue.p, o1.p);
   if (sl === null) return null;
   const corr = o2 ? (scale(o2.p) - 20) / 5 : null;       // 기준점 20, 5pt 당 1팁
-  return {zone, slope: sl, corr,
-          tip: corr === null ? null : zone - sl + corr};
+  const tip = corr === null ? null : zone - sl + corr;
+  // ★★ 사용자 2026-08-12 (ss.jpg): 화면에 **팁수 12.2** 가 떴다. 팁은 0~3 이다.
+  //   보정항 (2적구값 − 20) / 5 에 **상한이 없어서** 2적구가 반대쪽 끝에 있으면
+  //   혼자 +12 까지 간다. 식이 틀린 것이 아니라 **이 배치가 이 시스템의 범위 밖**이다.
+  //   교본은 시스템마다 적용범위를 명시한다 (오늘 읽은 캡처 12 가 그 표다).
+  //   옆돌리기 AR 의 적용범위는 아직 못 읽었으므로, **팁수가 0~3 을 벗어나면
+  //   숫자를 내지 않는다.** 없는 답을 그럴듯하게 적어 주는 것보다 낫다.
+  const ok = tip !== null && tip >= -0.4 && tip <= 3.4;
+  return {zone, slope: sl, corr, tip, ok,
+          out: tip !== null && !ok};
 }
 
 // ─────────────────────────────── 리버스 (교본 158~159쪽 · 눈금은 원본으로 재확인)
@@ -3455,7 +3463,9 @@ function drawReadout(){
   if (sys === 4){
     // ★ 옆돌리기 — 구역 팁수 + 기울기 + 3쿠션 보정 = 당점. 두께는 1/2 기준
     const st = sideTurnNums();
-    cols = [['구역', st && st.zone], ['기울기', st && st.slope], ['팁수', st && st.tip]];
+    cols = [['구역', st && st.zone], ['기울기', st && st.slope],
+            ['팁수', (st && st.ok) ? st.tip : null]];
+    if (st && st.out) cols[2] = ['팁수', '범위밖'];
   } else if (sys === 3){
     // ★ 리버스 — 상수 − (수구값 + 목적구값) = 1쿠션값. 당점은 항상 중단 3팁
     const rv = reverseNums();
@@ -3498,11 +3508,11 @@ function drawReadout(){
   // 어느 시스템을 보고 있는지 — 탭하면 바뀐다는 표시도 겸한다.
   // 2뱅크일 때 노란 글씨라 한눈에 갈린다.
   g.textBaseline = 'top';
-  // ★ 사용자 2026-08-12: '너무 진하지 않게.' 모드 색을 죽여서 글자가 튀지 않게 한다.
-  g.fillStyle = sys === 4 ? 'rgba(226,170,198,0.78)' : sys === 3 ? 'rgba(158,182,224,0.78)'
-              : sys === 2 ? 'rgba(158,204,166,0.78)' : sys === 1 ? 'rgba(224,196,110,0.78)'
-              : 'rgba(238,243,250,0.60)';
-  g.font = '800 ' + Math.round(r.h*0.20) + 'px system-ui, sans-serif';
+  // ⚠️ 한 번 흐리게 죽였다가 되돌렸다. '너무 진하지 않게' 는 **격자** 이야기였는데
+  //    내가 이 제목에까지 적용했다. 사용자 2026-08-12 (ss.jpg): '시스템명 안보여요'.
+  g.fillStyle = sys === 4 ? '#f0b6d2' : sys === 3 ? '#a8c4f0'
+              : sys === 2 ? '#a8e0b4' : sys === 1 ? '#f2d478' : '#eef3fa';
+  g.font = '800 ' + Math.round(r.h*0.25) + 'px system-ui, sans-serif';
   // ★ 고른 경로가 있으면 **진로 이름**을 앞에 붙인다 — 리스트를 안 열어도
   //   이 숫자가 어느 길의 것인지 보인다. 키스면 빨갛게.
   const rl0 = routesReady();
