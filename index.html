@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 218;
+const MOBILE_VER = 219;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3141,11 +3141,6 @@ function trackOf(poly, v0, decay){
   }
   return {seg, total: t};
 }
-function tAtVertex(tr, n){                // 앞에서 n 번째 꺾임까지 걸리는 시간
-  let t = 0;
-  for (let i = 0; i < Math.min(n, tr.seg.length); i++) t += tr.seg[i].dt;
-  return t;
-}
 function atTime(tr, t){
   if (!tr.seg.length) return null;
   for (const q of tr.seg)
@@ -3390,11 +3385,16 @@ function drawPath(){
       {
         let hitT = null, hitP = null, hitD = null, who2 = null;
         // ⑴ 수구 → 2적구
+        // ★★ 사용자 2026-08-13: '마지막에 **빨간공이 충돌 전 먼저 움직입니다.**'
+        //   ⚠️ 닿는 **시각**을 '마지막 꺾임까지 걸린 시간'(tAtVertex)으로 쟀다.
+        //      그런데 마지막 꺾임에서 공까지 가는 **토막이 빠진다.** 그만큼 일찍 출발했다.
+        //   → 공에 닿는 데까지 잘라 낸 길로 트랙을 새로 만들고 **그 total** 을 쓴다.
+        //      트랙의 total 이 곧 도착 시각이라 토막이 안 빠진다.
         if (post.hit && post.obj){
           const Q = pts2[pts2.length-1];
           const a2 = afterHit(post.from, Q, post.obj);
           if (a2 && a2.objDir){
-            hitT = tAtVertex(tc, before.length - 1 + pts2.length - 1);
+            hitT = trackOf([...before, ...pts2.slice(1)], V0, cushionGain()).total;
             hitP = post.obj; hitD = a2.objDir; who2 = 'cue';
           }
         }
@@ -3405,7 +3405,8 @@ function drawPath(){
           if (Math.hypot(q3[0]-cut.obj[0], q3[1]-cut.obj[1]) < 1) continue;   // 1적구
           const oc = cutAtBall(opSim, cut.obj);
           if (!oc.hit) continue;
-          const tt = tHit + tAtVertex(to, oc.pts.length - 2);
+          // 같은 이유로 여기도 **잘라 낸 길의 total** 을 쓴다 (위 ★★ 참고)
+          const tt = tHit + trackOf(oc.pts, V0*share, cushionGain()).total;
           if (hitT === null || tt < hitT){
             const u = dirOf(oc.pts[oc.pts.length-2], oc.pts[oc.pts.length-1]);
             hitT = tt; hitP = q3; hitD = u; who2 = 'obj';
