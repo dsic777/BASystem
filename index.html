@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 145;
+const MOBILE_VER = 146;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1869,6 +1869,15 @@ function nextRoute(){
   S.routeIx = S.routeIx + 1 >= Math.min(list.length, ROUTE_SHOW) ? -1 : S.routeIx + 1;
   if (S.routeIx < 0) return;                        // 직접조준 — 조준선은 그대로 둔다
   const r = list[S.routeIx];
+  // ★ 사용자 2026-08-12: '추천에서 횡단샷을 선택하던 추천경로에서 넘어오던
+  //   이런 궤적을 자동으로 보여줬으면 합니다.'
+  //   → 고른 경로의 **진로에 맞는 판독창**으로 같이 넘어간다.
+  //     옆·뒤·앞돌리기  파이브앤하프 (교본이 이 셋을 5&하프로 푼다 — 책 102·92쪽)
+  //     횡단샷          횡단샷 (기울기·두께·팁수)
+  //     뱅크샷·그 밖     자동 (코너 거리로 파앤하/2뱅크가 갈린다)
+  S.sysMode = (r.name === '횡단샷') ? 3
+            : /돌리기/.test(r.name || '') ? 1
+            : 0;
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(r.a)*len, cue.p[1] + Math.sin(r.a)*len];
 }
