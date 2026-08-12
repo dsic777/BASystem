@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 174;
+const MOBILE_VER = 175;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -893,7 +893,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
-           power:1, routeIx:-1, routeList:false, anim:0, listShown:null, blink:0, snapA:null,
+           power:1, routeIx:-1, routeList:false, anim:0, listShown:null, rblink:0, snapA:null,   // ⚠️ blink 는 공 놓을 때 반짝임이 이미 쓴다
            // ★ 시스템 고르기. 0 자동 · 1 파이브앤하프 고정 · 2 2뱅크 고정.
            //   ★ 사용자 2026-08-11: '0에서 10 언저리로 경로를 이동하면 파이브앤하프에서
            //     자동으로 2뱅크 시스템으로 안내하고 경로를 자동으로 설정.'
@@ -2192,11 +2192,16 @@ function nextRoute(){
 const BLINK_MS = 3000, BLINK_HZ = 4;      // 3초 · 4번
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 // 깜빡이는 동안은 경로가 **잠긴다** — 손가락을 움직여도 안 바뀐다.
-function blinking(){ return !!S.blink && nowMs() - S.blink < BLINK_MS; }
+// ⚠️⚠️ 이름을 S.rblink 로 둔다. **S.blink 는 이미 쓰이고 있다** — 공을 놓을 때
+//    반짝이는 기능이 `S.blink = Date.now() + 3000` 으로 쓰고 blinkAlpha() 가
+//    시간이 지나면 **0 으로 지운다.** 처음에 S.blink 를 같이 썼더니 내가 넣은
+//    performance.now() 값이 그 함수 눈에는 이미 지난 시각이라 **다음 프레임에 바로
+//    지워졌다** — 그래서 궤적이 전혀 안 깜빡였다 (사용자 2026-08-12).
+function blinking(){ return !!S.rblink && nowMs() - S.rblink < BLINK_MS; }
 function pickRoute(r){
   const cue = S.balls.cue;
   if (!cue || !r) return;
-  S.blink = nowMs();
+  S.rblink = nowMs();
   // ★ 사용자 UI 안: '누르면 공의 진행을 시뮬레이션 보여주기'
   //   ⚠️ 충돌 뒤 속도가 없으므로 **시간을 흉내내지 않는다.** 수구가 지나간 길을
   //      차례대로 **그려 나가기만** 한다 — 순서는 맞고, 빠르기는 주장하지 않는다.
@@ -2293,7 +2298,7 @@ function snapAim(){
   const a = (lo + hi)/2;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
   S.snapA = a;                       // 이 각에서 벗어나야 다시 붙는다
-  S.blink = nowMs();                 // ★ 3초 깜빡임
+  S.rblink = nowMs();                // ★ 3초 깜빡임
   S.routeIx = -1;
   // 판독창을 그 진로에 맞춘다 (pickRoute 와 같은 규칙, 당점은 안 건드린다)
   S.sysMode = (got.name === '횡단샷') ? 3 : (got.name === '옆돌리기') ? 5
@@ -2649,7 +2654,7 @@ function drawPath(){
   const cut = cutAtBall(full);
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
   // ★ 확정 직후 3초간 깜빡임. 0.30 ~ 1.00 사이를 4번 오간다.
-  const el = S.blink ? (nowMs() - S.blink) : 1e9;
+  const el = S.rblink ? (nowMs() - S.rblink) : 1e9;
   const BK = el < BLINK_MS
     ? 0.30 + 0.70 * (0.5 + 0.5*Math.cos(el / BLINK_MS * Math.PI * 2 * BLINK_HZ))
     : 1;
