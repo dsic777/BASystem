@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 185;
+const MOBILE_VER = 186;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -902,9 +902,15 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            sysMode:0,
            // 상하 당점. +3 상단 3팁 · 0 중단 · −3 하단 3팁 (고르는 화면은 아직 없다)
            // 당점 — 시계 방향(30분 단위) + 거리(팁). ss1 기준.
-           tipDir:6, tipR:2,   // 3시 2팁 = 지금까지와 같은 기본값
-           tipV:0,        // 위 성분 (분리각에 쓴다)  +3 = 12시 3팁
-           tipH:2,        // 옆 성분 (쿠션 반사에 쓴다) 0 = 거울, 2 = 실측표 기준
+           // ★★ 표준 당점 — 사용자 2026-08-12: '팁은 **3시·9시 3팁**이 표준입니다.
+           //   모두 거기서 출발하면 됩니다. 그 후 보정을 하면 되고.'  '상단기준.'
+           //   = 옆으로 3시(또는 9시) 쪽 3팁 · 위로 상단.
+           //   systems.json 에 2026-08-10 확정으로 적힌 **2시30분 3팁** 이 바로 이것이다
+           //   (measured_bounce 도 separation 도 이 당점으로 잰 것이다).
+           // ⚠️ 전에는 3시 2팁·중단(tipV 0) 이 기본값이었다 — 표준이 아니었다.
+           tipDir:5, tipR:3,            // 2시30분 3팁
+           tipV:0.776,     // 위 성분 (분리각에 쓴다)   3 × cos75도
+           tipH:2.898,     // 옆 성분 (쿠션 반사에 쓴다) 3 × sin75도
            tipPanel:false};
 
 // ---------------------------------------------------------------- 화면 좌표
@@ -2194,6 +2200,10 @@ function rank(r){
   const bad = (r.flips || 0) + (r.rev || 0);
   const tier = r.before > 0 ? 0 : Math.max(1, 5 - bad);
   v += tier * 100;                     // 군이 다르면 폭은 못 뒤집는다
+  // ★ 표준 당점(3팁)에서 출발한 길을 앞에 놓는다 (사용자 2026-08-12:
+  //   '3시·9시 3팁이 표준입니다. 모두 거기서 출발하면 됩니다. 그 후 보정을 하면 되고').
+  //   군 안에서만 갈리도록 작게 준다.
+  if (Math.abs(r.tip || 0) === 3) v += 0.5;
   if (r.kiss) v -= 1.0;
   if (r.name === '뒤돌리기' && r.sep >= 20 && r.sep <= 45) v += 0.4;
   return v;
