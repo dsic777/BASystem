@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 158;
+const MOBILE_VER = 159;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1743,6 +1743,7 @@ function twoBank(){
 // ⚠️ 훑는 동안에는 보정(k)을 **한 번만 풀고 돌려쓴다.** 각도마다 다시 풀면
 //    pathFromAim 이 한 번에 40번씩 이분법을 돌아 폰에서 몇 초가 걸린다.
 //    보정은 다이(쿠션)의 값이라 조준 방향에 따라 크게 변할 것이 아니다.
+let TIP_NOW = 0;               // 지금 훑고 있는 당점 (findRoutes 안에서만 쓴다)
 const ROUTE_SHOW = 5;         // 6칸 리스트에서 직접조준 한 칸을 뺀 수 (사용자 확정)
 // ★ 2026-08-11 파이썬으로 같은 계산을 돌려 보고 정한 값들.
 //   허용오차는 실제로 0.2~0.6도로 좁다 — 3쿠션이 원래 그렇다. 1적구 두께가 조금만
@@ -1925,7 +1926,8 @@ function simulate(dir, k){
   const kiss = kissAt(P, af, cut2.pts, cut1.obj);      // 두 길이 겹치나
   const sep = af.deg;                                  // 분리각 — 순서 매길 때 쓴다
   return {key: who + '|' + rails.join('-'), rails, first: who,
-          cushions: c1 + c2, name, before: c1, kiss: !!kiss, sep};
+          cushions: c1 + c2, name, before: c1, kiss: !!kiss, sep,
+          thick: af.thick};
 }
 
 let ROUTES = {key:null, list:[]};
@@ -1971,17 +1973,30 @@ function findRoutes(){
   const step = SWEEP_STEP_DEG * Math.PI/180, n = Math.round(2*Math.PI/step);
   const at = a => simulate([Math.cos(a), Math.sin(a)], k0);
   const runs = [];
-  let cur = null;
-  for (let i = 0; i <= n; i++){                     // 한 바퀴 + 한 칸 (이음매를 잇는다)
-    const r = at(i*step);
-    if (cur && (!r || r.key !== cur.key)){ runs.push(cur); cur = null; }
-    if (r){
-      if (cur) cur.iHi = i;
-      else cur = {key:r.key, iLo:i, iHi:i, rails:r.rails, first:r.first,
-                  cushions:r.cushions, name:r.name, before:r.before, kiss:r.kiss, sep:r.sep};
+  // ★ 사용자 2026-08-12: '이런 경로에 대하여 3쿠션이 성공할 수 있는 **두께와 당점**을
+  //   제공해 주세요.'  → 조준각만 훑던 것을 **당점까지 같이** 훑는다.
+  //   지금까지는 사용자가 고른 당점으로만 봤기 때문에 '이 당점이면 된다' 를 못 냈다.
+  //   ⚠️ 순회전 0~3팁만 본다. 역회전은 반사표가 없어 못 낸다
+  //      (사용자 4.jpg: '역회전 9시방향 3팁을 줄 경우에 한합니다' — 그건 아직 못 한다).
+  const tipSave = S.tipR, hSave = S.tipH, vSave = S.tipV;
+  for (const tp of [0, 1, 2, 3]){
+    S.tipR = tp;
+    S.tipH = tp; S.tipV = 0;                        // 좌우만 본다 (반사에 쓰이는 축)
+    TIP_NOW = tp;
+    let cur = null;
+    for (let i = 0; i <= n; i++){                   // 한 바퀴 + 한 칸 (이음매를 잇는다)
+      const r = at(i*step);
+      if (cur && (!r || r.key !== cur.key)){ runs.push(cur); cur = null; }
+      if (r){
+        if (cur) cur.iHi = i;
+        else cur = {key:r.key, iLo:i, iHi:i, rails:r.rails, first:r.first,
+                    cushions:r.cushions, name:r.name, before:r.before, kiss:r.kiss,
+                    sep:r.sep, thick:r.thick, tip:TIP_NOW};
+      }
     }
+    if (cur) runs.push(cur);
   }
-  if (cur) runs.push(cur);
+  S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave; TIP_NOW = tipSave;
   // 가장자리를 이분법으로 다듬는다. 굵게 훑은 폭은 걸음 단위로 뭉뚱그려져 있어서
   // 그대로 쓰면 허용오차가 0.2 · 0.4 · 0.6 처럼 계단으로만 나온다 (파이썬에서 확인).
   const edge = (aIn, aOut, key) => {
@@ -1993,9 +2008,11 @@ function findRoutes(){
     return lo;
   };
   for (const r of runs){
+    S.tipR = r.tip; S.tipH = r.tip; S.tipV = 0;     // 그 경로를 찾은 당점으로 되돌린다
     r.lo = edge(r.iLo*step, (r.iLo-1)*step, r.key);
     r.hi = edge(r.iHi*step, (r.iHi+1)*step, r.key);
   }
+  S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave;
   // 0도 이음매에서 잘린 덩어리를 도로 붙인다
   if (runs.length > 1){
     const A = runs[0], B = runs[runs.length-1];
@@ -2015,6 +2032,7 @@ function findRoutes(){
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
     name: r.name, before: r.before, kiss: r.kiss, sep: r.sep,
+    thick: r.thick, tip: r.tip,
   })).sort((a, b) => rank(b) - rank(a));                    // 넓은 것부터 = 쉬운 것부터
   ROUTES = {key, list};
   return list;
@@ -2043,6 +2061,13 @@ function pickRoute(r){
   S.anim = performance.now();
   S.sysMode = (r.name === '횡단샷') ? 3 : (r.name === '옆돌리기') ? 5
             : /돌리기/.test(r.name || '') ? 1 : 0;
+  // ★ 그 경로를 찾은 **당점**으로 옮긴다 — 그래야 그려지는 궤적이 그 경로가 된다
+  if (r.tip !== undefined){
+    S.tipDir = 6;                                   // 3시(순회전) 쪽
+    S.tipR = Math.max(0, Math.min(3, r.tip));
+    S.tipV = S.tipR * Math.cos(S.tipDir*Math.PI/12);
+    S.tipH = S.tipR * Math.sin(S.tipDir*Math.PI/12);
+  }
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(r.a)*len, cue.p[1] + Math.sin(r.a)*len];
 }
@@ -2698,7 +2723,9 @@ function drawRouteList(){
     g.strokeStyle = (r && r.kiss) ? '#ff3b30' : on ? '#ffd400' : '#3a4450';
     g.lineWidth = Math.max(2, chh*(on || (r&&r.kiss) ? 0.035 : 0.018));
     g.stroke();
-    const label = last ? '직접 조준' : (r.name || '');
+    // ★ 사용자 2026-08-12: '3쿠션이 성공할 수 있는 두께와 당점을 제공해 주세요.'
+    const label = last ? '직접 조준'
+      : (r.name || '') + '  8/' + thick8(r.thick*8) + ' · ' + (r.tip||0) + '팁';
     if (!last){
       // 작은 당구대 — 2:1 로 넣고 그 안에 공과 길을 그린다
       const m = chh*0.14, aw = cw - m*2, ah = chh*0.62;
@@ -3452,8 +3479,11 @@ function drawButtons(){
         // ★ 사용자 2026-08-12 — 허용오차(도)보다 **어떤 길인지**가 먼저다.
         heavy((S.routeIx+1) + '/' + ns, cx, cy + u*0.24, u*0.27, '#ffd400');
         // 키스가 나는 길이면 빨갛게 — 고르기 전에 보이게
-        heavy(rl[S.routeIx].name || '', cx, cy + u*0.46, u*0.20,
-              rl[S.routeIx].kiss ? '#ff5a4a' : '#f2f4f8');
+        const rr0 = rl[S.routeIx];
+        heavy(rr0.name || '', cx, cy + u*0.44, u*0.19,
+              rr0.kiss ? '#ff5a4a' : '#f2f4f8');
+        heavy('8/' + thick8(rr0.thick*8) + ' · ' + (rr0.tip||0) + '팁',
+              cx, cy + u*0.64, u*0.17, '#cfd6e0');
       } else {
         heavy('추천', cx, cy + u*0.24, u*0.27, '#f2f4f8');
         heavy(rl ? (ns ? ns + '개' : '없음') : '', cx, cy + u*0.46, u*0.22,
