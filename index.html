@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 208;
+const MOBILE_VER = 209;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2014,7 +2014,7 @@ function segMinDist(a, b, c, d){
 //   ① 1적구 ↔ 수구   돌아온 수구가 1적구를 다시 만난다 (전형적인 키스)
 //   ② 1적구 ↔ 2적구   1적구가 2적구를 건드려 밀어낸다 — 득점이 깨진다
 //   ③ 수구 ↔ 2적구    3쿠션 전에 만나는 것은 cutAtBall 이 이미 잘라 낸다 (여기서는 안 본다)
-const KISS_V0 = 2600, KISS_DECAY = 0.69;   // v200 시뮬레이션과 같은 값
+const KISS_V0 = 2600;                      // v200 시뮬레이션과 같은 값
 function kissAt(P, af, cuePts, obj){
   if (!af || !af.objDir || cuePts.length < 2) return null;
   const D = T.ball_diameter, SKIP = D * 2.2;   // 충돌 직후는 원래 붙어 있다
@@ -2036,8 +2036,8 @@ function kissAt(P, af, cuePts, obj){
     }
   }
   // ① 1적구 ↔ 수구 — 자리와 **시각**을 같이 본다
-  const tc = trackOf(cuePts, KISS_V0, KISS_DECAY);
-  const to = trackOf(op, KISS_V0 * Math.max(0.10, Math.min(0.95, af.thick)), KISS_DECAY);
+  const tc = trackOf(cuePts, KISS_V0, CUSHION_GAIN);
+  const to = trackOf(op, KISS_V0 * Math.max(0.10, Math.min(0.95, af.thick)), CUSHION_GAIN);
   const end = Math.max(tc.total, to.total);
   for (let t = 0.02; t <= end; t += 0.006){
     const a = atTime(tc, t), b = atTime(to, t);
@@ -3060,18 +3060,52 @@ function afterCushions(used){
 //      ② 충돌에서 1적구가 가져가는 몫 = 두께  ← 중심선 성분(물리 기본)의 근사.
 //         두꺼울수록 1적구가 많이 가져간다.
 //    ★ 그러므로 **이 그림으로 키스를 판정하면 안 된다.** 길은 맞고 시각은 모른다.
+// ★★ 사용자 2026-08-13: '마지막에는 공들의 속도가 각각 **자연스럽게 줄어들면서
+//   정지**해야 하는데.'  → 마찰 감속을 넣는다.
+//   전에는 구간마다 속도가 일정하고 쿠션에서만 31% 떨어져서 **끝에서 뚝 멈췄다.**
+//   이제 굴러가는 내내 일정하게 느려지고, 힘이 다하면 그 자리에 선다.
+//     v(t) = v0 − a·t        구르는 마찰은 감속이 거의 일정하다
+//
+// ★★ 사용자 2026-08-13 정정 — '**쿠션을 만나면 속도가 줄어들지 않고 오히려 증가합니다.**
+//   그래서 공이 힘이 실리는 겁니다. 바닥을 굴러갈 때는 힘을 점점 잃어가다가
+//   쿠션을 만나면 공의 **회전 때문에 조금 더** 굴러가는 겁니다.'
+//
+//   ⚠️⚠️ 내가 **이중으로 깎고 있었다.** speed.json 을 다시 읽어 보니 —
+//     '수구가 n번 쿠션을 나온 뒤 그 **구간의 평균 속도**. 쿠션 하나 지날 때마다
+//      다음 구간 평균속도가 0.687배. 297쌍 중앙값.'
+//   그 31% 는 **바닥을 굴러가며 잃은 것**이지 쿠션에서 잃은 것이 아니다.
+//   그런데 나는 마찰 감속을 넣고 **거기에 또 쿠션마다 0.69 를 곱했다.**
+//
+//   → 마찰만으로 구간 평균이 0.687 배가 되게 감속을 잡고, 쿠션에서는 오히려 조금 준다.
+//     구간 1500mm · 출발 2600mm/s 에서 마찰만으로 −31% 가 나오려면 a ≈ 1300.
+//   ⚠️ 쿠션에서 얼마나 붙는지(CUSHION_GAIN)는 아직 숫자를 못 받았다. 1.06 은 내 짐작이다.
+const ROLL_A = 1400;                      // mm/s^2 — 바닥 마찰 감속 (실측 31%/구간에 맞춤)
+const CUSHION_GAIN = 1.06;                // 쿠션에서 회전이 풀리며 조금 붙는다
 function trackOf(poly, v0, decay){
-  const seg = []; let t = 0, v = v0;
+  const seg = [];
+  let t = 0, v = Math.max(v0, 1);
   for (let i = 0; i < poly.length-1; i++){
     const L = Math.hypot(poly[i+1][0]-poly[i][0], poly[i+1][1]-poly[i][1]);
     if (L < 1e-6) continue;
-    seg.push({a: poly[i], b: poly[i+1], t0: t, dt: L / Math.max(v, 1e-3)});
-    t += seg[seg.length-1].dt; v *= decay;             // 쿠션 하나 지날 때마다
+    const dmax = v*v / (2*ROLL_A);        // 지금 속도로 갈 수 있는 남은 거리
+    if (L <= dmax){                       // 이 구간을 다 지나간다
+      const ve = Math.sqrt(Math.max(0, v*v - 2*ROLL_A*L));
+      const dt = (v - ve) / ROLL_A;
+      seg.push({a: poly[i], b: poly[i+1], t0: t, dt, v, L, full: true});
+      t += dt; v = Math.max(ve * decay, 1);   // decay = CUSHION_GAIN (아래 호출부)
+    } else {                              // 이 구간 안에서 선다
+      const dt = v / ROLL_A;
+      const u = dmax / L;
+      seg.push({a: poly[i],
+                b: [poly[i][0] + (poly[i+1][0]-poly[i][0])*u,
+                    poly[i][1] + (poly[i+1][1]-poly[i][1])*u],
+                t0: t, dt, v, L: dmax, full: true});
+      t += dt; v = 0; break;
+    }
   }
   return {seg, total: t};
 }
-// 앞에서 n 번째 꺾임까지 걸리는 시간
-function tAtVertex(tr, n){
+function tAtVertex(tr, n){                // 앞에서 n 번째 꺾임까지 걸리는 시간
   let t = 0;
   for (let i = 0; i < Math.min(n, tr.seg.length); i++) t += tr.seg[i].dt;
   return t;
@@ -3080,7 +3114,9 @@ function atTime(tr, t){
   if (!tr.seg.length) return null;
   for (const q of tr.seg)
     if (t <= q.t0 + q.dt){
-      const u = Math.max(0, (t - q.t0) / q.dt);
+      const dt = Math.max(0, t - q.t0);
+      const sdist = q.v*dt - 0.5*ROLL_A*dt*dt;      // 감속하며 간 거리
+      const u = Math.max(0, Math.min(1, sdist / Math.max(q.L, 1e-6)));
       return [q.a[0] + (q.b[0]-q.a[0])*u, q.a[1] + (q.b[1]-q.a[1])*u];
     }
   return tr.seg[tr.seg.length-1].b;
@@ -3287,8 +3323,8 @@ function drawPath(){
         preLen += Math.hypot(before[i2+1][0]-before[i2][0], before[i2+1][1]-before[i2][1]);
       const tHit = preLen / V0;
       const share = Math.max(0.10, Math.min(0.95, a.thick));   // 1적구가 가져가는 몫
-      const tc = trackOf(cuePoly, V0, 0.69);    // 쿠션마다 31% 느려진다
-      const to = trackOf(opSim, V0*share, 0.69);
+      const tc = trackOf(cuePoly, V0, CUSHION_GAIN);    // 쿠션마다 31% 느려진다
+      const to = trackOf(opSim, V0*share, CUSHION_GAIN);
       const R = Math.max(4, T.ball_diameter*L.sc*0.5);
       let objKey = null;
       for (const k2 in S.balls)
@@ -3328,7 +3364,7 @@ function drawPath(){
         }
         if (hitT !== null && T0 > hitT){
           const t3 = trackOf([hitP, ...rollPlain(hitP, hitD, 3).map(h => h.p)],
-                             V0*0.45, 0.69);
+                             V0*0.45, CUSHION_GAIN);
           const q4 = atTime(t3, Math.min(T0 - hitT, t3.total));
           let col = 'red';
           for (const k4 in S.balls)
