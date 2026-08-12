@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 194;
+const MOBILE_VER = 195;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1507,7 +1507,7 @@ function draw(){
   drawGrid(); drawDiamonds(); drawNumbers(); drawZoneGrid();
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
-  if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
+  if (!PREVIEW){ drawAnswer(); drawSysName(); drawPath(); drawBalls(); drawClock(); }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList(); drawTipPanel();
   requestAnimationFrame(draw);
 }
@@ -2547,6 +2547,39 @@ function snapAim(){
 //   교본 그림처럼 다이아 격자를 **늘** 깔아 둔다. 공 자리를 눈으로 재는 데 쓰인다.
 //   장쿠션 8칸 → 세로 7줄 · 단쿠션 4칸 → 가로 3줄.
 //   ⚠️ 아주 옅게. 궤적과 숫자가 주인공이다 (사용자: '너무 진하지 않게').
+// ★★ 시스템명을 **다이 안 빈자리**에 크게 (사용자 2026-08-13 · 노안).
+//   후보 여섯 자리 중 공과 궤적에서 제일 먼 곳을 고른다. 검은 테두리 흰 글씨.
+function drawSysName(){
+  if (previewOn() || S.routeList) return;
+  const c = L.cloth, sys = curSystem();
+  const rl = routesReady();
+  const cur = (rl && S.routeIx >= 0) ? rl[S.routeIx] : null;
+  const txt = (cur ? cur.name + ' · ' : S.sysMode ? '' : '자동 · ') + SYS_NAMES[sys];
+  // 피해야 할 점들 — 공 세 개 + 궤적 꺾이는 자리
+  const avoid = [];
+  for (const k in S.balls) avoid.push(toPx(...S.balls[k].p));
+  const b = systemBase();
+  if (b && b.hits) for (const h of b.hits) avoid.push(toPx(...h.p));
+  let best = null;
+  for (const fx of [0.22, 0.5, 0.78])
+    for (const fy of [0.26, 0.74]){
+      const x = c.x + c.w*fx, y = c.y + c.h*fy;
+      let d = 1e9;
+      for (const q of avoid) d = Math.min(d, Math.hypot(q[0]-x, q[1]-y));
+      if (!best || d > best.d) best = {x, y, d};
+    }
+  if (!best) return;
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '800 ' + Math.round(c.h*0.115) + 'px system-ui, sans-serif';
+  g.lineJoin = 'round'; g.miterLimit = 2;
+  g.strokeStyle = 'rgba(8,10,14,0.92)'; g.lineWidth = Math.max(4, c.h*0.022);
+  g.globalAlpha = 0.90;
+  g.strokeText(txt, best.x, best.y);
+  g.fillStyle = (cur && cur.kiss) ? '#ff8a80' : '#ffffff';
+  g.fillText(txt, best.x, best.y);
+  g.restore();
+}
 function drawGrid(){
   if (previewOn()) return;
   g.save();
@@ -3776,10 +3809,12 @@ function drawReadout(){
   //   이 숫자가 어느 길의 것인지 보인다. 키스면 빨갛게.
   const rl0 = routesReady();
   const cur = (rl0 && S.routeIx >= 0) ? rl0[S.routeIx] : null;
-  if (cur && cur.kiss) g.fillStyle = '#ff8a80';      // 키스는 이것만 색으로
-  const ttl = (cur ? cur.name + ' · ' : S.sysMode ? '' : '자동 · ') + SYS_NAMES[sys] + ' ▸';
-  g.strokeText(ttl, r.x + r.w/2, r.y + r.h*0.04);   // 검은 테두리 먼저
-  g.fillText(ttl,   r.x + r.w/2, r.y + r.h*0.04);   // 그 위에 흰 글씨
+  // ★ 사용자 2026-08-13: '시스템명을 보여주는 위치를 이동합시다. 테이블 안쪽 빈자리를
+  //   찾아봅시다. 상황판은 시스템명을 제외한 숫자 등만 보여줍시다. 내가 노안이라 안 보여요.'
+  //   → 상황판에는 **▸ 표시만** 남긴다 (탭하면 바뀐다는 신호). 이름은 다이 안에 크게.
+  if (cur && cur.kiss) g.fillStyle = '#ff8a80';
+  g.strokeText('▸', r.x + r.w - r.w*0.10, r.y + r.h*0.04);
+  g.fillText('▸',   r.x + r.w - r.w*0.10, r.y + r.h*0.04);
   if (sys === 1){                       // 팁 가이드 — 무회전이 기본, 안 되면 회전
     const tg = tipGuide();
     g.textAlign = 'right';
