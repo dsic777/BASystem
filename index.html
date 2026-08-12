@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 197;
+const MOBILE_VER = 198;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1875,6 +1875,13 @@ const ROUTE_SHOW = 5;         // 6칸 리스트에서 직접조준 한 칸을 �
 const SWEEP_STEP_DEG = 0.2;   // 굵게 훑기. 0.2도짜리 창도 표본 하나는 반드시 걸린다
 const EDGE_ITER = 12;         // 가장자리 이분법 횟수 (0.2/2^12 이면 충분히 정밀하다)
 const SWEEP_MAX_C = 5;        // 3~5쿠션. 그 이상은 실전에서 치는 길이 아니다
+// ★★ 대회전 — 사용자 2026-08-13 (6·7.jpg) 이 배치는 대회전으로도 친다고 했다.
+//   그런데 훑기가 5쿠션까지만 봐서 후보에 아예 안 들어왔다.
+//   사용자 선택 '(나) 대회전만 따로 찾는다 — 5쿠션 안에 못 맞히면 7쿠션까지 한 번 더'.
+//   → 2단계로 돈다. 보통 배치는 1단계에서 끝나 지금 속도 그대로다.
+//     2단계는 **6쿠션 이상인 것만** 받는다 (1단계와 겹치지 않게).
+const BIG_MAX_C = 7;
+let SWEEP_C_NOW = SWEEP_MAX_C, MIN_C_NOW = 3;
 const ROUTE_MIN_DEG = 0.10;
 const DROP_REVERSE = false;   // ★ 켜지 말 것 — '역각은 쓰리쿠션에서 발생하지 않습니다' (사용자 2026-08-11)   // 이보다 좁으면 사람이 못 친다 — 추천하지 않는다
 
@@ -2012,7 +2019,7 @@ function dirOf(a, b){
 function simulate(dir, k){
   const cue = S.balls.cue;
   const E = englishSideFor(cue.p, dir);       // 이 후보 방향의 회전 쪽 (위 ⚠️ 참고)
-  const seq = roll(cue.p, dir, SWEEP_MAX_C, k, E);
+  const seq = roll(cue.p, dir, SWEEP_C_NOW, k, E);
   if (!seq.length) return null;
   const cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!cut1.hit) return null;                       // 1적구를 못 맞힌다
@@ -2031,12 +2038,12 @@ function simulate(dir, k){
   //      움직이지 않습니다'). 그리기(drawPath)는 이미 이 표를 쓰고 있었다.
   const budget = afterCushions(c1);
   if (budget <= 0) return null;                     // 3쿠션 다 돌고 맞으면 거기서 선다
-  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_MAX_C - c1), k, E);
+  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_C_NOW - c1), k, E);
   const cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
   if (!cut2.hit) return null;                       // 2적구를 못 맞힌다
   const c2 = cut2.pts.length - 2;                   // 충돌 후 2적구 전까지 쿠션 수
   if (c2 > budget) return null;                     // 표가 허락한 것보다 멀리 갔다
-  if (c1 + c2 < 3) return null;                     // ★ 3쿠션 미달 — 득점이 아니다
+  if (c1 + c2 < MIN_C_NOW) return null;             // ★ 3쿠션 미달 — 득점이 아니다
   const rails = seq.slice(0, c1).map(h => h.rail)
            .concat(seq2.slice(0, c2).map(h => h.rail));
   // ⚠️ 같은 쿠션이 연달아 나오면 쿠션을 **스치며 미끄러진** 것이지 경로가 아니다.
@@ -2090,6 +2097,8 @@ function simulate(dir, k){
   //   '1 2 아무것도 못찾아요' 가 됐다. 역각·분리각과 같은 원칙으로 돌린다 —
   //   **없애지 말고 뒤로 민다.**
   let name = shotName(c1, rails, cue.p, cut1.obj);
+  // ★ 여섯 쿠션 이상을 직접 치고 도는 것 = **대회전** (사용자 6·7.jpg)
+  if (name && c1 === 0 && c1 + c2 >= 6) name = '대회전';
   let loose = false;
   if (!name){
     if (c1 > 0) return null;              // 뱅크는 이름이 있어야 한다 (억지 경로가 돌아온다)
@@ -2339,6 +2348,9 @@ function findRoutes(){
   //      폰에서 느리면 VS 를 [3, 0.78, -3] 셋으로 줄인다.
   const VS = [3, 1.5, 0.78, 0, -1.5, -3];           // 0.78 = 표준 2시30분의 상하 성분
   const tipSave = S.tipR, hSave = S.tipH, vSave = S.tipV;
+  for (const pass of [0, 1]){                       // 0 = 보통(5쿠션) · 1 = 대회전(7쿠션)
+  SWEEP_C_NOW = pass ? BIG_MAX_C : SWEEP_MAX_C;
+  MIN_C_NOW   = pass ? 6 : 3;                       // 2단계는 6쿠션 이상만 받는다
   for (const tv of VS)
   for (const tp of [-3, -2, -1, 0, 1, 2, 3]){       // 음수 = 역회전
     // ⚠️⚠️ 전에는 S.tipV = 0 (중단) 으로 밀어 놓고 찾았다. 그런데 **상하 당점이
@@ -2369,6 +2381,8 @@ function findRoutes(){
       if (cur) runs.push(cur);
     }
   }
+  }
+  SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
   S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave; TIP_NOW = tipSave; TIPV_NOW = vSave;
   // 가장자리를 이분법으로 다듬는다. 굵게 훑은 폭은 걸음 단위로 뭉뚱그려져 있어서
   // 그대로 쓰면 허용오차가 0.2 · 0.4 · 0.6 처럼 계단으로만 나온다 (파이썬에서 확인).
@@ -2383,10 +2397,13 @@ function findRoutes(){
   for (const r of runs){
     S.tipR = Math.min(3, Math.hypot(r.tip, r.tipV));           // 그 경로를 찾은 당점으로
     S.tipH = r.tip; S.tipV = r.tipV;
+    SWEEP_C_NOW = r.cushions >= 6 ? BIG_MAX_C : SWEEP_MAX_C;   // 대회전은 7쿠션으로 다듬는다
+    MIN_C_NOW   = r.cushions >= 6 ? 6 : 3;
     r.lo = edge(r.aLo, r.aLo - step, r.key);
     r.hi = edge(r.aHi, r.aHi + step, r.key);
   }
   S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave;
+  SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
   // (0도 이음매 잇기는 뺐다 — 이제 한 바퀴가 아니라 적구별 조준창만 훑는다)
   // 같은 길이 여러 군데 나오면 **제일 넓은 것** 하나만 남긴다 (미리보기가 똑같아 보인다)
   const best = {};
@@ -2509,7 +2526,7 @@ function scoresAt(a, k){
   if (!cue) return false;
   const dir = [Math.cos(a), Math.sin(a)];
   const E = englishSideFor(cue.p, dir);
-  const seq = roll(cue.p, dir, SWEEP_MAX_C, k, E);
+  const seq = roll(cue.p, dir, SWEEP_C_NOW, k, E);
   if (!seq.length) return false;
   const cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!cut1.hit) return false;
@@ -2519,7 +2536,7 @@ function scoresAt(a, k){
   if (!af) return false;
   const budget = afterCushions(c1);
   if (budget <= 0) return false;
-  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_MAX_C - c1), k, E);
+  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_C_NOW - c1), k, E);
   const cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
   if (!cut2.hit) return false;
   const c2 = cut2.pts.length - 2;
@@ -3218,14 +3235,15 @@ function routePoly(r){
   const d = [Math.cos(r.a), Math.sin(r.a)];
   const E = englishSideFor(cue.p, d);
   let out;
-  const seq = roll(cue.p, d, SWEEP_MAX_C, k, E);
+  const mc = (r.cushions >= 6) ? BIG_MAX_C : SWEEP_MAX_C;
+  const seq = roll(cue.p, d, mc, k, E);
   const c1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!c1.hit) out = [cue.p, ...seq.map(h => h.p)];
   else {
     const P = c1.pts[c1.pts.length-1], af = afterHit(c1.from, P, c1.obj);
     if (!af) out = c1.pts;
     else {
-      const s2 = roll(P, af.dir, SWEEP_MAX_C, k, E);
+      const s2 = roll(P, af.dir, mc, k, E);
       const c2 = cutAtBall([P, ...s2.map(h => h.p)], c1.obj);
       out = [...c1.pts, ...c2.pts.slice(1)];
     }
