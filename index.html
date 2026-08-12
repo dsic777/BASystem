@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 205;
+const MOBILE_VER = 206;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2581,7 +2581,8 @@ function scoresAt(a, k){
   if (c2 > budget) return false;
   if (c1 + c2 < 3) return false;                     // ★ 3쿠션 미달
   const rails = seq.slice(0,c1).map(h=>h.rail).concat(seq2.slice(0,c2).map(h=>h.rail));
-  return {c1, c2, rails, name: shotName(c1, rails, cue.p, cut1.obj)};
+  return {c1, c2, rails, name: shotName(c1, rails, cue.p, cut1.obj),
+          thick: af.thick, kiss: !!kissAt(P, af, cut2.pts, cut1.obj)};
 }
 
 function snapAim(){
@@ -2671,7 +2672,52 @@ function drawSysName(){
   g.strokeText(txt, best.x, best.y);
   g.fillStyle = (cur && cur.kiss) ? '#ff8a80' : '#ffffff';
   g.fillText(txt, best.x, best.y);
+  // ★ 키스가 나면 **피하는 두께**를 바로 아래에 한 줄로
+  const fix = kissFreeThick();
+  if (fix){
+    const t2 = '키스 — 8/' + thick8(fix.thick*8) + ' 로 ' +
+               (fix.thick < fix.now ? '얇게' : '두껍게');
+    g.font = '800 ' + Math.round(c.h*0.058) + 'px system-ui, sans-serif';
+    g.lineWidth = Math.max(3, c.h*0.013);
+    g.strokeStyle = 'rgba(8,10,14,0.92)';
+    g.strokeText(t2, best.x, best.y + c.h*0.085);
+    g.fillStyle = '#ffd400';
+    g.fillText(t2, best.x, best.y + c.h*0.085);
+  }
   g.restore();
+}
+// ★★ 키스를 **피하는 두께**를 찾는다 (사용자 2026-08-13 —
+//   '피하는 방법으로 가장 많이 사용하는 것은 1. 1적구 충돌시 **두께를 이용하여
+//    경로를 달리하기** 2. 시간차를 이용하기. 주로 두께와 힘, 회전을 이용합니다.')
+//   교본 103쪽 A·B·C 도 결국 '1적구를 어디로 보내나' 이고 그것이 곧 두께다.
+//
+//   같은 회로(쿠션 차례)를 지키면서 조준각을 좌우로 훑어, **득점하면서 키스가 없는**
+//   두께를 찾는다. 있으면 '8/2 로 얇게' 처럼 한 줄로 알려 준다.
+//   ⚠️ 두께만 본다. 힘·회전은 우리가 낼 수 있는 값이 아니다 (속도를 안 재 봤다).
+let KISSFIX = {key:null, val:null};
+function kissFreeThick(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim || !S.lockRails) return null;
+  const key = cue.p + '|' + S.aim + '|' + S.tipH + '|' + S.tipV + '|' + S.corr;
+  if (KISSFIX.key === key) return KISSFIX.val;
+  let out = null;
+  const d0 = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
+  const a0 = Math.atan2(d0[1], d0[0]);
+  let k0 = 0;
+  try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; }
+  const now = scoresAt(a0, k0);
+  if (now && now.kiss){                       // 지금 키스가 난다 — 벗어날 두께를 찾는다
+    const STEP = 0.05*Math.PI/180, R = 4*Math.PI/180;
+    for (let dd = STEP; dd <= R && !out; dd += STEP)
+      for (const sg of [1,-1]){
+        const r = scoresAt(a0 + sg*dd, k0);
+        if (r && !r.kiss && (r.rails||[]).join('-') === S.lockRails){
+          out = {thick: r.thick, now: now.thick}; break;
+        }
+      }
+  }
+  KISSFIX = {key, val: out};
+  return out;
 }
 function drawGrid(){
   if (previewOn()) return;
