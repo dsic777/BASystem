@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 159;
+const MOBILE_VER = 160;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -110,7 +110,9 @@ function reflect(a, tip){
   else for (let i = 0; i < t.length-1; i++)
     if (t[i][0] <= x && x <= t[i+1][0]) { p = t[i]; q = t[i+1]; break; }
   const y = p[1] + (q[1]-p[1]) * (x-p[0]) / (q[0]-p[0] || 1);
-  const h = Math.max(0, Math.min(3, tip === undefined ? S.tipH : tip));
+  // ⚠️ 팁의 **크기**만 쓴다. 왼쪽/오른쪽은 englishSide() 가 정한다.
+  //    전에는 max(0,...) 이라 역회전(음수)이 0 이 돼 궤적이 안 바뀌었다.
+  const h = Math.min(3, Math.abs(tip === undefined ? S.tipH : tip));
   return Math.max(x, Math.min(x + (y - x) * (h/2), 89.9));
 }
 
@@ -177,7 +179,13 @@ function bend(d, rail, k, E){
   //   넘어가면 거기서 멈춘다(거울반사). 짧아지는 것까지는 둔다 — 그게 역회전이다.
   //   ⚠️ 정면(들어온 각이 0)은 예외다. '흐른 쪽' 이 없으니 회전이 미는 쪽으로 나간다
   //      (2.jpg 에서 확인한 것). 그래서 ain 이 0 일 때는 이 제한을 걸지 않는다.
-  if (ain > 1e-6 && (signed >= 0 ? 1 : -1) !== sIn) signed = sIn * ain;
+  // ★ 역회전은 **법선 쪽으로 좁아진다.** 법선(0도)을 넘어 반대쪽으로 가지는 못한다.
+  //   2026-08-12 자료: '역회전 — 반사각이 입사각보다 좁아진다(수직 쪽으로 꺾임).
+  //     1팁 −0.5칸 · 2~3팁 −1.5~2칸 (45도 입사 기준)'
+  //   ⚠️ v142 에서 '거울에서 멈춤' 으로 막았던 것을 '법선에서 멈춤' 으로 고친다.
+  //      그때 지적하신 '3쿠션으로 솟아오른다' 는 **반대쪽으로 넘어간 것**이었고,
+  //      거울에 고정해 버리니 이번에는 **역회전 팁이 궤적을 전혀 못 바꿨다.**
+  if (ain > 1e-6 && (signed >= 0 ? 1 : -1) !== sIn) signed = 0;
   const mag = Math.min(Math.abs(signed), 89.9), sOut = signed >= 0 ? 1 : -1;
   const r = mag * Math.PI/180;
   return [[n[0]*Math.cos(r) + tg[0]*sOut*Math.sin(r),
@@ -1641,6 +1649,12 @@ function slopePts(a, b){
 // ★ 사용자 2026-08-12: '두께는 너무 세분하면 힘든데 공을 8등분 해서 2 4 6 정도만.'
 //   1.75/8 같은 값은 칠 수가 없다. 셋 중 제일 가까운 것으로 붙인다.
 const THICK_STEPS = [2, 4, 6];
+// 팁수를 사람 말로 — 음수는 역회전
+function tipKR(t){
+  if (t === undefined || t === null) return '—';
+  if (!t) return '무회전';
+  return (t < 0 ? '역 ' : '') + Math.abs(t) + '팁';
+}
 function thick8(v){
   let best = THICK_STEPS[0];
   for (const t of THICK_STEPS) if (Math.abs(t - v) < Math.abs(best - v)) best = t;
@@ -1890,7 +1904,7 @@ function simulate(dir, k){
   //   순각 = 공이 한 방향으로 계속 돈다. 역각 = 도는 방향이 도중에 뒤집힌다.
   //   쿠션마다 꺾이는 회전 방향(외적 부호)을 재서, 한 번이라도 뒤집히면 뺀다.
   //
-  // ★★ 결론: **켜지 않는다.** 사용자 확인 2026-08-11 —
+  // ★★ (아래 DROP_REVERSE 이야기) 결론: **켜지 않는다.** 사용자 확인 2026-08-11 —
   //   '역각의 이론은 매우 어렵습니다. **쓰리쿠션에서는 발생하지 않습니다.**'
   //   지금 추천 범위(1적구를 직접 치고 3쿠션 돌아 2적구)에서는 역각이 안 나온다.
   //   코드는 남겨 두되 DROP_REVERSE 는 false 로 둔다.
@@ -1976,11 +1990,12 @@ function findRoutes(){
   // ★ 사용자 2026-08-12: '이런 경로에 대하여 3쿠션이 성공할 수 있는 **두께와 당점**을
   //   제공해 주세요.'  → 조준각만 훑던 것을 **당점까지 같이** 훑는다.
   //   지금까지는 사용자가 고른 당점으로만 봤기 때문에 '이 당점이면 된다' 를 못 냈다.
-  //   ⚠️ 순회전 0~3팁만 본다. 역회전은 반사표가 없어 못 낸다
-  //      (사용자 4.jpg: '역회전 9시방향 3팁을 줄 경우에 한합니다' — 그건 아직 못 한다).
+  //   ★ 2026-08-12 부터 **역회전(−3~−1팁)도 훑는다.** 역회전은 반사각이 법선 쪽으로
+  //     좁아지는 것으로 모델을 고쳤다 (bend 참고). 사용자 4.jpg 의
+  //     '역회전 9시방향 3팁을 줄 경우에 한합니다' 같은 경로가 이제 나올 수 있다.
   const tipSave = S.tipR, hSave = S.tipH, vSave = S.tipV;
-  for (const tp of [0, 1, 2, 3]){
-    S.tipR = tp;
+  for (const tp of [-3, -2, -1, 0, 1, 2, 3]){       // 음수 = 역회전
+    S.tipR = Math.abs(tp);
     S.tipH = tp; S.tipV = 0;                        // 좌우만 본다 (반사에 쓰이는 축)
     TIP_NOW = tp;
     let cur = null;
@@ -2008,7 +2023,7 @@ function findRoutes(){
     return lo;
   };
   for (const r of runs){
-    S.tipR = r.tip; S.tipH = r.tip; S.tipV = 0;     // 그 경로를 찾은 당점으로 되돌린다
+    S.tipR = Math.abs(r.tip); S.tipH = r.tip; S.tipV = 0;   // 그 경로를 찾은 당점으로
     r.lo = edge(r.iLo*step, (r.iLo-1)*step, r.key);
     r.hi = edge(r.iHi*step, (r.iHi+1)*step, r.key);
   }
@@ -2063,8 +2078,8 @@ function pickRoute(r){
             : /돌리기/.test(r.name || '') ? 1 : 0;
   // ★ 그 경로를 찾은 **당점**으로 옮긴다 — 그래야 그려지는 궤적이 그 경로가 된다
   if (r.tip !== undefined){
-    S.tipDir = 6;                                   // 3시(순회전) 쪽
-    S.tipR = Math.max(0, Math.min(3, r.tip));
+    S.tipDir = r.tip < 0 ? 18 : 6;                  // 9시(역회전) / 3시(순회전)
+    S.tipR = Math.min(3, Math.abs(r.tip));
     S.tipV = S.tipR * Math.cos(S.tipDir*Math.PI/12);
     S.tipH = S.tipR * Math.sin(S.tipDir*Math.PI/12);
   }
@@ -2725,7 +2740,7 @@ function drawRouteList(){
     g.stroke();
     // ★ 사용자 2026-08-12: '3쿠션이 성공할 수 있는 두께와 당점을 제공해 주세요.'
     const label = last ? '직접 조준'
-      : (r.name || '') + '  8/' + thick8(r.thick*8) + ' · ' + (r.tip||0) + '팁';
+      : (r.name || '') + '  8/' + thick8(r.thick*8) + ' · ' + tipKR(r.tip);
     if (!last){
       // 작은 당구대 — 2:1 로 넣고 그 안에 공과 길을 그린다
       const m = chh*0.14, aw = cw - m*2, ah = chh*0.62;
@@ -3482,7 +3497,7 @@ function drawButtons(){
         const rr0 = rl[S.routeIx];
         heavy(rr0.name || '', cx, cy + u*0.44, u*0.19,
               rr0.kiss ? '#ff5a4a' : '#f2f4f8');
-        heavy('8/' + thick8(rr0.thick*8) + ' · ' + (rr0.tip||0) + '팁',
+        heavy('8/' + thick8(rr0.thick*8) + ' · ' + tipKR(rr0.tip),
               cx, cy + u*0.64, u*0.17, '#cfd6e0');
       } else {
         heavy('추천', cx, cy + u*0.24, u*0.27, '#f2f4f8');
