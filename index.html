@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 151;
+const MOBILE_VER = 152;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1284,7 +1284,7 @@ function down(px,py){
   if (READOUT && !previewOn() &&
       px >= READOUT.x - rm && px <= READOUT.x + READOUT.w + rm &&
       py >= READOUT.y - rm && py <= READOUT.y + READOUT.h + rm){
-    S.sysMode = (S.sysMode + 1) % 5;   // 자동 → 파앤하 → 2뱅크 → 횡단샷 → 리버스 → 자동
+    S.sysMode = (S.sysMode + 1) % 6;   // 자동 → 파앤하 → 2뱅크 → 횡단샷 → 리버스 → 옆돌리기 → 자동
     if (S.sysMode === 3) aimForCross();   // 횡단샷을 고르면 그 두께·팁으로 조준선을 잡는다
     return;
   }
@@ -1540,8 +1540,42 @@ function dim(rgb, k){
 // ★ 사용자 2026-08-12: '타이틀은 횡단샷입니다.'
 //   '기울기' 는 입력값이지 시스템 이름이 아니다. 이 판독창의 값(두께·팁수)은
 //   교본의 **더불횡단(횡단샷)** 식으로 낸 것이므로 그 진로 이름을 단다.
-const SYS_NAMES = ['파이브앤하프', '2뱅크 곱셈', '횡단샷', '리버스'];
-const SYS_MODE_KR = ['자동', '파이브앤하프', '2뱅크 곱셈', '횡단샷', '리버스'];
+const SYS_NAMES = ['파이브앤하프', '2뱅크 곱셈', '횡단샷', '리버스', '옆돌리기'];
+const SYS_MODE_KR = ['자동', '파이브앤하프', '2뱅크 곱셈', '횡단샷', '리버스', '옆돌리기'];
+
+// ─────────────────────────────── 옆돌리기 · 포지션 격자 (교본 84쪽)
+//   기준 : 수적구 일직선 상에서 **상단 1팁, 1/2 두께** 적용시 3쿠션 20pt 도착
+//   팁수 = (1적구 구역 팁수) + (수적구 기울기) + (3쿠션 보정)
+//   책의 예 : 1적구 2팁 구역 · 기울기 −2(30도/2pt) · 3쿠션 +2팁 →  2 + (−2) + 2 = 2
+//
+//   1적구 구역 — 당구대를 위·아래 두 줄로 나누고 하단 눈금(한 칸당 10)으로 가른다
+//     위쪽   <10 무회전 · 10~20 1팁 · 20~40 2팁 · 40~60 3팁 · >60 4팁(하단 1팁)
+//     아래쪽 <20 무회전 · 20~40 1팁 · 40~60 2팁 · >60 3팁
+//   3쿠션 보정 — 기준점 **20** 에서 **5pt 당 1팁**
+//
+// ⚠️ 두 곳이 책에 안 적혀 있어 이렇게 잡았다. 숫자가 이상하면 여기를 고친다 —
+//   ① 눈금의 0 을 **수구에서 가까운 코너**로 잡았다 (책 그림이 그렇다)
+//   ② 위/아래 줄은 **1적구가 수구와 반대쪽 절반이면 위쪽**으로 봤다
+//   ③ 기울기 부호(순각 +, 엇각 −)를 계산할 방법이 없어 **빼는 쪽**으로 뒀다.
+//      책의 단 하나뿐인 예제(기울기가 −2)에 맞춘 것이다. 확인이 필요하다.
+const ZONE_UP = [[10,0],[20,1],[40,2],[60,3],[1e9,4]];
+const ZONE_DN = [[20,0],[40,1],[60,2],[1e9,3]];
+function sideTurnNums(){
+  const cue = S.balls.cue, o1 = S.balls.obj1, o2 = S.balls.obj2;
+  if (!cue || !o1) return null;
+  const fromLeft = cue.p[0] <= T.width/2, dia = T.width/8;
+  const scale = q => (fromLeft ? q[0] : T.width - q[0]) / dia * 10;   // 한 칸당 10
+  const v = scale(o1.p);
+  const upper = (o1.p[1] > T.height/2) !== (cue.p[1] > T.height/2);
+  const tbl = upper ? ZONE_UP : ZONE_DN;
+  let zone = tbl[tbl.length-1][1];
+  for (const [lim, t] of tbl) if (v < lim){ zone = t; break; }
+  const sl = slopePts(cue.p, o1.p);
+  if (sl === null) return null;
+  const corr = o2 ? (scale(o2.p) - 20) / 5 : null;       // 기준점 20, 5pt 당 1팁
+  return {zone, slope: sl, corr,
+          tip: corr === null ? null : zone - sl + corr};
+}
 
 // ─────────────────────────────── 리버스 (교본 158~159쪽 · 눈금은 원본으로 재확인)
 //   단축   15 − (수구수치 + 목적구수치) = 1쿠션 포인트 값   한 칸당 5, 코너 0
@@ -1978,7 +2012,8 @@ function pickRoute(r){
   //   ⚠️ 충돌 뒤 속도가 없으므로 **시간을 흉내내지 않는다.** 수구가 지나간 길을
   //      차례대로 **그려 나가기만** 한다 — 순서는 맞고, 빠르기는 주장하지 않는다.
   S.anim = performance.now();
-  S.sysMode = (r.name === '횡단샷') ? 3 : /돌리기/.test(r.name || '') ? 1 : 0;
+  S.sysMode = (r.name === '횡단샷') ? 3 : (r.name === '옆돌리기') ? 5
+            : /돌리기/.test(r.name || '') ? 1 : 0;
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(r.a)*len, cue.p[1] + Math.sin(r.a)*len];
 }
@@ -3087,7 +3122,11 @@ function drawReadout(){
   //   2뱅크 곱셈    출발값 | 1쿠션 | 2쿠션값    〃 (1쿠션위치값 = 2쿠션값 × 출발값)
   const sys = curSystem();
   let cols;
-  if (sys === 3){
+  if (sys === 4){
+    // ★ 옆돌리기 — 구역 팁수 + 기울기 + 3쿠션 보정 = 당점. 두께는 1/2 기준
+    const st = sideTurnNums();
+    cols = [['구역', st && st.zone], ['기울기', st && st.slope], ['팁수', st && st.tip]];
+  } else if (sys === 3){
     // ★ 리버스 — 상수 − (수구값 + 목적구값) = 1쿠션값. 당점은 항상 중단 3팁
     const rv = reverseNums();
     cols = [['수구', rv && rv.cue], ['목적구', rv && rv.obj], ['1쿠션', rv && rv.first]];
@@ -3129,7 +3168,10 @@ function drawReadout(){
   // 어느 시스템을 보고 있는지 — 탭하면 바뀐다는 표시도 겸한다.
   // 2뱅크일 때 노란 글씨라 한눈에 갈린다.
   g.textBaseline = 'top';
-  g.fillStyle = sys === 3 ? '#8ab4ff' : sys === 2 ? '#7ee08a' : sys === 1 ? '#ffd400' : 'rgba(238,243,250,0.60)';
+  // ★ 사용자 2026-08-12: '너무 진하지 않게.' 모드 색을 죽여서 글자가 튀지 않게 한다.
+  g.fillStyle = sys === 4 ? 'rgba(226,170,198,0.78)' : sys === 3 ? 'rgba(158,182,224,0.78)'
+              : sys === 2 ? 'rgba(158,204,166,0.78)' : sys === 1 ? 'rgba(224,196,110,0.78)'
+              : 'rgba(238,243,250,0.60)';
   g.font = '800 ' + Math.round(r.h*0.20) + 'px system-ui, sans-serif';
   // ★ 고른 경로가 있으면 **진로 이름**을 앞에 붙인다 — 리스트를 안 열어도
   //   이 숫자가 어느 길의 것인지 보인다. 키스면 빨갛게.
