@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 154;
+const MOBILE_VER = 155;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1422,7 +1422,7 @@ function draw(){
     g.drawImage(PHOTO, (cw-pw)/2, (ch-ph)/2, pw, ph);
     g.restore();
   }
-  drawDiamonds(); drawNumbers(); drawZoneGrid();
+  drawGrid(); drawDiamonds(); drawNumbers(); drawZoneGrid();
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
@@ -2064,6 +2064,26 @@ function snapAim(){
 // ★ 사용자 2026-08-12: '격자가 안 보이는데요.'
 //   옆돌리기 포지션 격자를 **다이 위에 그린다** (교본 84쪽 그림 그대로).
 //   1적구가 어느 칸에 있는지는 숫자보다 그림으로 보는 것이 빠르다.
+// ★ 사용자 2026-08-12: '테이블에 격자무늬 안 만드나요?'
+//   교본 그림처럼 다이아 격자를 **늘** 깔아 둔다. 공 자리를 눈으로 재는 데 쓰인다.
+//   장쿠션 8칸 → 세로 7줄 · 단쿠션 4칸 → 가로 3줄.
+//   ⚠️ 아주 옅게. 궤적과 숫자가 주인공이다 (사용자: '너무 진하지 않게').
+function drawGrid(){
+  if (previewOn()) return;
+  g.save();
+  g.strokeStyle = 'rgba(255,255,255,0.075)';
+  g.lineWidth = Math.max(1, L.cloth.h*0.0028);
+  for (let i = 1; i <= 7; i++){
+    const [ax,ay] = toPx(T.width*i/8, 0), [bx,by] = toPx(T.width*i/8, T.height);
+    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
+  }
+  for (let j = 1; j <= 3; j++){
+    const [ax,ay] = toPx(0, T.height*j/4), [bx,by] = toPx(T.width, T.height*j/4);
+    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
+  }
+  g.restore();
+}
+
 function drawZoneGrid(){
   if (curSystem() !== 4 || previewOn()) return;
   const cue = S.balls.cue, o1 = S.balls.obj1;
@@ -2075,17 +2095,7 @@ function drawZoneGrid(){
   // ★ 사용자 2026-08-12: '가로 3 세로 7 줄을 표시하는 것이 격자 아닌가요.'
   //   맞다 — 다이아 격자다. 장쿠션 8칸이면 세로줄 7개, 단쿠션 4칸이면 가로줄 3개.
   //   구역 경계(눈금 10·20·40·60)는 이 격자선 위에 그대로 얹힌다.
-  g.lineWidth = Math.max(1, L.cloth.h*0.003);
-  g.strokeStyle = 'rgba(226,170,198,0.18)';
-  for (let i = 1; i <= 7; i++){                     // 세로 7
-    const [ax,ay] = toPx(T.width*i/8, 0), [bx,by] = toPx(T.width*i/8, T.height);
-    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
-  }
-  for (let j = 1; j <= 3; j++){                     // 가로 3
-    const [ax,ay] = toPx(0, T.height*j/4), [bx,by] = toPx(T.width, T.height*j/4);
-    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
-  }
-  // 구역 경계만 조금 진하게 — 눈금 10·20·40·60 과 높이 한가운데
+  // 격자는 drawGrid() 가 늘 깔아 둔다. 여기서는 **구역 경계만** 얹는다.
   g.strokeStyle = 'rgba(226,170,198,0.42)';
   g.lineWidth = Math.max(1.5, L.cloth.h*0.005);
   let a = toPx(0, T.height/2), b = toPx(T.width, T.height/2);
