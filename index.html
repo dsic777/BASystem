@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 220;
+const MOBILE_VER = 221;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3357,8 +3357,21 @@ function drawPath(){
       //     (득점 여부를 보는 선은 2적구에서 끝나는 것이 맞다).
       //   ⑴ 수구는 2적구를 맞은 뒤에도 꺾여서 두 쿠션 더 간다
       //   ⑵ 1적구는 3쿠션에서 자르지 않고 네 쿠션까지 간다
+      const opSimPre = [cut.obj, ...rollPlain(cut.obj, a.objDir, 5).map(h => h.p)];
+      // ★★ 사용자 2026-08-13: '마지막에 **흰공이 빨간공이 있던 자리에서, 빨간공은
+      //   이미 없는데 충돌**을 함.'
+      //   그려지는 궤적은 2적구가 **제자리에 서 있다는 전제**로 푼 것이다. 그런데
+      //   1적구가 먼저 2적구를 밀어냈으면 거기엔 아무것도 없다. 그래도 수구가 꺾였다.
+      //   → 1적구가 2적구를 건드리는 길이면 **수구는 그 자리에서 안 꺾이고 지나간다.**
+      //     득점이 깨진 것이고, 그것이 눈에 보여야 한다.
+      const objWillHit2 = cutAtBall(opSimPre, cut.obj).hit;
       let cuePoly = [...before, ...pts2.slice(1)];
-      if (post.hit && post.obj){
+      if (objWillHit2 && pts2.length >= 2){
+        // 마지막 방향 그대로 한 쿠션 더 (꺾지 않는다)
+        const Q0 = pts2[pts2.length-1], u0 = dirOf(pts2[pts2.length-2], Q0);
+        cuePoly = cuePoly.concat(roll(Q0, u0, 1, kk).map(h => h.p));
+      }
+      else if (post.hit && post.obj){
         const Q = pts2[pts2.length-1];
         const a2 = afterHit(post.from, Q, post.obj);
         // ★ 사용자 2026-08-13: '흰공이 마지막에 너무 많이 굴러가네요.'
@@ -3372,8 +3385,7 @@ function drawPath(){
           }
         }
       }
-      // ★ 사용자 2026-08-13: '노란공도 조금 더 굴러가고' → 4 → 5 쿠션
-      const opSim = [cut.obj, ...rollPlain(cut.obj, a.objDir, 5).map(h => h.p)];
+      const opSim = opSimPre;                   // 1적구 5쿠션 (위에서 이미 만들었다)
       // ★ 수구가 남기는 몫 = √(1 − 두께²)  (1적구가 두께만큼 가져간다)
       const share = Math.max(0.10, Math.min(0.95, a.thick));
       const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
@@ -3413,7 +3425,7 @@ function drawPath(){
         //      그런데 마지막 꺾임에서 공까지 가는 **토막이 빠진다.** 그만큼 일찍 출발했다.
         //   → 공에 닿는 데까지 잘라 낸 길로 트랙을 새로 만들고 **그 total** 을 쓴다.
         //      트랙의 total 이 곧 도착 시각이라 토막이 안 빠진다.
-        if (post.hit && post.obj){
+        if (!objWillHit2 && post.hit && post.obj){
           const Q = pts2[pts2.length-1];
           const a2 = afterHit(post.from, Q, post.obj);
           if (a2 && a2.objDir){
