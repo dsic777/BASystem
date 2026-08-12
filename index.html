@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 172;
+const MOBILE_VER = 173;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -893,7 +893,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
-           power:1, routeIx:-1, routeList:false, anim:0, listShown:null, blink:0,
+           power:1, routeIx:-1, routeList:false, anim:0, listShown:null, blink:0, snapA:null,
            // ★ 시스템 고르기. 0 자동 · 1 파이브앤하프 고정 · 2 2뱅크 고정.
            //   ★ 사용자 2026-08-11: '0에서 10 언저리로 경로를 이동하면 파이브앤하프에서
            //     자동으로 2뱅크 시스템으로 안내하고 경로를 자동으로 설정.'
@@ -1373,7 +1373,23 @@ function move(px,py){
       [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)]);
     blink();
   } else if (S.aiming){
+    // ★★ 사용자 2026-08-12 —
+    //   '탭 이동 중 3쿠션이 완성이 되면 **바로 블링크**. 이때는 탭을 누르고 있는 상태.
+    //    블링크 중 손을 떼면 확정. 블링크 중에는 탭을 움직여도 무시.
+    //    블링크가 3초 후 꺼진 다음부터 다시 탭 이동 허용.'
+    if (blinking()) return;                        // 잠김 — 움직여도 무시한다
     const f = frameAt(px,py); if (f) S.aim = S.lastAim = f;
+    // 방금 붙었던 각에서 충분히 벗어나야 다시 붙는다.
+    // (안 그러면 깜빡임이 끝나자마자 같은 자리에 도로 붙어 영영 못 빠져나온다)
+    if (S.snapA !== null){
+      const cue = S.balls.cue;
+      if (!cue || !S.aim) return;
+      const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
+      const df = Math.abs(((S.snapA - a0 + Math.PI*3) % (Math.PI*2)) - Math.PI);
+      if (df < MAGNET_DEG * Math.PI/180) return;   // 아직 그 경로 근처다
+      S.snapA = null;                              // 벗어났다 — 다시 붙을 수 있다
+    }
+    snapAim();                                     // 닿는 순간 바로 붙고 깜빡인다
   }
 }
 function up(px, py){
@@ -1393,10 +1409,11 @@ function up(px, py){
       }
     }
   }
-  // ★ 손을 뗄 때 경로를 시스템이 다듬는다 (사용자 지시 2026-08-11).
-  //   조준하는 내내 걸면 손가락을 따라오지 못해 답답하다 — 놓는 순간에만 붙인다.
-  if (S.aiming) snapAim();
-  S.drag = null; S.aiming = false;
+  // ★ 깜빡이는 중에 손을 떼면 **그대로 확정** — 다시 붙이지 않는다 (사용자 2026-08-12).
+  //   깜빡임이 이미 끝난 뒤에 뗀 것이면 마지막으로 한 번 붙여 본다.
+  //   ⚠️ 2026-08-11 에는 '놓는 순간에만' 붙였다. 이제는 끌고 가는 도중에 붙는다.
+  if (S.aiming && !blinking()) snapAim();
+  S.drag = null; S.aiming = false; S.snapA = null;
 }
 
 // ---------------------------------------------------------------- 그리기
@@ -2173,10 +2190,13 @@ function nextRoute(){
 // ★ 3쿠션 경로가 확정되면 3초간 깜빡인다 (사용자 2026-08-12: '탭을 떼면 확정').
 //   자석이 붙을 때도, 리스트에서 고를 때도 여기를 지난다.
 const BLINK_MS = 3000, BLINK_HZ = 4;      // 3초 · 4번
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+// 깜빡이는 동안은 경로가 **잠긴다** — 손가락을 움직여도 안 바뀐다.
+function blinking(){ return !!S.blink && nowMs() - S.blink < BLINK_MS; }
 function pickRoute(r){
   const cue = S.balls.cue;
   if (!cue || !r) return;
-  S.blink = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  S.blink = nowMs();
   // ★ 사용자 UI 안: '누르면 공의 진행을 시뮬레이션 보여주기'
   //   ⚠️ 충돌 뒤 속도가 없으므로 **시간을 흉내내지 않는다.** 수구가 지나간 길을
   //      차례대로 **그려 나가기만** 한다 — 순서는 맞고, 빠르기는 주장하지 않는다.
@@ -2230,9 +2250,9 @@ function snapAim(){
   //   **찾은 경로와 그려지는 궤적이 서로 다른 공**이 된다.
   //   pickRoute() 는 당점·판독창·조준을 한꺼번에 옮긴다. 그것을 부른다.
   pickRoute(list[bi]);
-  const r = list[bi];
-  flash((r.name || '3쿠션') + ' · 8/' + thick8(r.thick*8) + ' · ' + tipKR(r.tip)
-        + '  (' + (bi+1) + '/' + list.length + ')', 2400);
+  S.snapA = list[bi].a;                 // 이 각에서 벗어나야 다시 붙는다
+  // ⚠️ 안내 글은 넣지 않는다 (사용자 2026-08-12: '안내는 필요없어요').
+  //    깜빡임이 붙었다는 신호이고, 판독창이 이미 진로·두께·팁수를 보여준다.
   return true;
 }
 
@@ -2584,7 +2604,7 @@ function drawPath(){
   const cut = cutAtBall(full);
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
   // ★ 확정 직후 3초간 깜빡임. 0.30 ~ 1.00 사이를 4번 오간다.
-  const el = S.blink ? ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - S.blink) : 1e9;
+  const el = S.blink ? (nowMs() - S.blink) : 1e9;
   const BK = el < BLINK_MS
     ? 0.30 + 0.70 * (0.5 + 0.5*Math.cos(el / BLINK_MS * Math.PI * 2 * BLINK_HZ))
     : 1;
