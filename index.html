@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 153;
+const MOBILE_VER = 154;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1770,11 +1770,20 @@ const DROP_REVERSE = false;   // ★ 켜지 말 것 — '역각은 쓰리쿠션�
 //    교본 그림과 반대였다 (ss4 뒤돌리기가 장 먼저, ss3 앞돌리기가 단 먼저).
 //    그림 7장이 모두 위 규칙으로 맞아떨어져 이쪽을 따른다.
 const BANK_KR = ['', '원뱅크', '투뱅크', '쓰리뱅크'];
+// ★ 사용자 2026-08-12: '2 같은 추천은 하지 마세요, 현실적이지 않아요.
+//   교본에 나오는 경로를 쭉 추려서 그런 기준으로 추천경로를 만들어보세요.'
+//   → **교본에 이름이 있는 진로만** 내놓는다. 이름이 안 붙으면 null 을 돌려
+//     추천 목록에 아예 안 들어간다.
+//   ⚠️ 뱅크샷은 **원뱅크만** 남겼다. 투뱅크·쓰리뱅크도 교본에 이름은 있으나
+//      (걸어치기 장) 우리가 그 배치 조건을 아직 모른다. 2.jpg 가 그 예다 —
+//      투뱅크로 두 쿠션을 돌고 10% 두께로 맞히는 길이었다.
 function shotName(c1, rails, cueP, objP){
-  if (c1 > 0) return BANK_KR[Math.min(c1, 3)] || '뱅크샷';
+  if (c1 > 1) return null;                          // 투뱅크·쓰리뱅크는 아직 안 낸다
+  if (c1 > 0) return '원뱅크';
   const k = rails.slice(0, 3).map(r => isLong(r) ? '장' : '단').join('');
   if (k === '장장장') return '횡단샷';
   if (k === '단단단') return '종단샷';
+  if (k !== '단장단' && k !== '장단장') return null;  // 교본에 없는 쿠션 순서
   if (!isLong(rails[0])) return '앞돌리기';          // 단 - 장 - 단
   if (!cueP || !objP) return '옆·뒤돌리기';
   // 단쿠션은 세로(y축)로 서 있다. 두 공을 잇는 선이 세로면 단쿠션과 평행하다.
@@ -1893,6 +1902,7 @@ function simulate(dir, k){
     if (kk !== 'cue' && Math.hypot(q[0]-cut1.obj[0], q[1]-cut1.obj[1]) < 1){ who = kk; break; }
   }
   const name = shotName(c1, rails, cue.p, cut1.obj);
+  if (!name) return null;                            // 교본에 없는 진로는 추천하지 않는다
   const kiss = kissAt(P, af, cut2.pts, cut1.obj);      // 두 길이 겹치나
   const sep = af.deg;                                  // 분리각 — 순서 매길 때 쓴다
   return {key: who + '|' + rails.join('-'), rails, first: who,
@@ -2062,20 +2072,30 @@ function drawZoneGrid(){
   const xAt = n => fromLeft ? dia*n/10 : T.width - dia*n/10;   // 눈금 n 의 자리
   const upperTop = (cue.p[1] <= T.height/2);   // 수구 반대쪽 절반이 '위쪽 줄'
   g.save();
-  g.strokeStyle = 'rgba(226,170,198,0.30)';
-  g.lineWidth = Math.max(1, L.cloth.h*0.004);
-  g.setLineDash([Math.max(4, L.cloth.h*0.012), Math.max(3, L.cloth.h*0.010)]);
-  // 가로 가르기 — 당구대 높이의 한가운데
+  // ★ 사용자 2026-08-12: '가로 3 세로 7 줄을 표시하는 것이 격자 아닌가요.'
+  //   맞다 — 다이아 격자다. 장쿠션 8칸이면 세로줄 7개, 단쿠션 4칸이면 가로줄 3개.
+  //   구역 경계(눈금 10·20·40·60)는 이 격자선 위에 그대로 얹힌다.
+  g.lineWidth = Math.max(1, L.cloth.h*0.003);
+  g.strokeStyle = 'rgba(226,170,198,0.18)';
+  for (let i = 1; i <= 7; i++){                     // 세로 7
+    const [ax,ay] = toPx(T.width*i/8, 0), [bx,by] = toPx(T.width*i/8, T.height);
+    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
+  }
+  for (let j = 1; j <= 3; j++){                     // 가로 3
+    const [ax,ay] = toPx(0, T.height*j/4), [bx,by] = toPx(T.width, T.height*j/4);
+    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
+  }
+  // 구역 경계만 조금 진하게 — 눈금 10·20·40·60 과 높이 한가운데
+  g.strokeStyle = 'rgba(226,170,198,0.42)';
+  g.lineWidth = Math.max(1.5, L.cloth.h*0.005);
   let a = toPx(0, T.height/2), b = toPx(T.width, T.height/2);
   g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
-  // 세로 가르기 — 눈금 10 · 20 · 40 · 60
   for (const n of [10, 20, 40, 60]){
     const x = xAt(n);
     if (x < 1 || x > T.width-1) continue;
     a = toPx(x, 0); b = toPx(x, T.height);
     g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
   }
-  g.setLineDash([]);
   // 칸마다 팁수 — 위쪽 줄과 아래쪽 줄이 다르다
   const UP = [[0,10,'무회전'],[10,20,'1팁'],[20,40,'2팁'],[40,60,'3팁'],[60,80,'4팁']];
   const DN = [[0,20,'무회전'],[20,40,'1팁'],[40,60,'2팁'],[60,80,'3팁']];
