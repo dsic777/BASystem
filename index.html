@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 150;
+const MOBILE_VER = 151;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1284,7 +1284,7 @@ function down(px,py){
   if (READOUT && !previewOn() &&
       px >= READOUT.x - rm && px <= READOUT.x + READOUT.w + rm &&
       py >= READOUT.y - rm && py <= READOUT.y + READOUT.h + rm){
-    S.sysMode = (S.sysMode + 1) % 4;   // 자동 → 파앤하 → 2뱅크 → 횡단샷 → 자동
+    S.sysMode = (S.sysMode + 1) % 5;   // 자동 → 파앤하 → 2뱅크 → 횡단샷 → 리버스 → 자동
     if (S.sysMode === 3) aimForCross();   // 횡단샷을 고르면 그 두께·팁으로 조준선을 잡는다
     return;
   }
@@ -1540,8 +1540,31 @@ function dim(rgb, k){
 // ★ 사용자 2026-08-12: '타이틀은 횡단샷입니다.'
 //   '기울기' 는 입력값이지 시스템 이름이 아니다. 이 판독창의 값(두께·팁수)은
 //   교본의 **더불횡단(횡단샷)** 식으로 낸 것이므로 그 진로 이름을 단다.
-const SYS_NAMES = ['파이브앤하프', '2뱅크 곱셈', '횡단샷'];
-const SYS_MODE_KR = ['자동', '파이브앤하프', '2뱅크 곱셈', '횡단샷'];
+const SYS_NAMES = ['파이브앤하프', '2뱅크 곱셈', '횡단샷', '리버스'];
+const SYS_MODE_KR = ['자동', '파이브앤하프', '2뱅크 곱셈', '횡단샷', '리버스'];
+
+// ─────────────────────────────── 리버스 (교본 158~159쪽 · 눈금은 원본으로 재확인)
+//   단축   15 − (수구수치 + 목적구수치) = 1쿠션 포인트 값   한 칸당 5, 코너 0
+//   장축   32 − (수구값  + 목적구값)  = 1쿠션값            한 칸당 10, 코너 0
+//   ★ 당점은 **항상 중단 3팁** — 고를 것이 없다
+// ⚠️ 어느 코너를 0 으로 보느냐는 배치가 정한다. 여기서는 **수구에서 가까운 코너**를
+//    0 으로 잡는다 (책 그림이 늘 수구 쪽 코너를 0 으로 둔다).
+function reverseNums(){
+  const cue = S.balls.cue, o2 = S.balls.obj2 || S.balls.obj1;
+  if (!cue || !o2) return null;
+  const near = (v, span) => Math.min(v, span - v);       // 가까운 코너까지 거리
+  // 단축 출발인가 장축 출발인가 — 수구가 붙어 있는 쪽으로 본다
+  const dx = near(cue.p[0], T.width), dy = near(cue.p[1], T.height);
+  const shortSide = dx <= dy;            // 좌·우 단쿠션에 더 가까우면 단축 출발
+  const per = shortSide ? 5 : 10;        // 한 칸당
+  const dia = shortSide ? T.height/4 : T.width/8;
+  const axis = shortSide ? 1 : 0;        // 눈금을 읽는 축
+  const span = shortSide ? T.height : T.width;
+  const val = p => Math.min(p[axis], span - p[axis]) / dia * per;
+  const a = val(cue.p), b = val(o2.p);
+  const base = shortSide ? 15 : 32;
+  return {short: shortSide, cue: a, obj: b, first: base - (a + b), base};
+}
 
 // ─────────────────────────────── 기울기 (교본 표준 · 반영계획 1단계)
 // 『3쿠션 첫걸음(V2020)』 의 시스템 상당수가 **기울기** 하나로 두께·팁수를 낸다.
@@ -3064,7 +3087,11 @@ function drawReadout(){
   //   2뱅크 곱셈    출발값 | 1쿠션 | 2쿠션값    〃 (1쿠션위치값 = 2쿠션값 × 출발값)
   const sys = curSystem();
   let cols;
-  if (sys === 2){
+  if (sys === 3){
+    // ★ 리버스 — 상수 − (수구값 + 목적구값) = 1쿠션값. 당점은 항상 중단 3팁
+    const rv = reverseNums();
+    cols = [['수구', rv && rv.cue], ['목적구', rv && rv.obj], ['1쿠션', rv && rv.first]];
+  } else if (sys === 2){
     // ★ 교본 표준 1단계 — 기울기를 그대로 보여 준다 (반영계획.md).
     //   맞는지 눈으로 확인되면 여기서 두께·팁수를 낸다.
     const sl = slopes();
@@ -3102,7 +3129,7 @@ function drawReadout(){
   // 어느 시스템을 보고 있는지 — 탭하면 바뀐다는 표시도 겸한다.
   // 2뱅크일 때 노란 글씨라 한눈에 갈린다.
   g.textBaseline = 'top';
-  g.fillStyle = sys === 2 ? '#7ee08a' : sys === 1 ? '#ffd400' : 'rgba(238,243,250,0.60)';
+  g.fillStyle = sys === 3 ? '#8ab4ff' : sys === 2 ? '#7ee08a' : sys === 1 ? '#ffd400' : 'rgba(238,243,250,0.60)';
   g.font = '800 ' + Math.round(r.h*0.20) + 'px system-ui, sans-serif';
   // ★ 고른 경로가 있으면 **진로 이름**을 앞에 붙인다 — 리스트를 안 열어도
   //   이 숫자가 어느 길의 것인지 보인다. 키스면 빨갛게.
