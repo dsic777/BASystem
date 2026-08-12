@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 146;
+const MOBILE_VER = 147;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1713,6 +1713,53 @@ function shotName(c1, rails, cueP, objP){
   return Math.abs(objP[1]-cueP[1]) >= Math.abs(objP[0]-cueP[0]) ? '옆돌리기' : '뒤돌리기';
 }
 
+// ─────────────────────────────── 키스 판정 (기하만으로)
+// ★ data/kiss.json (사용자 2026-08-10): '키스는 **1적구 동선과 수구의 3~4쿠션
+//   동선이 교차**해서 난다.'
+// ★ 교본도 두 장에서 같은 결론을 낸다 — 시간을 재지 않는다 (책 103~105·128쪽).
+//   '적구의 진행방향을 바꾸거나 진행속도를 느리게 한다.'
+// ⚠️ 우리는 충돌 후 속도가 없어 **누가 먼저 지나가는지는 모른다.** 그래서
+//    '두 길이 겹친다' 까지만 본다. 실제로는 비껴갈 수도 있으므로 **경고**로만 쓰고
+//    추천 목록에서 빼지는 않는다 (없는 길을 지우는 것보다 낫다).
+function segMinDist(a, b, c, d){
+  const uv = (p, q) => [q[0]-p[0], q[1]-p[1]];
+  const dot = (p, q) => p[0]*q[0] + p[1]*q[1];
+  const u = uv(a, b), v = uv(c, d), w = uv(c, a);
+  const A = dot(u,u), B = dot(u,v), C = dot(v,v), D = dot(u,w), E = dot(v,w);
+  const den = A*C - B*B;
+  let sc, tc;
+  if (den < 1e-9){ sc = 0; tc = C > 1e-9 ? E/C : 0; }
+  else { sc = (B*E - C*D)/den; tc = (A*E - B*D)/den; }
+  sc = Math.max(0, Math.min(1, sc)); tc = Math.max(0, Math.min(1, tc));
+  const px = a[0]+u[0]*sc - (c[0]+v[0]*tc), py = a[1]+u[1]*sc - (c[1]+v[1]*tc);
+  return {d: Math.hypot(px, py), at: [a[0]+u[0]*sc, a[1]+u[1]*sc]};
+}
+// 수구 길과 1적구 길이 겹치는 자리. 없으면 null.
+// P = 충돌점, af = afterHit 결과, cuePts = 충돌 뒤 수구 점들 (P 포함)
+function kissAt(P, af, cuePts, obj){
+  if (!af || !af.objDir || cuePts.length < 2) return null;
+  // 1적구는 3쿠션까지 (kiss.json 기준). 큐에 안 맞은 공이라 거울반사로 굴린다.
+  const op = [obj, ...rollPlain(obj, af.objDir, 3).map(h => h.p)];
+  const D = T.ball_diameter, SKIP = D * 2.2;   // 충돌 직후는 원래 붙어 있다 — 건너뛴다
+  let run = 0;
+  for (let i = 0; i < cuePts.length-1; i++){
+    const segLen = Math.hypot(cuePts[i+1][0]-cuePts[i][0], cuePts[i+1][1]-cuePts[i][1]);
+    if (run + segLen > SKIP){
+      let orun = 0;
+      for (let j = 0; j < op.length-1; j++){
+        const oLen = Math.hypot(op[j+1][0]-op[j][0], op[j+1][1]-op[j][1]);
+        if (orun + oLen > SKIP){
+          const m = segMinDist(cuePts[i], cuePts[i+1], op[j], op[j+1]);
+          if (m.d < D && Math.hypot(m.at[0]-P[0], m.at[1]-P[1]) > SKIP) return m.at;
+        }
+        orun += oLen;
+      }
+    }
+    run += segLen;
+  }
+  return null;
+}
+
 function dirOf(a, b){
   const dx = b[0]-a[0], dy = b[1]-a[1], n = Math.hypot(dx, dy);
   return n < 1e-9 ? [0,0] : [dx/n, dy/n];
@@ -1778,8 +1825,9 @@ function simulate(dir, k){
     if (kk !== 'cue' && Math.hypot(q[0]-cut1.obj[0], q[1]-cut1.obj[1]) < 1){ who = kk; break; }
   }
   const name = shotName(c1, rails, cue.p, cut1.obj);
+  const kiss = kissAt(P, af, cut2.pts, cut1.obj);      // 두 길이 겹치나
   return {key: who + '|' + rails.join('-'), rails, first: who,
-          cushions: c1 + c2, name, before: c1};
+          cushions: c1 + c2, name, before: c1, kiss: !!kiss};
 }
 
 let ROUTES = {key:null, list:[]};
@@ -1820,7 +1868,7 @@ function findRoutes(){
     if (r){
       if (cur) cur.iHi = i;
       else cur = {key:r.key, iLo:i, iHi:i, rails:r.rails, first:r.first,
-                  cushions:r.cushions, name:r.name, before:r.before};
+                  cushions:r.cushions, name:r.name, before:r.before, kiss:r.kiss};
     }
   }
   if (cur) runs.push(cur);
@@ -1856,7 +1904,7 @@ function findRoutes(){
     a: (r.lo + r.hi)/2,
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
-    name: r.name, before: r.before,
+    name: r.name, before: r.before, kiss: r.kiss,
   })).sort((x, y) => y.w - x.w);                    // 넓은 것부터 = 쉬운 것부터
   ROUTES = {key, list};
   return list;
@@ -2244,6 +2292,20 @@ function drawPath(){
   const lastSeg = post.hit ? post.pts.length - 1
                            : Math.min(DRAW_UPTO, post.pts.length - 1);
   const pts2 = post.pts.slice(0, lastSeg + 1);
+  // ★ 키스 자리 — 수구 길과 1적구 길이 겹치는 곳에 빨간 X 를 찍는다.
+  //   사용자: '미리 키스가 없는 두께와 당점을 미리 알려주면 얼마나 좋겠어요.'
+  //   ⚠️ 시간을 못 재므로 '겹친다' 까지만이다. 실제로는 비껴갈 수도 있다.
+  const kAt = kissAt(P, a, pts2, cut.obj);
+  if (kAt){
+    const [kx, ky] = toPx(...kAt), kr = Math.max(7, band*0.55);
+    g.strokeStyle = '#ff2f2f'; g.lineWidth = Math.max(3, band*0.16); g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(kx-kr, ky-kr); g.lineTo(kx+kr, ky+kr);
+    g.moveTo(kx+kr, ky-kr); g.lineTo(kx-kr, ky+kr);
+    g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = Math.max(1, band*0.05);
+    g.stroke();
+  }
   // ★ 사용자 지시 2026-08-10: '직접 공을 치는 경우도 파이브앤하프와 같이
   //   쿠션별 컬러를 적용해 주세요.' 충돌점부터 다시 세어 1·2·3쿠션을 같은 색으로.
   //   숫자를 충돌 후 라인에서 읽는 것(systemBase)과도 눈으로 맞아떨어진다.
@@ -3075,7 +3137,9 @@ function drawButtons(){
       if (rl && S.routeIx >= 0 && rl[S.routeIx]){
         // ★ 사용자 2026-08-12 — 허용오차(도)보다 **어떤 길인지**가 먼저다.
         heavy((S.routeIx+1) + '/' + ns, cx, cy + u*0.24, u*0.27, '#ffd400');
-        heavy(rl[S.routeIx].name || '', cx, cy + u*0.46, u*0.20, '#f2f4f8');
+        // 키스가 나는 길이면 빨갛게 — 고르기 전에 보이게
+        heavy(rl[S.routeIx].name || '', cx, cy + u*0.46, u*0.20,
+              rl[S.routeIx].kiss ? '#ff5a4a' : '#f2f4f8');
       } else {
         heavy('추천', cx, cy + u*0.24, u*0.27, '#f2f4f8');
         heavy(rl ? (ns ? ns + '개' : '없음') : '', cx, cy + u*0.46, u*0.22,
