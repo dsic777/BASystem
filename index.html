@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 195;
+const MOBILE_VER = 196;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1559,13 +1559,35 @@ function systemBase(){
   //   계속 굴린 가상 경로의 3쿠션을 읽어 65 가 나왔다 (실제 도착은 하단 36).
   //   → 충돌이 있으면 arrival 은 **충돌점부터 다시 센** 경로로 둔다.
   //     화면의 쿠션별 색도 충돌점부터 다시 세므로 눈으로 본 것과 맞아떨어진다.
+  // ★★ 사용자 2026-08-13 확정 — **빈쿠션(뱅크)이 먼저면 수구부터 쭉 센다.**
+  //   '2·3 은 원뱅크 넣어치기/걸어치기다. **흰선이 닿는 30(25)이 1쿠션**이고
+  //    **녹색이 닿는 선이 3쿠션**이다. 중간에 거치는 노란색은 보지 않는다.
+  //    포인트 숫자도 파이브앤하프 기준이다.'
+  //   그리고 26.jpg 의 '충돌점이 새 출발점' 규칙에 대해 —
+  //    '이것은 **수구가 공을 직접 치는 경우**입니다. 성격이 다릅니다.'
+  //
+  //   → 갈림은 **충돌 전에 쿠션을 썼는가** 하나다.
+  //       썼다 (뱅크)  = 수구부터 1·2·3쿠션. 적구에 맞는 것은 세는 데 영향 없다
+  //       안 썼다 (직접) = 충돌점이 새 출발점 (2026-08-11 규칙 그대로)
+  //   ⚠️ 2026-08-11 에 이 갈림을 '충돌 후에 갈 길이 남아 있는가' 로 바꿨었다.
+  //      그러면 뱅크도 충돌점부터 다시 세어 1쿠션이 통째로 밀린다. 되돌린다.
+  //
+  //   왜 중요한가 (사용자) — '원뱅크는 육안으로 첫 포인트를 경험으로 짐작할 뿐
+  //   정확한 경로를 찾아내기가 매우 어렵다. 특히 걸어치기는 쿠션과 떨어져 있으면
+  //   정말 어렵고 맞은 후 경로 찾기도 너무 어렵다. 그래서 우리 앱을 이용하자는 것이다.'
   let arrival = hits;
   if (cut && cut.hit){
+    const before = cut.pts.length - 2;               // 충돌 전에 쓴 쿠션 수
     const P = cut.pts[cut.pts.length-1];
     const af = afterHit(cut.from, P, cut.obj);
     if (af){
       arrival = roll(P, af.dir, 3, kk);   // 충돌 뒤 쿠션에도 보정이 걸린다
-      if (afterCushions(cut.pts.length - 2) > 0){ from = P; dir = af.dir; hits = arrival; }
+      // 직접 친 경우에만 충돌점을 새 출발점으로 삼는다 (위 ★★ 참고)
+      if (before === 0 && afterCushions(before) > 0){ from = P; dir = af.dir; hits = arrival; }
+      else if (before > 0){
+        // 뱅크 — 수구부터 쭉 센 경로를 그대로 쓴다. 3쿠션도 이 줄에서 읽는다.
+        arrival = (hits || []).slice(0, before).concat(arrival.slice(0, 3 - before));
+      }
     }
   }
   const val = {from, dir, hits, arrival};
