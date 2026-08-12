@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 170;
+const MOBILE_VER = 171;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2205,21 +2205,30 @@ function snapAim(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return false;
   const d0 = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
-  const len = Math.hypot(d0[0], d0[1]);
-  if (len < 1e-6) return false;
+  if (Math.hypot(d0[0], d0[1]) < 1e-6) return false;
   const list = findRoutes();
   if (!list.length){ S.routeIx = -1; return false; }
   const a0 = Math.atan2(d0[1], d0[0]);
   let bi = -1, bd = Infinity;
-  for (let i = 0; i < Math.min(list.length, ROUTE_SHOW); i++){
+  // ★ 2026-08-12 — **찾은 경로 전부**를 본다. 전에는 상위 5개(ROUTE_SHOW)만 봐서,
+  //   6등 이하의 득점 경로로 조준하면 안 붙었다. 3쿠션이 형성되면 늘 붙어야 한다
+  //   (사용자: '경로 직접 선택 시 3쿠션이 형성되면 자석기능 항상 되게 해 주세요').
+  for (let i = 0; i < list.length; i++){
     // 각도 차이를 -180~180 으로 접어서 잰다 (0도 이음매에서 뒤집히지 않게)
     const df = Math.abs(((list[i].a - a0 + Math.PI*3) % (Math.PI*2)) - Math.PI);
     if (df < bd){ bd = df; bi = i; }
   }
   if (bi < 0 || bd > MAGNET_DEG * Math.PI/180){ S.routeIx = -1; return false; }
   S.routeIx = bi;
-  const a = list[bi].a;
-  S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+  // ★★ 여기가 '손을 놓으면 이상한 경로로 변해버린다' 의 원인이었다 (2026-08-12).
+  //   전에는 **각도만** 옮겼다. 그런데 훑기는 당점을 −3~3 까지 돌려 가며 경로를
+  //   찾으므로, 각도만 가져오고 당점은 화면에 켜져 있던 것을 그대로 쓰면
+  //   **찾은 경로와 그려지는 궤적이 서로 다른 공**이 된다.
+  //   pickRoute() 는 당점·판독창·조준을 한꺼번에 옮긴다. 그것을 부른다.
+  pickRoute(list[bi]);
+  const r = list[bi];
+  flash((r.name || '3쿠션') + ' · 8/' + thick8(r.thick*8) + ' · ' + tipKR(r.tip)
+        + '  (' + (bi+1) + '/' + list.length + ')', 2400);
   return true;
 }
 
