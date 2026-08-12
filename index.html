@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 215;
+const MOBILE_VER = 216;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3358,9 +3358,15 @@ function drawPath(){
       for (const k2 in S.balls)
         if (k2 !== 'cue' && Math.hypot(S.balls[k2].p[0]-cut.obj[0],
                                        S.balls[k2].p[1]-cut.obj[1]) < 1) objKey = k2;
+      // ★★ 사용자 2026-08-13: '빨간공이 사라졌다가 나옵니다.'
+      //   ⚠️ 맞은 **뒤에만** 그리고 있었다. 제자리 공은 숨겨 놨으니(v213)
+      //      맞기 전까지는 아예 안 보였다. 1적구도 충돌 전엔 같은 상태였다.
+      //   → 안 맞은 공은 **제자리에 서 있게** 그린다. 그래야 세 공이 늘 보인다.
       if (T0 > tHit){
         const q2 = atTime(to, Math.min(T0 - tHit, to.total));
         if (q2) simBall(q2, objKey ? S.balls[objKey].color : 'red', R);
+      } else {
+        simBall(cut.obj, objKey ? S.balls[objKey].color : 'red', R);   // 아직 안 맞았다
       }
       // ★★ 2적구도 굴린다 (사용자 2026-08-13: '충돌을 하면 빨간공도 그에 따라
       //   움직여야 하는데, 그래야 충돌로 득점을 실패하게 되는 거죠.')
@@ -3390,15 +3396,20 @@ function drawPath(){
             hitT = tt; hitP = q3; hitD = u; who2 = 'obj';
           }
         }
+        // 2적구 — 맞기 전에는 제자리에, 맞은 뒤에는 굴러간다
+        let k2p = null, k2c = 'red';
+        for (const k5 in S.balls){
+          if (k5 === 'cue') continue;
+          if (Math.hypot(S.balls[k5].p[0]-cut.obj[0], S.balls[k5].p[1]-cut.obj[1]) < 1) continue;
+          k2p = S.balls[k5].p; k2c = S.balls[k5].color;
+        }
         if (hitT !== null && T0 > hitT){
           const t3 = trackOf([hitP, ...rollPlain(hitP, hitD, 3).map(h => h.p)],
                              V0*0.45, cushionGain());
           const q4 = atTime(t3, Math.min(T0 - hitT, t3.total));
-          let col = 'red';
-          for (const k4 in S.balls)
-            if (k4 !== 'cue' && Math.hypot(S.balls[k4].p[0]-hitP[0],
-                                           S.balls[k4].p[1]-hitP[1]) < 1) col = S.balls[k4].color;
-          if (q4) simBall(q4, col, R);
+          if (q4) simBall(q4, k2c, R);
+        } else if (k2p){
+          simBall(k2p, k2c, R);                       // 아직 안 맞았다 — 제자리
         }
       }
       const q1 = atTime(tc, Math.min(T0, tc.total));
