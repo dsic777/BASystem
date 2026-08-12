@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 187;
+const MOBILE_VER = 188;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2038,6 +2038,18 @@ function simulate(dir, k){
   const name = shotName(c1, rails, cue.p, cut1.obj);
   if (!name) return null;
   const loose = false;
+  // ★★ 진로마다 **분리각 대역**이 있다 — 사용자 확인 2026-08-12 (기본진로.png 에서 뽑고
+  //   '일단 해 봅시다' 로 승인).  기하가 그렇게 만든다 — 수구를 세로로 세울수록 커진다.
+  //     앞돌리기 25도쯤 · 뒤돌리기 36~37도 · 옆돌리기 50~54도
+  //   대역을 크게 벗어나면 그 진로의 모양이 아니라 **억지로 그 쿠션 차례를 만든 것**이다.
+  //   사용자 5.jpg 가 그 예다 — 우-하-좌 라 이름은 앞돌리기인데 두께 67% · 분리각 53도로,
+  //   1쿠션이 코너에 붙어 있었다. '이런 저런거 모두 기본진로와 다르잖아요.'
+  // ⚠️ 중심값은 그림에서 뽑은 **표본 하나**다. 여유를 ±12도 두었다.
+  //    OK 주셨던 길이 사라지면 SEP_TOL 을 키운다. 딱 붙이면 다 죽는다.
+  const SEP_MID = {'앞돌리기': 25, '뒤돌리기': 36, '옆돌리기': 52, '옆·뒤돌리기': 44};
+  const SEP_TOL = 12;
+  const mid = SEP_MID[name];
+  if (mid !== undefined && Math.abs(af.deg - mid) > SEP_TOL) return null;
   // ★ 사용자 2026-08-12 (3.jpg): '프로도 이렇게 못 쳐요, 매우 억지스러운 경로입니다.'
   //   원뱅크로 쿠션을 돌고 **93% 두께 · 분리각 70도** 로 맞은 뒤 또 세 쿠션을 가는 길이었다.
   //   쿠션을 한 번 돌고 나면 힘이 없다 — 거기서 두껍게 맞으면 더 못 간다.
@@ -2207,6 +2219,9 @@ function rank(r){
   //   '3시·9시 3팁이 표준입니다. 모두 거기서 출발하면 됩니다. 그 후 보정을 하면 되고').
   //   군 안에서만 갈리도록 작게 준다.
   if (Math.abs(r.tip || 0) === 3) v += 0.5;
+  // 분리각이 그 진로의 한가운데일수록 앞에 (군 안에서만 갈리도록 작게)
+  const M = {'앞돌리기': 25, '뒤돌리기': 36, '옆돌리기': 52, '옆·뒤돌리기': 44}[r.name];
+  if (M !== undefined && r.sep !== undefined) v += 0.6 * (1 - Math.abs(r.sep - M)/12);
   if (r.kiss) v -= 1.0;
   if (r.name === '뒤돌리기' && r.sep >= 20 && r.sep <= 45) v += 0.4;
   return v;
