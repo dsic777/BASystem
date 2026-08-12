@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 221;
+const MOBILE_VER = 222;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3357,7 +3357,12 @@ function drawPath(){
       //     (득점 여부를 보는 선은 2적구에서 끝나는 것이 맞다).
       //   ⑴ 수구는 2적구를 맞은 뒤에도 꺾여서 두 쿠션 더 간다
       //   ⑵ 1적구는 3쿠션에서 자르지 않고 네 쿠션까지 간다
-      const opSimPre = [cut.obj, ...rollPlain(cut.obj, a.objDir, 5).map(h => h.p)];
+      // ★ 사용자 2026-08-13: '마지막에 1적구가 멈추는 현상. 기존에는 너무 가서
+      //   중지시켰던 부분입니다.'
+      //   그 잘라내기는 **마찰 모델이 없던 때의 임시 방편**이었다. 지금은 힘이 다하면
+      //   알아서 서므로 인위적으로 자를 이유가 없다. 5 → 8 쿠션으로 늘려
+      //   **마찰이 멈추게** 둔다. 두껍게 맞으면 멀리 가고 얇으면 금방 선다.
+      const opSimPre = [cut.obj, ...rollPlain(cut.obj, a.objDir, 8).map(h => h.p)];
       // ★★ 사용자 2026-08-13: '마지막에 **흰공이 빨간공이 있던 자리에서, 빨간공은
       //   이미 없는데 충돌**을 함.'
       //   그려지는 궤적은 2적구가 **제자리에 서 있다는 전제**로 푼 것이다. 그런데
