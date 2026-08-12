@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 186;
+const MOBILE_VER = 187;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2029,12 +2029,15 @@ function simulate(dir, k){
   //     하나라도 있으면 findRoutes 가 예비를 버린다. 하나도 없을 때만 꺼내 쓴다.
   //   ⚠️ 뱅크(c1 > 0)는 그대로 이름이 있어야 한다 — 이름 없는 뱅크까지 열면
   //     2026-08-11 에 NO 받은 억지 경로들이 도로 올라온다.
-  let name = shotName(c1, rails, cue.p, cut1.obj);
-  let loose = false;
-  if (!name){
-    if (c1 > 0) return null;
-    name = '3쿠션'; loose = true;
-  }
+  // ⚠️⚠️ v180 에 '이름이 없으면 3쿠션 으로라도 낸다' 는 예비 장치를 넣었다가
+  //   v187 에서 **뺐다.** 사용자 4.jpg — 추천 세 칸이 전부 좁은 V 자(장-장 으로
+  //   위아래를 튕기는 모양)에 역 3팁이었다. '그 문제가 아니고 **경로 자체가 틀리잖아요**.'
+  //   이름이 안 붙는 것은 곧 **기본 진로표에 없는 모양**이다. 낼 이유가 없다.
+  //   진로가 하나도 없으면 목록을 비운다 — 그것이 '이 배치는 1순위가 없다' 는 답이다.
+  //   (2·3·4순위인 뱅크는 아직 안 넣었다. 그것들이 들어오면 빈 칸이 채워진다.)
+  const name = shotName(c1, rails, cue.p, cut1.obj);
+  if (!name) return null;
+  const loose = false;
   // ★ 사용자 2026-08-12 (3.jpg): '프로도 이렇게 못 쳐요, 매우 억지스러운 경로입니다.'
   //   원뱅크로 쿠션을 돌고 **93% 두께 · 분리각 70도** 로 맞은 뒤 또 세 쿠션을 가는 길이었다.
   //   쿠션을 한 번 돌고 나면 힘이 없다 — 거기서 두껍게 맞으면 더 못 간다.
@@ -2309,10 +2312,7 @@ function findRoutes(){
   //      route_verdicts.json 배치_A 1번이 **두께 0.93 인데 OK** 다 (옆돌리기).
   //      같은 파일에 '③ 두께로는 안 갈린다 — 1번(93%)이 OK 인데 4번(92%)이 NO' 라고
   //      적혀 있다. 8.jpg 는 키스 하나로 이미 빠진다.
-  // ★ 이름 없는 직접 겨냥(예비)은 **이름 있는 직접 겨냥이 하나도 없을 때만** 쓴다
-  const kept = Object.values(best).filter(r => !r.kiss);
-  const hasNamed = kept.some(r => r.before === 0 && !r.loose);
-  const list = kept.filter(r => !(r.loose && hasNamed)).map(r => ({
+  const list = Object.values(best).filter(r => !r.kiss).map(r => ({
     a: (r.lo + r.hi)/2,
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
