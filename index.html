@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 161;
+const MOBILE_VER = 162;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2144,8 +2144,8 @@ function snapAim(){
 function drawGrid(){
   if (previewOn()) return;
   g.save();
-  g.strokeStyle = 'rgba(255,255,255,0.13)';      // 사용자 2026-08-12: '조금만 더 진하게'
-  g.lineWidth = Math.max(1, L.cloth.h*0.0034);
+  g.strokeStyle = 'rgba(255,255,255,0.20)';      // 0.09 → 0.13 → 0.20 (사용자 '조금만 더 진하게' 세 번)
+  g.lineWidth = Math.max(1, L.cloth.h*0.0040);
   for (let i = 1; i <= 7; i++){
     const [ax,ay] = toPx(T.width*i/8, 0), [bx,by] = toPx(T.width*i/8, T.height);
     g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
