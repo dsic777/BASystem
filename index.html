@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 177;
+const MOBILE_VER = 178;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3510,16 +3510,23 @@ function drawReadout(){
   g.textBaseline = 'top';
   // ⚠️ 한 번 흐리게 죽였다가 되돌렸다. '너무 진하지 않게' 는 **격자** 이야기였는데
   //    내가 이 제목에까지 적용했다. 사용자 2026-08-12 (ss.jpg): '시스템명 안보여요'.
-  g.fillStyle = sys === 4 ? '#f0b6d2' : sys === 3 ? '#a8c4f0'
-              : sys === 2 ? '#a8e0b4' : sys === 1 ? '#f2d478' : '#eef3fa';
-  g.font = '800 ' + Math.round(r.h*0.25) + 'px system-ui, sans-serif';
+  // ★ 사용자 2026-08-12: '폰트 조금 줄이고 **검은색 테두리 흰색 폰트**로.
+  //   여전히 가독성이 떨어집니다.'  → 색으로 시스템을 구분하던 것을 버린다.
+  //   어두운 판 위에 색 글씨는 어느 색이든 안 읽힌다. 흰 글씨 + 검은 테두리가 답이다.
+  //   (시스템 구분은 글자 자체가 이름을 말하므로 색이 없어도 된다.)
+  g.font = '800 ' + Math.round(r.h*0.22) + 'px system-ui, sans-serif';
+  g.lineJoin = 'round'; g.miterLimit = 2;
+  g.strokeStyle = '#000';
+  g.lineWidth = Math.max(3, r.h*0.075);
+  g.fillStyle = '#ffffff';
   // ★ 고른 경로가 있으면 **진로 이름**을 앞에 붙인다 — 리스트를 안 열어도
   //   이 숫자가 어느 길의 것인지 보인다. 키스면 빨갛게.
   const rl0 = routesReady();
   const cur = (rl0 && S.routeIx >= 0) ? rl0[S.routeIx] : null;
-  if (cur && cur.kiss) g.fillStyle = '#ff5a4a';
-  g.fillText((cur ? cur.name + ' · ' : S.sysMode ? '' : '자동 · ') + SYS_NAMES[sys] + ' ▸',
-             r.x + r.w/2, r.y + r.h*0.04);
+  if (cur && cur.kiss) g.fillStyle = '#ff8a80';      // 키스는 이것만 색으로
+  const ttl = (cur ? cur.name + ' · ' : S.sysMode ? '' : '자동 · ') + SYS_NAMES[sys] + ' ▸';
+  g.strokeText(ttl, r.x + r.w/2, r.y + r.h*0.04);   // 검은 테두리 먼저
+  g.fillText(ttl,   r.x + r.w/2, r.y + r.h*0.04);   // 그 위에 흰 글씨
   if (sys === 1){                       // 팁 가이드 — 무회전이 기본, 안 되면 회전
     const tg = tipGuide();
     g.textAlign = 'right';
