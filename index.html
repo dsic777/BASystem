@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 212;
+const MOBILE_VER = 213;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3400,7 +3400,9 @@ function drawPath(){
       }
       const q1 = atTime(tc, Math.min(T0, tc.total));
       if (q1) simBall(q1, (S.balls.cue||{}).color, R);
-      if (T0 > Math.max(tc.total, tHit + to.total) + 0.5) S.anim = 0;
+      // ★ 사용자 2026-08-13: '시뮬레이션 종료 후 공이 멈추고 **1초 후** 전 상태로
+      //   돌아갑시다.'  → 세 공이 다 선 뒤 1초를 더 보여 주고 끈다.
+      if (T0 > Math.max(tc.total, tHit + to.total) + 1.0 * PLAY_RATE) S.anim = 0;
     }
     for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
       const [x,y] = toPx(...op[i]);
@@ -3448,6 +3450,9 @@ function drawCushionDots(pts, upto){
   }
 }
 function drawBalls(){
+  // ★ 사용자 2026-08-13: '시뮬레이션이 시작되면 **배치 전 공은 지워져야** 하고
+  //   실제 시뮬레이션을 하고 있는 공만 보여져야 합니다. 둘 다 보이니 이상합니다.'
+  if (S.anim) return;
   for (const k in S.balls){
     const b = S.balls[k], [x,y] = toPx(...b.p), rr = ballR();
     // ⚠️ 검은 천에서는 검은 테두리가 안 보인다. 하이라이트와 접지 그림자로 띄운다.
