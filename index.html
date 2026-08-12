@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 222;
+const MOBILE_VER = 223;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3100,6 +3100,7 @@ function onRail(p){
   return p[0] < e || p[0] > T.width - e || p[1] < e || p[1] > T.height - e;
 }
 const BALL_KEEP = 0.55;                   // 공에 부딪히면 남는 몫 (넘겨준 만큼 잃는다)
+const V_STOP = 150;                       // mm/s — 이보다 느려지면 선 것으로 본다
 const ROLL_A = 620;                       // mm/s^2 — 바닥 마찰 감속
 // ★★ 사용자 2026-08-13 — 붙는 **이유**가 둘이다.
 //   '**쿠션은 고무로 되어 있어서 튕겨나오는 현상**이 있습니다.
@@ -3146,8 +3147,12 @@ function trackOf(poly, v0, decay, ballKeep){
       seg.push({a: poly[i], b: poly[i+1], t0: t, dt, v, L, full: true});
       t += dt;
       // ★ 쿠션 위면 이득, 공에 부딪힌 자리면 손실 (위 onRail 주석 참고)
-      v = Math.max(ve * (onRail(poly[i+1]) ? decay
-                                            : (ballKeep === undefined ? BALL_KEEP : ballKeep)), 1);
+      v = ve * (onRail(poly[i+1]) ? decay
+                                  : (ballKeep === undefined ? BALL_KEEP : ballKeep));
+      // ★ 사용자 2026-08-13 영상 — 수구가 우측 상단 구석에서 3.6초 동안 기어갔다.
+      //   속도를 1mm/s 까지 살려 뒀더니 눈에 안 보일 만큼 느린 채로 시간만 흘렀다.
+      //   실제 공도 이만큼 느려지면 그냥 선다. 여기서 끊는다.
+      if (v < V_STOP) break;
     } else {                              // 이 구간 안에서 선다
       const dt = v / ROLL_A;
       const u = dmax / L;
