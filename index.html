@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 152;
+const MOBILE_VER = 153;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1422,7 +1422,7 @@ function draw(){
     g.drawImage(PHOTO, (cw-pw)/2, (ch-ph)/2, pw, ph);
     g.restore();
   }
-  drawDiamonds(); drawNumbers();
+  drawDiamonds(); drawNumbers(); drawZoneGrid();
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawPath(); drawBalls(); drawClock(); }
@@ -2049,6 +2049,66 @@ function snapAim(){
   const a = list[bi].a;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
   return true;
+}
+
+// ★ 사용자 2026-08-12: '격자가 안 보이는데요.'
+//   옆돌리기 포지션 격자를 **다이 위에 그린다** (교본 84쪽 그림 그대로).
+//   1적구가 어느 칸에 있는지는 숫자보다 그림으로 보는 것이 빠르다.
+function drawZoneGrid(){
+  if (curSystem() !== 4 || previewOn()) return;
+  const cue = S.balls.cue, o1 = S.balls.obj1;
+  if (!cue) return;
+  const fromLeft = cue.p[0] <= T.width/2, dia = T.width/8;
+  const xAt = n => fromLeft ? dia*n/10 : T.width - dia*n/10;   // 눈금 n 의 자리
+  const upperTop = (cue.p[1] <= T.height/2);   // 수구 반대쪽 절반이 '위쪽 줄'
+  g.save();
+  g.strokeStyle = 'rgba(226,170,198,0.30)';
+  g.lineWidth = Math.max(1, L.cloth.h*0.004);
+  g.setLineDash([Math.max(4, L.cloth.h*0.012), Math.max(3, L.cloth.h*0.010)]);
+  // 가로 가르기 — 당구대 높이의 한가운데
+  let a = toPx(0, T.height/2), b = toPx(T.width, T.height/2);
+  g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+  // 세로 가르기 — 눈금 10 · 20 · 40 · 60
+  for (const n of [10, 20, 40, 60]){
+    const x = xAt(n);
+    if (x < 1 || x > T.width-1) continue;
+    a = toPx(x, 0); b = toPx(x, T.height);
+    g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+  }
+  g.setLineDash([]);
+  // 칸마다 팁수 — 위쪽 줄과 아래쪽 줄이 다르다
+  const UP = [[0,10,'무회전'],[10,20,'1팁'],[20,40,'2팁'],[40,60,'3팁'],[60,80,'4팁']];
+  const DN = [[0,20,'무회전'],[20,40,'1팁'],[40,60,'2팁'],[60,80,'3팁']];
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '800 ' + Math.round(L.cloth.h*0.055) + 'px system-ui, sans-serif';
+  for (const [rows, isUp] of [[UP, true], [DN, false]]){
+    const yMid = (isUp === upperTop) ? T.height*0.75 : T.height*0.25;
+    for (const [lo, hi, lb] of rows){
+      const x0 = xAt(lo), x1 = xAt(hi);
+      const cx = (Math.max(0, Math.min(T.width, x0)) + Math.max(0, Math.min(T.width, x1)))/2;
+      if (Math.abs(x0 - x1) < 5) continue;
+      const [px, py] = toPx(cx, yMid);
+      g.fillStyle = 'rgba(240,215,228,0.34)';
+      g.fillText(lb, px, py);
+    }
+  }
+  // 1적구가 든 칸을 살짝 밝힌다
+  if (o1){
+    const v = (fromLeft ? o1.p[0] : T.width - o1.p[0]) / dia * 10;
+    const up = (o1.p[1] > T.height/2) !== (cue.p[1] > T.height/2);
+    const rows = up ? UP : DN;
+    for (const [lo, hi] of rows) if (v >= lo && v < hi){
+      const x0 = xAt(lo), x1 = xAt(hi);
+      const yA = (o1.p[1] > T.height/2) ? T.height : 0;
+      const p0 = toPx(Math.max(0,Math.min(T.width,x0)), T.height/2);
+      const p1 = toPx(Math.max(0,Math.min(T.width,x1)), yA);
+      g.fillStyle = 'rgba(226,170,198,0.10)';
+      g.fillRect(Math.min(p0[0],p1[0]), Math.min(p0[1],p1[1]),
+                 Math.abs(p1[0]-p0[0]), Math.abs(p1[1]-p0[1]));
+      break;
+    }
+  }
+  g.restore();
 }
 
 function drawNumbers(){
