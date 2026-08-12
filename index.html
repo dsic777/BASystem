@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 204;
+const MOBILE_VER = 205;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3054,8 +3054,12 @@ function drawPath(){
   const BK = el < BLINK_MS
     ? 0.30 + 0.70 * (0.5 + 0.5*Math.cos(el / BLINK_MS * Math.PI * 2 * BLINK_HZ))
     : 1;
+  // ★ 사용자 2026-08-13: '시뮬레이션이 시작되면 궤적은 밝기를 20%로 하세요.
+  //   윤곽만 보이게. 그리고 종료되면 복원하세요.'
+  //   공이 굴러가는 동안은 공이 주인공이다 — 선은 어디로 가는지만 알려 주면 된다.
+  const DIM = S.anim ? 0.20 : 1;
   const seg = (a, b, w, alpha, col) => {
-    g.strokeStyle = col; g.globalAlpha = alpha * BK; g.lineWidth = w; g.lineCap = 'round';
+    g.strokeStyle = col; g.globalAlpha = alpha * BK * DIM; g.lineWidth = w; g.lineCap = 'round';
     g.beginPath(); g.moveTo(...toPx(...a)); g.lineTo(...toPx(...b)); g.stroke();
     g.globalAlpha = 1;
   };
@@ -3083,8 +3087,10 @@ function drawPath(){
   const a = afterHit(cut.from, P, cut.obj);
   drawCushionDots(before, before.length-2);
   const [hx,hy] = toPx(...P);
+  g.save(); g.globalAlpha = S.anim ? 0.20 : 1;
   g.fillStyle = COL.hit; g.beginPath(); g.arc(hx,hy,9,0,7); g.fill();
   g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
+  g.restore();
   if (!a) return;
 
   // ★ 사용자 확정 2026-08-11: '충돌 뒤 쿠션 보정이 걸립니다.'
@@ -3121,6 +3127,7 @@ function drawPath(){
   //   ⚠️ 시간을 못 재므로 '겹친다' 까지만이다. 실제로는 비껴갈 수도 있다.
   const kAt = kissAt(P, a, pts2, cut.obj);
   if (kAt){
+    g.save(); g.globalAlpha = DIM;
     const [kx, ky] = toPx(...kAt), kr = Math.max(7, band*0.55);
     g.strokeStyle = '#ff2f2f'; g.lineWidth = Math.max(3, band*0.16); g.lineCap = 'round';
     g.beginPath();
@@ -3129,6 +3136,7 @@ function drawPath(){
     g.stroke();
     g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = Math.max(1, band*0.05);
     g.stroke();
+    g.restore();
   }
   // ★ 사용자 지시 2026-08-10: '직접 공을 치는 경우도 파이브앤하프와 같이
   //   쿠션별 컬러를 적용해 주세요.' 충돌점부터 다시 세어 1·2·3쿠션을 같은 색으로.
