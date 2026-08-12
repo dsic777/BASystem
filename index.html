@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 192;
+const MOBILE_VER = 193;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1843,7 +1843,7 @@ function twoBank(){
 // ⚠️ 훑는 동안에는 보정(k)을 **한 번만 풀고 돌려쓴다.** 각도마다 다시 풀면
 //    pathFromAim 이 한 번에 40번씩 이분법을 돌아 폰에서 몇 초가 걸린다.
 //    보정은 다이(쿠션)의 값이라 조준 방향에 따라 크게 변할 것이 아니다.
-let TIP_NOW = 0;               // 지금 훑고 있는 당점 (findRoutes 안에서만 쓴다)
+let TIP_NOW = 0, TIPV_NOW = 0; // 지금 훑고 있는 당점 좌우·상하 (findRoutes 안에서만)
 const ROUTE_SHOW = 5;         // 6칸 리스트에서 직접조준 한 칸을 뺀 수 (사용자 확정)
 // ★ 2026-08-11 파이썬으로 같은 계산을 돌려 보고 정한 값들.
 //   허용오차는 실제로 0.2~0.6도로 좁다 — 3쿠션이 원래 그렇다. 1적구 두께가 조금만
@@ -2213,12 +2213,11 @@ function placeKey(){
   if (!cue) return null;
   return Object.keys(S.balls).sort().map(k => k + S.balls[k].p).join(';');
 }
-// findRoutes 캐시용 — 보정이나 **상하 당점**이 바뀌면 다시 푼다.
-// ⚠️ v183 부터 훑기가 상하 당점을 그대로 쓰므로(분리각이 달라진다) 키에 넣어야 한다.
-//    좌우 당점은 훑기가 −3~3 을 다 돌아 보므로 넣지 않는다.
+// findRoutes 캐시용 — 보정이 바뀌면 다시 푼다.
+// ⚠️ v193 부터 훑기가 좌우·상하 당점을 **둘 다 돌아 보므로** 당점은 키에 안 넣는다.
 function routeKey(){
   const pk = placeKey();
-  return pk === null ? null : S.corr + '|' + Math.round(S.tipV*10) + '|' + pk;
+  return pk === null ? null : S.corr + '|' + pk;
 }
 // ★ 추천 순서. 폭(허용오차)만으로 줄을 세우면 실전 순위와 안 맞는다 —
 //   두껍게 맞히는 길은 과녁이 커서 폭이 넓게 나오는데 실제로는 안 친다
@@ -2301,16 +2300,25 @@ function findRoutes(){
     const half = Math.asin(Math.min(1, T.ball_diameter / d)) + step*2;
     WINDOWS.push([Math.atan2(q[1]-cue.p[1], q[0]-cue.p[0]) - half, 2*half]);
   }
+  // ★★ 사용자 2026-08-13 승인: '네 상·하 당점까지 가 봅시다.'
+  //   상하 당점이 **분리각**을 바꾼다 (separation.json 7칸 표) —
+  //     두께 50% 에서 상단3팁 38도 · 중단 45도 · 하단3팁 70도. 거의 두 배다.
+  //   전에는 화면에 켜진 상하 값 하나로만 찾아서, **끌어치기라야 되는 배치를
+  //   영영 못 찾았다.** 이제 좌우 7 × 상하 6 = 42 가지를 다 시험한다.
+  //   ⚠️ 360도를 돌던 때는 못 했다. 지금은 적구 조준창(3~6도)만 보니 감당된다.
+  //      폰에서 느리면 VS 를 [3, 0.78, -3] 셋으로 줄인다.
+  const VS = [3, 1.5, 0.78, 0, -1.5, -3];           // 0.78 = 표준 2시30분의 상하 성분
   const tipSave = S.tipR, hSave = S.tipH, vSave = S.tipV;
+  for (const tv of VS)
   for (const tp of [-3, -2, -1, 0, 1, 2, 3]){       // 음수 = 역회전
     // ⚠️⚠️ 전에는 S.tipV = 0 (중단) 으로 밀어 놓고 찾았다. 그런데 **상하 당점이
     //    분리각을 바꾼다** (separation.json 의 7칸 표). 사용자는 상단을 주고 치고
     //    파이브앤하프도 상단 2~3팁이다. 즉 훑기가 **사용자가 칠 수 없는 조건**에서
     //    경로를 찾고 있었고, 그래서 나온 것이 '3쿠션 역 1팁 · 원뱅크' 였다
     //    (사용자 5.jpg). 이제 **화면에 켜져 있는 상하 당점을 그대로 쓴다.**
-    S.tipR = Math.abs(tp);
-    S.tipH = tp; S.tipV = vSave;                    // 좌우만 돌려 본다. 상하는 사용자 것
-    TIP_NOW = tp;
+    S.tipR = Math.min(3, Math.hypot(tp, tv));
+    S.tipH = tp; S.tipV = tv;
+    TIP_NOW = tp; TIPV_NOW = tv;
     for (const [a0w, spanw] of WINDOWS){
       const m = Math.ceil(spanw / step);
       let cur = null;
@@ -2325,13 +2333,13 @@ function findRoutes(){
                       rail1:r.rail1, turn1:r.turn1,
                       cushions:r.cushions, name:r.name, loose:r.loose, before:r.before,
                       kiss:r.kiss, flips:r.flips, rev:r.rev,
-                      sep:r.sep, thick:r.thick, tip:TIP_NOW};
+                      sep:r.sep, thick:r.thick, tip:TIP_NOW, tipV:TIPV_NOW};
         }
       }
       if (cur) runs.push(cur);
     }
   }
-  S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave; TIP_NOW = tipSave;
+  S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave; TIP_NOW = tipSave; TIPV_NOW = vSave;
   // 가장자리를 이분법으로 다듬는다. 굵게 훑은 폭은 걸음 단위로 뭉뚱그려져 있어서
   // 그대로 쓰면 허용오차가 0.2 · 0.4 · 0.6 처럼 계단으로만 나온다 (파이썬에서 확인).
   const edge = (aIn, aOut, key) => {
@@ -2343,7 +2351,8 @@ function findRoutes(){
     return lo;
   };
   for (const r of runs){
-    S.tipR = Math.abs(r.tip); S.tipH = r.tip; S.tipV = vSave;   // 그 경로를 찾은 당점으로
+    S.tipR = Math.min(3, Math.hypot(r.tip, r.tipV));           // 그 경로를 찾은 당점으로
+    S.tipH = r.tip; S.tipV = r.tipV;
     r.lo = edge(r.aLo, r.aLo - step, r.key);
     r.hi = edge(r.aHi, r.aHi + step, r.key);
   }
@@ -2373,7 +2382,7 @@ function findRoutes(){
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
     name: r.name, loose: r.loose, before: r.before, kiss: r.kiss, sep: r.sep,
-    flips: r.flips, rev: r.rev,
+    flips: r.flips, rev: r.rev, tipV: r.tipV,
     thick: r.thick, tip: r.tip,
   })).sort((a, b) => rank(b) - rank(a));                    // 넓은 것부터 = 쉬운 것부터
   ROUTES = {key, list};
@@ -2433,6 +2442,7 @@ function pickRoute(r){
     //   ⚠️ tipH·tipV 를 정확한 값으로 두고, 화면 표시용 tipDir·tipR 만 눈금에 맞춘다.
     //      (눈금에 맞춰 되돌리면 좌우 값이 흔들려 경로가 어긋난다)
     S.tipH = Math.max(-3, Math.min(3, r.tip));
+    if (r.tipV !== undefined) S.tipV = r.tipV;      // 상하도 그 경로를 찾은 값으로 (v193)
     S.tipR = Math.min(3, Math.hypot(S.tipH, S.tipV));
     S.tipDir = ((Math.round(Math.atan2(S.tipH, S.tipV) / (Math.PI/12)) % 24) + 24) % 24;
   }
@@ -3114,19 +3124,44 @@ function blink(){ S.blink = Date.now() + 3000; }
 const ROUTE_SHOW_CELLS = 6;
 let ROUTE_CELLS = [];
 // 한 경로의 궤적을 점 목록으로 (미리보기용)
+// ★★ 사용자 2026-08-13: '미리보기 궤적이 정교하지 않습니다. 보여준 것과 실제 경로가
+//   차이가 납니다.'  원인은 자석 때와 같았다 —
+//     ① 미리보기가 **그 경로의 당점이 아니라 화면에 켜져 있는 당점**으로 다시 굴렸다
+//        (englishSideFor 가 S.tipH 를 읽는다). 훑기는 당점 42가지를 돌려 보므로
+//        그 경로를 만든 당점과 화면 당점이 거의 늘 다르다.
+//     ② **보정(S.corr)을 안 걸었다** — roll 에 k=0 을 넘기고 있었다.
+//   그 경로의 당점을 잠깐 씌우고 굴린 뒤 되돌린다.
 function routePoly(r){
   const cue = S.balls.cue;
   if (!cue || !r) return null;
+  const hS = S.tipH, vS = S.tipV, rS = S.tipR;
+  if (r.tip !== undefined){
+    S.tipH = r.tip;
+    if (r.tipV !== undefined) S.tipV = r.tipV;
+    S.tipR = Math.min(3, Math.hypot(S.tipH, S.tipV));
+  }
+  let k = 0;
+  if (S.corr){
+    const len = 2000, aim = [cue.p[0]+Math.cos(r.a)*len, cue.p[1]+Math.sin(r.a)*len];
+    try { pathFromAim(cue.p, aim, S.corr); k = LAST_K; } catch(e){ k = 0; }
+  }
   const d = [Math.cos(r.a), Math.sin(r.a)];
   const E = englishSideFor(cue.p, d);
-  const seq = roll(cue.p, d, SWEEP_MAX_C, 0, E);
+  let out;
+  const seq = roll(cue.p, d, SWEEP_MAX_C, k, E);
   const c1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
-  if (!c1.hit) return [cue.p, ...seq.map(h => h.p)];
-  const P = c1.pts[c1.pts.length-1], af = afterHit(c1.from, P, c1.obj);
-  if (!af) return c1.pts;
-  const s2 = roll(P, af.dir, SWEEP_MAX_C, 0, E);
-  const c2 = cutAtBall([P, ...s2.map(h => h.p)], c1.obj);
-  return [...c1.pts, ...c2.pts.slice(1)];
+  if (!c1.hit) out = [cue.p, ...seq.map(h => h.p)];
+  else {
+    const P = c1.pts[c1.pts.length-1], af = afterHit(c1.from, P, c1.obj);
+    if (!af) out = c1.pts;
+    else {
+      const s2 = roll(P, af.dir, SWEEP_MAX_C, k, E);
+      const c2 = cutAtBall([P, ...s2.map(h => h.p)], c1.obj);
+      out = [...c1.pts, ...c2.pts.slice(1)];
+    }
+  }
+  S.tipH = hS; S.tipV = vS; S.tipR = rS;
+  return out;
 }
 function drawRouteList(){
   ROUTE_CELLS = [];
@@ -3180,7 +3215,7 @@ function drawRouteList(){
       // ★ 당점 — 수구 색 그대로의 작은 공에 빨간 점 (사용자 2026-08-13)
       const br = chh*0.155;
       drawTipBall(gx + cw - br - chh*0.10, gy + chh - br - chh*0.06, br,
-                  r.tip, S.tipV);
+                  r.tip, r.tipV);
     }
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = last ? '#cfd6e0' : (r.kiss ? '#ff8a80' : '#f2f4f8');
@@ -3909,7 +3944,7 @@ function drawButtons(){
         heavy(rr0.name || '', cx, cy + u*0.44, u*0.19,
               rr0.kiss ? '#ff5a4a' : '#f2f4f8');
         heavy('8/' + thick8(rr0.thick*8), cx - u*0.28, cy + u*0.64, u*0.17, '#cfd6e0');
-        drawTipBall(cx + u*0.40, cy + u*0.62, u*0.20, rr0.tip, S.tipV);
+        drawTipBall(cx + u*0.40, cy + u*0.62, u*0.20, rr0.tip, rr0.tipV);
       } else {
         heavy('추천', cx, cy + u*0.24, u*0.27, '#f2f4f8');
         heavy(rl ? (ns ? ns + '개' : '없음') : '', cx, cy + u*0.46, u*0.22,
