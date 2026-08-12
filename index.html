@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 214;
+const MOBILE_VER = 215;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3166,9 +3166,10 @@ function drawPath(){
   // ★ 사용자 2026-08-13: '시뮬레이션이 시작되면 궤적은 밝기를 20%로 하세요.
   //   윤곽만 보이게. 그리고 종료되면 복원하세요.'
   //   공이 굴러가는 동안은 공이 주인공이다 — 선은 어디로 가는지만 알려 주면 된다.
-  // ⚠️ 20% 는 너무 낮았다 — 영상(sc.mp4)에서 궤적이 거의 사라져 공이 아무 데나
-  //    튀는 것처럼 보였다. 윤곽은 남아야 따라갈 수 있다.
-  const DIM = S.anim ? 0.45 : 1;
+  // ★ 사용자 2026-08-13: '궤적 20%는 유지합니다.'
+  //   v214 에서 내가 45% 로 올렸다가 되돌린다 — 사용자가 보기에 20% 가 맞다.
+  //   (영상에서 안 보였던 것은 다른 이유였다는 뜻이다)
+  const DIM = S.anim ? 0.20 : 1;
   const seg = (a, b, w, alpha, col) => {
     g.strokeStyle = col; g.globalAlpha = alpha * BK * DIM; g.lineWidth = w; g.lineCap = 'round';
     g.beginPath(); g.moveTo(...toPx(...a)); g.lineTo(...toPx(...b)); g.stroke();
@@ -3198,7 +3199,7 @@ function drawPath(){
   const a = afterHit(cut.from, P, cut.obj);
   drawCushionDots(before, before.length-2);
   const [hx,hy] = toPx(...P);
-  g.save(); g.globalAlpha = S.anim ? 0.45 : 1;
+  g.save(); g.globalAlpha = S.anim ? 0.20 : 1;
   g.fillStyle = COL.hit; g.beginPath(); g.arc(hx,hy,9,0,7); g.fill();
   g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   g.restore();
