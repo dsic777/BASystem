@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 199;
+const MOBILE_VER = 200;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2966,6 +2966,42 @@ function afterCushions(used){
   return row ? row[1] : POST_CUSHIONS[POST_CUSHIONS.length-1][1];
 }
 
+// ★★ 공이 굴러가는 시뮬레이션 (사용자 2026-08-13: '충돌 부분과 같이 공이 움직이는
+//   시뮬레이션을 보고 싶습니다.')
+//
+// ⚠️⚠️ **빠르기는 근사다.** 충돌 뒤 속도를 우리는 안 재 봤다 (data/speed.json).
+//    쓴 것 두 가지 —
+//      ① 쿠션마다 31% 느려진다               ← speed.json 실측
+//      ② 충돌에서 1적구가 가져가는 몫 = 두께  ← 중심선 성분(물리 기본)의 근사.
+//         두꺼울수록 1적구가 많이 가져간다.
+//    ★ 그러므로 **이 그림으로 키스를 판정하면 안 된다.** 길은 맞고 시각은 모른다.
+function trackOf(poly, v0, decay){
+  const seg = []; let t = 0, v = v0;
+  for (let i = 0; i < poly.length-1; i++){
+    const L = Math.hypot(poly[i+1][0]-poly[i][0], poly[i+1][1]-poly[i][1]);
+    if (L < 1e-6) continue;
+    seg.push({a: poly[i], b: poly[i+1], t0: t, dt: L / Math.max(v, 1e-3)});
+    t += seg[seg.length-1].dt; v *= decay;             // 쿠션 하나 지날 때마다
+  }
+  return {seg, total: t};
+}
+function atTime(tr, t){
+  if (!tr.seg.length) return null;
+  for (const q of tr.seg)
+    if (t <= q.t0 + q.dt){
+      const u = Math.max(0, (t - q.t0) / q.dt);
+      return [q.a[0] + (q.b[0]-q.a[0])*u, q.a[1] + (q.b[1]-q.a[1])*u];
+    }
+  return tr.seg[tr.seg.length-1].b;
+}
+function simBall(p, color, R){
+  const [x,y] = toPx(...p);
+  g.beginPath(); g.arc(x, y, R, 0, 7);
+  g.fillStyle = TONE[color] || '#eee'; g.fill();
+  g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(1.5, R*0.16); g.stroke();
+  g.beginPath(); g.arc(x, y, R*1.55, 0, 7);
+  g.strokeStyle = 'rgba(255,255,255,0.30)'; g.lineWidth = Math.max(1, R*0.10); g.stroke();
+}
 function drawPath(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return;
@@ -3059,12 +3095,14 @@ function drawPath(){
   //   쿠션별 컬러를 적용해 주세요.' 충돌점부터 다시 세어 1·2·3쿠션을 같은 색으로.
   //   숫자를 충돌 후 라인에서 읽는 것(systemBase)과도 눈으로 맞아떨어진다.
   // ★ 경로를 고른 직후에는 차례대로 그려 나간다 (위 pickRoute 참고)
-  const ANIM_MS = 1400;
+  const ANIM_MS = 900;      // 선이 그려지는 시간. 공은 위 시뮬레이션이 따로 굴린다
   let show = pts2.length - 1;
   if (S.anim){
     const el = performance.now() - S.anim;
-    if (el >= ANIM_MS) S.anim = 0;
-    else show = Math.max(0, Math.min(pts2.length-1, (el/ANIM_MS) * (pts2.length-1)));
+    // ⚠️ 여기서 S.anim 을 0 으로 지우면 안 된다 — 공 시뮬레이션이 아직 굴러가는 중이다.
+    //    선 그리기만 ANIM_MS 에 끝내고, 끄는 것은 시뮬레이션이 한다 (아래).
+    show = el >= ANIM_MS ? pts2.length-1
+         : Math.max(0, Math.min(pts2.length-1, (el/ANIM_MS) * (pts2.length-1)));
   }
   for (let i = 0; i < pts2.length-1; i++){
     if (i >= show) break;
@@ -3118,6 +3156,31 @@ function drawPath(){
       seg(op[i], op[i+1], Math.max(2, thin*0.8), 0.95, COL.obj);
     }
     g.restore();
+    // ★ 시뮬레이션 — 수구와 1적구를 같이 굴린다 (위 trackOf 주석 참고)
+    if (S.anim){
+      const T0 = (performance.now() - S.anim)/1000;
+      const cuePoly = [...before, ...pts2.slice(1)];
+      const V0 = 2600;                          // mm/s — 눈에 편한 빠르기 (실측 아님)
+      let preLen = 0;
+      for (let i2 = 0; i2 < before.length-1; i2++)
+        preLen += Math.hypot(before[i2+1][0]-before[i2][0], before[i2+1][1]-before[i2][1]);
+      const tHit = preLen / V0;
+      const share = Math.max(0.10, Math.min(0.95, a.thick));   // 1적구가 가져가는 몫
+      const tc = trackOf(cuePoly, V0, 0.69);    // 쿠션마다 31% 느려진다
+      const to = trackOf(op, V0*share, 0.69);
+      const R = Math.max(4, T.ball_diameter*L.sc*0.5);
+      let objKey = null;
+      for (const k2 in S.balls)
+        if (k2 !== 'cue' && Math.hypot(S.balls[k2].p[0]-cut.obj[0],
+                                       S.balls[k2].p[1]-cut.obj[1]) < 1) objKey = k2;
+      if (T0 > tHit){
+        const q2 = atTime(to, Math.min(T0 - tHit, to.total));
+        if (q2) simBall(q2, objKey ? S.balls[objKey].color : 'red', R);
+      }
+      const q1 = atTime(tc, Math.min(T0, tc.total));
+      if (q1) simBall(q1, (S.balls.cue||{}).color, R);
+      if (T0 > Math.max(tc.total, tHit + to.total) + 0.5) S.anim = 0;
+    }
     for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
       const [x,y] = toPx(...op[i]);
       g.fillStyle = COL.obj; g.beginPath(); g.arc(x,y,4,0,7); g.fill();
