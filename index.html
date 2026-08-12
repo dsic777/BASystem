@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 203;
+const MOBILE_VER = 204;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3198,7 +3198,19 @@ function drawPath(){
     // ★ 시뮬레이션 — 수구와 1적구를 같이 굴린다 (위 trackOf 주석 참고)
     if (S.anim){
       const T0 = (performance.now() - S.anim)/1000;
-      const cuePoly = [...before, ...pts2.slice(1)];
+      // ★ 사용자 2026-08-13: '마지막에 공을 맞으면 중지하는 기능이 있었죠. 그것을
+      //   풀어야 합니다. 또 1적구 경로도 조금 더 진행을 해야 시뮬레이션이 완성이 되겠죠.'
+      //   → **시뮬레이션에서만** 더 굴린다. 그려지는 궤적은 그대로 둔다
+      //     (득점 여부를 보는 선은 2적구에서 끝나는 것이 맞다).
+      //   ⑴ 수구는 2적구를 맞은 뒤에도 꺾여서 두 쿠션 더 간다
+      //   ⑵ 1적구는 3쿠션에서 자르지 않고 네 쿠션까지 간다
+      let cuePoly = [...before, ...pts2.slice(1)];
+      if (post.hit && post.obj){
+        const Q = pts2[pts2.length-1];
+        const a2 = afterHit(post.from, Q, post.obj);
+        if (a2) cuePoly = cuePoly.concat(roll(Q, a2.dir, 2, kk).map(h => h.p));
+      }
+      const opSim = [cut.obj, ...rollPlain(cut.obj, a.objDir, 4).map(h => h.p)];
       const V0 = 2600;                          // mm/s — 눈에 편한 빠르기 (실측 아님)
       let preLen = 0;
       for (let i2 = 0; i2 < before.length-1; i2++)
@@ -3206,7 +3218,7 @@ function drawPath(){
       const tHit = preLen / V0;
       const share = Math.max(0.10, Math.min(0.95, a.thick));   // 1적구가 가져가는 몫
       const tc = trackOf(cuePoly, V0, 0.69);    // 쿠션마다 31% 느려진다
-      const to = trackOf(op, V0*share, 0.69);
+      const to = trackOf(opSim, V0*share, 0.69);
       const R = Math.max(4, T.ball_diameter*L.sc*0.5);
       let objKey = null;
       for (const k2 in S.balls)
