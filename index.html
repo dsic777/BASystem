@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 165;
+const MOBILE_VER = 166;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1206,8 +1206,8 @@ function tapButton(px,py){
       //   → 배치가 그대로면 순환, 배치가 바뀌었으면 리스트.
       //     배치가 바뀌었는지는 routeKey() 가 알려 준다 (공·보정·당점이 들어 있다).
       findRoutes();
-      const k = routeKey();
-      if (S.listShown !== k){ S.listShown = k; S.routeList = true; }
+      const k = placeKey();              // ★ 공 배치만 본다 (당점 아니다)
+      if (S.listShown !== k){ S.listShown = k; S.routeIx = -1; S.routeList = true; }
       else nextRoute();
     }
     return true;
@@ -1992,11 +1992,19 @@ function routesReady(){
   const k = routeKey();
   return (k && ROUTES.key === k) ? ROUTES.list : null;
 }
-function routeKey(){
+// 공 배치만. **당점은 넣지 않는다.**
+// ⚠️ 전에는 S.tipDir·S.tipR 이 들어 있었다. 그런데 경로를 고르면 pickRoute() 가
+//    당점을 바꾸므로 **스스로 '배치가 바뀌었다'** 가 되어, 다음에 추천을 누르면
+//    하나씩 넘어가지 않고 리스트가 다시 떴다 (사용자 2026-08-12: '왔다갔다 함').
+//    훑기가 당점을 −3~3 까지 다 돌아 보므로 결과도 당점과 무관하다.
+function placeKey(){
   const cue = S.balls.cue;
   if (!cue) return null;
-  return S.corr + '|' + S.tipDir + '|' + S.tipR + '|' +
-         Object.keys(S.balls).sort().map(k => k + S.balls[k].p).join(';');
+  return Object.keys(S.balls).sort().map(k => k + S.balls[k].p).join(';');
+}
+function routeKey(){                     // findRoutes 캐시용 — 보정이 바뀌면 다시 푼다
+  const pk = placeKey();
+  return pk === null ? null : S.corr + '|' + pk;
 }
 // ★ 추천 순서. 폭(허용오차)만으로 줄을 세우면 실전 순위와 안 맞는다 —
 //   두껍게 맞히는 길은 과녁이 커서 폭이 넓게 나오는데 실제로는 안 친다
@@ -2082,7 +2090,14 @@ function findRoutes(){
     if (w < ROUTE_MIN_DEG * Math.PI/180) continue;
     if (!best[r.key] || w > best[r.key].hi - best[r.key].lo) best[r.key] = r;
   }
-  const list = Object.values(best).map(r => ({
+  // ★ 추천에서 아예 빼는 것 (사용자 2026-08-12, 8.jpg '좀 과하고 키스경로임')
+  //   ① 키스가 나는 길 — 전에는 순위만 뒤로 밀었는데(−1.0) 그래도 목록에 떴다.
+  //      사용자는 키스 나는 길을 두 번 다 NO 했다. 뺀다.
+  //   ② 우리가 **말해 줄 수 없는 두께** — 화면에는 8/2 · 8/4 · 8/6 셋만 낸다.
+  //      92% 짜리를 8/6(75%) 이라고 적어 주면 그건 틀린 안내다.
+  const THICK_LO = 0.20, THICK_HI = 0.80;
+  const list = Object.values(best).filter(r =>
+        !r.kiss && r.thick >= THICK_LO && r.thick <= THICK_HI).map(r => ({
     a: (r.lo + r.hi)/2,
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
