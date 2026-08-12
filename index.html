@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 175;
+const MOBILE_VER = 176;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2189,7 +2189,10 @@ function nextRoute(){
 //     뱅크샷·그 밖     자동 (코너 거리로 파앤하/2뱅크가 갈린다)
 // ★ 3쿠션 경로가 확정되면 3초간 깜빡인다 (사용자 2026-08-12: '탭을 떼면 확정').
 //   자석이 붙을 때도, 리스트에서 고를 때도 여기를 지난다.
-const BLINK_MS = 3000, BLINK_HZ = 4;      // 3초 · 4번
+// ★ 사용자 2026-08-12: '1초만 잡으세요. 잘못된 경로에서 3초간 잡혀있게 되네요.
+//   1초 후 바로 조정을 해야겠네요.'  → 3초 → **1초** 로 줄인다.
+//   깜빡임 횟수도 같이 줄여야 한다 — 1초에 4번이면 너무 빨라 떨리는 것처럼 보인다.
+const BLINK_MS = 1000, BLINK_HZ = 2;      // 1초 · 2번
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 // 깜빡이는 동안은 경로가 **잠긴다** — 손가락을 움직여도 안 바뀐다.
 // ⚠️⚠️ 이름을 S.rblink 로 둔다. **S.blink 는 이미 쓰이고 있다** — 공을 놓을 때
