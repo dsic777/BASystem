@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 148;
+const MOBILE_VER = 149;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -844,7 +844,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
-           power:1, routeIx:-1, routeList:false,
+           power:1, routeIx:-1, routeList:false, anim:0,
            // ★ 시스템 고르기. 0 자동 · 1 파이브앤하프 고정 · 2 2뱅크 고정.
            //   ★ 사용자 2026-08-11: '0에서 10 언저리로 경로를 이동하면 파이브앤하프에서
            //     자동으로 2뱅크 시스템으로 안내하고 경로를 자동으로 설정.'
@@ -1837,8 +1837,9 @@ function simulate(dir, k){
   }
   const name = shotName(c1, rails, cue.p, cut1.obj);
   const kiss = kissAt(P, af, cut2.pts, cut1.obj);      // 두 길이 겹치나
+  const sep = af.deg;                                  // 분리각 — 순서 매길 때 쓴다
   return {key: who + '|' + rails.join('-'), rails, first: who,
-          cushions: c1 + c2, name, before: c1, kiss: !!kiss};
+          cushions: c1 + c2, name, before: c1, kiss: !!kiss, sep};
 }
 
 let ROUTES = {key:null, list:[]};
@@ -1854,6 +1855,18 @@ function routeKey(){
   if (!cue) return null;
   return S.corr + '|' + S.tipDir + '|' + S.tipR + '|' +
          Object.keys(S.balls).sort().map(k => k + S.balls[k].p).join(';');
+}
+// ★ 추천 순서. 폭(허용오차)만으로 줄을 세우면 실전 순위와 안 맞는다 —
+//   두껍게 맞히는 길은 과녁이 커서 폭이 넓게 나오는데 실제로는 안 친다
+//   (사용자 판정 2026-08-11, data/route_verdicts.json).
+//   그래서 사용자가 말한 두 가지를 같이 본다 —
+//     · 키스가 나는 길은 뒤로 (제일 피하고 싶은 것)
+//     · 뒤돌리기는 **분리각 20~45도** 에서 최적이고 에러 마진이 제일 적다
+function rank(r){
+  let v = r.w;
+  if (r.kiss) v -= 1.0;
+  if (r.name === '뒤돌리기' && r.sep >= 20 && r.sep <= 45) v += 0.4;
+  return v;
 }
 function findRoutes(){
   const key = routeKey();
@@ -1879,7 +1892,7 @@ function findRoutes(){
     if (r){
       if (cur) cur.iHi = i;
       else cur = {key:r.key, iLo:i, iHi:i, rails:r.rails, first:r.first,
-                  cushions:r.cushions, name:r.name, before:r.before, kiss:r.kiss};
+                  cushions:r.cushions, name:r.name, before:r.before, kiss:r.kiss, sep:r.sep};
     }
   }
   if (cur) runs.push(cur);
@@ -1915,8 +1928,8 @@ function findRoutes(){
     a: (r.lo + r.hi)/2,
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
-    name: r.name, before: r.before, kiss: r.kiss,
-  })).sort((x, y) => y.w - x.w);                    // 넓은 것부터 = 쉬운 것부터
+    name: r.name, before: r.before, kiss: r.kiss, sep: r.sep,
+  })).sort((a, b) => rank(b) - rank(a));                    // 넓은 것부터 = 쉬운 것부터
   ROUTES = {key, list};
   return list;
 }
@@ -1938,6 +1951,10 @@ function nextRoute(){
 function pickRoute(r){
   const cue = S.balls.cue;
   if (!cue || !r) return;
+  // ★ 사용자 UI 안: '누르면 공의 진행을 시뮬레이션 보여주기'
+  //   ⚠️ 충돌 뒤 속도가 없으므로 **시간을 흉내내지 않는다.** 수구가 지나간 길을
+  //      차례대로 **그려 나가기만** 한다 — 순서는 맞고, 빠르기는 주장하지 않는다.
+  S.anim = performance.now();
   S.sysMode = (r.name === '횡단샷') ? 3 : /돌리기/.test(r.name || '') ? 1 : 0;
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(r.a)*len, cue.p[1] + Math.sin(r.a)*len];
@@ -2322,7 +2339,20 @@ function drawPath(){
   // ★ 사용자 지시 2026-08-10: '직접 공을 치는 경우도 파이브앤하프와 같이
   //   쿠션별 컬러를 적용해 주세요.' 충돌점부터 다시 세어 1·2·3쿠션을 같은 색으로.
   //   숫자를 충돌 후 라인에서 읽는 것(systemBase)과도 눈으로 맞아떨어진다.
+  // ★ 경로를 고른 직후에는 차례대로 그려 나간다 (위 pickRoute 참고)
+  const ANIM_MS = 1400;
+  let show = pts2.length - 1;
+  if (S.anim){
+    const el = performance.now() - S.anim;
+    if (el >= ANIM_MS) S.anim = 0;
+    else show = Math.max(0, Math.min(pts2.length-1, (el/ANIM_MS) * (pts2.length-1)));
+  }
   for (let i = 0; i < pts2.length-1; i++){
+    if (i >= show) break;
+    // 마지막 조각은 반쯤 그린다 — 칸 단위로 끊기면 뚝뚝 끊겨 보인다
+    const f = Math.min(1, show - i);
+    if (f < 1) pts2[i+1] = [pts2[i][0] + (pts2[i+1][0]-pts2[i][0])*f,
+                            pts2[i][1] + (pts2[i+1][1]-pts2[i][1])*f];
     const c = cols[Math.min(i, cols.length-1)];
     if (i < BAND_UPTO){
       seg(pts2[i], pts2[i+1], band, 0.22, c);
