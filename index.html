@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 206;
+const MOBILE_VER = 207;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3070,6 +3070,12 @@ function trackOf(poly, v0, decay){
   }
   return {seg, total: t};
 }
+// 앞에서 n 번째 꺾임까지 걸리는 시간
+function tAtVertex(tr, n){
+  let t = 0;
+  for (let i = 0; i < Math.min(n, tr.seg.length); i++) t += tr.seg[i].dt;
+  return t;
+}
 function atTime(tr, t){
   if (!tr.seg.length) return null;
   for (const q of tr.seg)
@@ -3281,6 +3287,45 @@ function drawPath(){
       if (T0 > tHit){
         const q2 = atTime(to, Math.min(T0 - tHit, to.total));
         if (q2) simBall(q2, objKey ? S.balls[objKey].color : 'red', R);
+      }
+      // ★★ 2적구도 굴린다 (사용자 2026-08-13: '충돌을 하면 빨간공도 그에 따라
+      //   움직여야 하는데, 그래야 충돌로 득점을 실패하게 되는 거죠.')
+      //   ⑴ 수구가 2적구를 맞으면 그때부터 밀려난다 — 이것이 득점이다
+      //   ⑵ 1적구가 먼저 2적구를 건드리면 득점이 깨진다 — 그것도 보인다
+      {
+        let hitT = null, hitP = null, hitD = null, who2 = null;
+        // ⑴ 수구 → 2적구
+        if (post.hit && post.obj){
+          const Q = pts2[pts2.length-1];
+          const a2 = afterHit(post.from, Q, post.obj);
+          if (a2 && a2.objDir){
+            hitT = tAtVertex(tc, before.length - 1 + pts2.length - 1);
+            hitP = post.obj; hitD = a2.objDir; who2 = 'cue';
+          }
+        }
+        // ⑵ 1적구 → 2적구  (더 빠르면 이쪽이 이긴다)
+        for (const k3 in S.balls){
+          if (k3 === 'cue') continue;
+          const q3 = S.balls[k3].p;
+          if (Math.hypot(q3[0]-cut.obj[0], q3[1]-cut.obj[1]) < 1) continue;   // 1적구
+          const oc = cutAtBall(opSim, cut.obj);
+          if (!oc.hit) continue;
+          const tt = tHit + tAtVertex(to, oc.pts.length - 2);
+          if (hitT === null || tt < hitT){
+            const u = dirOf(oc.pts[oc.pts.length-2], oc.pts[oc.pts.length-1]);
+            hitT = tt; hitP = q3; hitD = u; who2 = 'obj';
+          }
+        }
+        if (hitT !== null && T0 > hitT){
+          const t3 = trackOf([hitP, ...rollPlain(hitP, hitD, 3).map(h => h.p)],
+                             V0*0.45, 0.69);
+          const q4 = atTime(t3, Math.min(T0 - hitT, t3.total));
+          let col = 'red';
+          for (const k4 in S.balls)
+            if (k4 !== 'cue' && Math.hypot(S.balls[k4].p[0]-hitP[0],
+                                           S.balls[k4].p[1]-hitP[1]) < 1) col = S.balls[k4].color;
+          if (q4) simBall(q4, col, R);
+        }
       }
       const q1 = atTime(tc, Math.min(T0, tc.total));
       if (q1) simBall(q1, (S.balls.cue||{}).color, R);
