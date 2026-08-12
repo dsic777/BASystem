@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 198;
+const MOBILE_VER = 199;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2598,7 +2598,10 @@ function drawSysName(){
   const c = L.cloth, sys = curSystem();
   const rl = routesReady();
   const cur = (rl && S.routeIx >= 0) ? rl[S.routeIx] : null;
-  const txt = (cur ? cur.name + ' · ' : S.sysMode ? '' : '자동 · ') + SYS_NAMES[sys];
+  // ★ 사용자 2026-08-13: '먼저 자동을 넣어야 할까요? 그냥 파이브앤하프로 합시다.'
+  //   → '자동 ·' 을 안 붙인다. 어느 시스템으로 읽고 있는지가 궁금한 것이지
+  //     그것을 자동으로 골랐는지 손으로 골랐는지는 볼 일이 아니다.
+  const txt = (cur ? cur.name + ' · ' : '') + SYS_NAMES[sys];
   // 피해야 할 점들 — 공 세 개 + 궤적 꺾이는 자리
   const avoid = [];
   for (const k in S.balls) avoid.push(toPx(...S.balls[k].p));
@@ -3864,9 +3867,8 @@ function drawReadout(){
   // ★ 사용자 2026-08-13: '시스템명을 보여주는 위치를 이동합시다. 테이블 안쪽 빈자리를
   //   찾아봅시다. 상황판은 시스템명을 제외한 숫자 등만 보여줍시다. 내가 노안이라 안 보여요.'
   //   → 상황판에는 **▸ 표시만** 남긴다 (탭하면 바뀐다는 신호). 이름은 다이 안에 크게.
-  if (cur && cur.kiss) g.fillStyle = '#ff8a80';
-  g.strokeText('▸', r.x + r.w - r.w*0.10, r.y + r.h*0.04);
-  g.fillText('▸',   r.x + r.w - r.w*0.10, r.y + r.h*0.04);
+  // ★ 사용자 2026-08-13: '위 화살표 버튼도 지우고, 수구수 위 여백을 반으로 줄이면
+  //   될 것 같네요.'  → ▸ 를 안 그린다. 이름이 다이 안에 있으니 여기는 숫자만 남는다.
   if (sys === 1){                       // 팁 가이드 — 무회전이 기본, 안 되면 회전
     const tg = tipGuide();
     g.textAlign = 'right';
@@ -3892,7 +3894,7 @@ function drawReadout(){
       if (g.measureText(lb).width <= r.w/cols.length * 0.92 || lf < 7) break;
       lf *= 0.92;
     }
-    g.fillText(lb, cx, r.y + r.h*0.30);
+    g.fillText(lb, cx, r.y + r.h*0.19);          // 0.30 → 0.19 (위 여백 반으로)
     g.textBaseline = 'bottom';
     g.fillStyle = v === null || v === undefined ? '#8b93a0' : '#ffffff';
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
@@ -3907,12 +3909,12 @@ function drawReadout(){
       if (g.measureText(txt).width <= r.w/cols.length - r.h*0.26 || vf < 9) break;
       vf *= 0.92;
     }
-    g.fillText(txt, cx, r.y + r.h*0.95);
+    g.fillText(txt, cx, r.y + r.h*0.84);         // 숫자도 같이 올린다
     if (i < 2){
       g.strokeStyle = 'rgba(228,235,245,0.45)'; g.lineWidth = Math.max(1, r.h*0.022);
       g.beginPath();
-      g.moveTo(r.x + r.w*(i+1)/3, r.y + r.h*0.32);
-      g.lineTo(r.x + r.w*(i+1)/3, r.y + r.h*0.88); g.stroke();
+      g.moveTo(r.x + r.w*(i+1)/3, r.y + r.h*0.21);
+      g.lineTo(r.x + r.w*(i+1)/3, r.y + r.h*0.77); g.stroke();
     }
   });
 }
