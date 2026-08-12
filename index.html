@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 196;
+const MOBILE_VER = 197;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1943,7 +1943,12 @@ const ONLY_NAME = '';
 // ⚠️ 전에는 쿠션 세 개를 통째로 봤다 (단장단·장단장만 통과). 그래서 1.jpg 같은
 //    **단-장-장 앞돌리기가 이름을 못 받고 떨어졌다.** 그것이 추천이 이상했던 한 원인이다.
 function shotName(c1, rails, cueP, objP){
-  if (c1 > 0) return DROP_BANK ? null : (c1 > 1 ? null : '원뱅크');
+  // ★ 사용자 2026-08-13 (5.jpg): '투뱅크 시스템입니다. 이때도 원뱅크와 마찬가지로
+  //   **흰선 첫 번째 포인트가 가장 중요합니다.** 그 포인트를 알아야 1적구를 뒤로
+  //   걸어칠 수 있습니다. 이 또한 많이 사용하는 경로입니다.'
+  //   → 투뱅크(빈쿠션 2개)도 이름을 준다. 순위는 빈쿠션 개수가 정한다 (3순위).
+  //   ⚠️ 쓰리뱅크(빈쿠션 3개)는 아직 안 낸다 — 배치 조건을 못 받았다.
+  if (c1 > 0) return DROP_BANK ? null : (c1 <= 2 ? BANK_KR[c1] : null);
   const r0 = rails[0], r1 = rails[1];
   if (!r0 || !r1) return null;
   if (isLong(r0) === isLong(r1)) return null;        // ① 2쿠션이 같은 종류 = 도는 것이 아니다
@@ -2582,6 +2587,12 @@ function drawSysName(){
   for (const k in S.balls) avoid.push(toPx(...S.balls[k].p));
   const b = systemBase();
   if (b && b.hits) for (const h of b.hits) avoid.push(toPx(...h.p));
+  // ★ 사용자 2026-08-13: '공은 피하지만 **보정창과는 겹치기도** 하더라구요.'
+  //   당점 원 + 보정 바(− 0 +)는 한 묶음으로 움직이므로 그 상자를 통째로 피한다.
+  //   상자의 네 귀와 가운데를 점으로 넣어 가까이 못 가게 한다.
+  const box = clusterBox(clockCenter());
+  for (const q of [[box[0],box[1]],[box[2],box[1]],[box[0],box[3]],[box[2],box[3]],
+                   [(box[0]+box[2])/2, (box[1]+box[3])/2]]) avoid.push(q);
   let best = null;
   for (const fx of [0.22, 0.5, 0.78])
     for (const fy of [0.26, 0.74]){
@@ -2593,9 +2604,10 @@ function drawSysName(){
   if (!best) return;
   g.save();
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '800 ' + Math.round(c.h*0.115) + 'px system-ui, sans-serif';
+  // ★ 사용자 2026-08-13: '시스템 설명은 30% 줄여주시고' → 0.115 → 0.08
+  g.font = '800 ' + Math.round(c.h*0.080) + 'px system-ui, sans-serif';
   g.lineJoin = 'round'; g.miterLimit = 2;
-  g.strokeStyle = 'rgba(8,10,14,0.92)'; g.lineWidth = Math.max(4, c.h*0.022);
+  g.strokeStyle = 'rgba(8,10,14,0.92)'; g.lineWidth = Math.max(3, c.h*0.016);
   g.globalAlpha = 0.90;
   g.strokeText(txt, best.x, best.y);
   g.fillStyle = (cur && cur.kiss) ? '#ff8a80' : '#ffffff';
