@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 166;
+const MOBILE_VER = 167;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1977,6 +1977,21 @@ function simulate(dir, k){
   //   ⚠️ 직접 치는 길에는 안 건다. 사용자가 93% 두께 옆돌리기를 OK 한 적이 있다
   //      (route_verdicts.json 배치_A 1번).
   if (c1 > 0 && (af.thick > 0.5 || af.deg < 20 || af.deg > 45)) return null;
+  // ★ 사용자 2026-08-12 (9.jpg) — '얇게 맞히고 멀리 보내는 것 자체.
+  //   30% 로 이만큼 보내는 건 실전에서 안 친다. **성공률 0%.**'
+  //   얇게 맞히면 두께 오차가 분리각을 크게 흔들고, 그 오차가 먼 거리에서 벌어진다.
+  //   → 두께가 얇을수록 충돌 뒤 갈 수 있는 **거리**를 줄인다.
+  // ⚠️ 이 세 숫자는 9.jpg 한 장에서 잡은 것이다. 재거나 교본에서 온 값이 아니다.
+  //    OK 주셨던 길이 사라지면 THIN_SLOPE 를 키우거나 THIN_MAX 를 내리면 된다.
+  const THIN_MAX = 0.60,    // 이보다 두꺼우면 거리 제한을 안 건다
+        THIN_AT30 = 1.0,    // 두께 30% 일 때 허용 거리 = 다이 길이 × 1.0
+        THIN_SLOPE = 4.0;   // 두께 10%p 늘 때마다 0.4 다이씩 늘려 준다
+  if (af.thick < THIN_MAX){
+    let d2 = 0;
+    for (let i = 1; i < cut2.pts.length; i++)
+      d2 += Math.hypot(cut2.pts[i][0]-cut2.pts[i-1][0], cut2.pts[i][1]-cut2.pts[i-1][1]);
+    if (d2 > T.width * (THIN_AT30 + THIN_SLOPE * (af.thick - 0.30))) return null;
+  }
   const kiss = kissAt(P, af, cut2.pts, cut1.obj);      // 두 길이 겹치나
   const sep = af.deg;                                  // 분리각 — 순서 매길 때 쓴다
   return {key: who + '|' + rails.join('-'), rails, first: who,
@@ -2093,11 +2108,11 @@ function findRoutes(){
   // ★ 추천에서 아예 빼는 것 (사용자 2026-08-12, 8.jpg '좀 과하고 키스경로임')
   //   ① 키스가 나는 길 — 전에는 순위만 뒤로 밀었는데(−1.0) 그래도 목록에 떴다.
   //      사용자는 키스 나는 길을 두 번 다 NO 했다. 뺀다.
-  //   ② 우리가 **말해 줄 수 없는 두께** — 화면에는 8/2 · 8/4 · 8/6 셋만 낸다.
-  //      92% 짜리를 8/6(75%) 이라고 적어 주면 그건 틀린 안내다.
-  const THICK_LO = 0.20, THICK_HI = 0.80;
-  const list = Object.values(best).filter(r =>
-        !r.kiss && r.thick >= THICK_LO && r.thick <= THICK_HI).map(r => ({
+  //   ⚠️ v166 에서 두께 20~80% 상·하한도 같이 걸었다가 **되돌렸다.**
+  //      route_verdicts.json 배치_A 1번이 **두께 0.93 인데 OK** 다 (옆돌리기).
+  //      같은 파일에 '③ 두께로는 안 갈린다 — 1번(93%)이 OK 인데 4번(92%)이 NO' 라고
+  //      적혀 있다. 8.jpg 는 키스 하나로 이미 빠진다.
+  const list = Object.values(best).filter(r => !r.kiss).map(r => ({
     a: (r.lo + r.hi)/2,
     w: (r.hi - r.lo) * 180/Math.PI,
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
