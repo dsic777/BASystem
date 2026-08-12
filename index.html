@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 173;
+const MOBILE_VER = 174;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2225,34 +2225,79 @@ function pickRoute(r){
 // 손댄 각을 그대로 둔다. 붙으면 추천 버튼에 몇 번째 경로인지 뜬다.
 const MAGNET_DEG = 1.5;   // 이 안에 들어와야 붙는다. 경로 폭이 0.2~0.6도라 이만하면 넉넉하다
 
+// ★★ 2026-08-12 전면 교체 —
+//   전에는 **추천 목록에 있는 경로에만** 붙었다. 그 목록은 오늘 넣은 필터를 다 통과한
+//   것들이라(키스 · 역회전 뱅크 · 교본에 이름 있는 진로만 · 순위), 사용자가 눈으로
+//   만든 3쿠션이 거기 없으면 **붙을 대상 자체가 없었다.**
+//   사용자 15.jpg: '붙였는데 블링크가 없어요. 한참을 좌우로 움직였어요.
+//                   그리고 우측 안내도 그대로네요, 포인트도.'
+//   → 판독창도 그대로였다는 것이 곧 **붙이는 함수가 아예 안 불렸다**는 증거다.
+//
+//   이제 '3쿠션이 형성되는가' 를 **직접** 판정한다. 추천 필터를 안 거친다.
+//   ⚠️ 당점은 **안 바꾼다.** 사용자가 지금 준 당점 그대로 득점하는 각을 찾는다.
+//      (추천 목록에서 고를 때는 pickRoute 가 당점까지 옮긴다 — 그건 그대로 둔다.)
+
+// 지금 당점·보정으로 이 방향이 득점하나. 1적구를 맞고 3쿠션 이상 돌아 2적구까지.
+function scoresAt(a, k){
+  const cue = S.balls.cue;
+  if (!cue) return false;
+  const dir = [Math.cos(a), Math.sin(a)];
+  const E = englishSideFor(cue.p, dir);
+  const seq = roll(cue.p, dir, SWEEP_MAX_C, k, E);
+  if (!seq.length) return false;
+  const cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
+  if (!cut1.hit) return false;
+  const c1 = cut1.pts.length - 2;
+  const P = cut1.pts[cut1.pts.length-1];
+  const af = afterHit(cut1.from, P, cut1.obj);
+  if (!af) return false;
+  const budget = afterCushions(c1);
+  if (budget <= 0) return false;
+  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_MAX_C - c1), k, E);
+  const cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
+  if (!cut2.hit) return false;
+  const c2 = cut2.pts.length - 2;
+  if (c2 > budget) return false;
+  if (c1 + c2 < 3) return false;                     // ★ 3쿠션 미달
+  const rails = seq.slice(0,c1).map(h=>h.rail).concat(seq2.slice(0,c2).map(h=>h.rail));
+  return {c1, c2, rails, name: shotName(c1, rails, cue.p, cut1.obj)};
+}
+
 function snapAim(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return false;
   const d0 = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
-  if (Math.hypot(d0[0], d0[1]) < 1e-6) return false;
-  const list = findRoutes();
-  if (!list.length){ S.routeIx = -1; return false; }
+  const len = Math.hypot(d0[0], d0[1]);
+  if (len < 1e-6) return false;
+  let k0 = 0;
+  try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; }
   const a0 = Math.atan2(d0[1], d0[0]);
-  let bi = -1, bd = Infinity;
-  // ★ 2026-08-12 — **찾은 경로 전부**를 본다. 전에는 상위 5개(ROUTE_SHOW)만 봐서,
-  //   6등 이하의 득점 경로로 조준하면 안 붙었다. 3쿠션이 형성되면 늘 붙어야 한다
-  //   (사용자: '경로 직접 선택 시 3쿠션이 형성되면 자석기능 항상 되게 해 주세요').
-  for (let i = 0; i < list.length; i++){
-    // 각도 차이를 -180~180 으로 접어서 잰다 (0도 이음매에서 뒤집히지 않게)
-    const df = Math.abs(((list[i].a - a0 + Math.PI*3) % (Math.PI*2)) - Math.PI);
-    if (df < bd){ bd = df; bi = i; }
+  const R = MAGNET_DEG * Math.PI/180, STEP = 0.05 * Math.PI/180;   // ±1.5도를 0.05도로
+  // a0 에서 가까운 쪽부터 훑는다 — 손댄 곳에서 제일 가까운 득점 각에 붙는다
+  let hitA = null, got = null;
+  for (let d = 0; d <= R + 1e-12; d += STEP){
+    for (const sgn of (d === 0 ? [0] : [1,-1])){
+      const a = a0 + sgn*d, r = scoresAt(a, k0);
+      if (r){ hitA = a; got = r; break; }
+    }
+    if (hitA !== null) break;
   }
-  if (bi < 0 || bd > MAGNET_DEG * Math.PI/180){ S.routeIx = -1; return false; }
-  S.routeIx = bi;
-  // ★★ 여기가 '손을 놓으면 이상한 경로로 변해버린다' 의 원인이었다 (2026-08-12).
-  //   전에는 **각도만** 옮겼다. 그런데 훑기는 당점을 −3~3 까지 돌려 가며 경로를
-  //   찾으므로, 각도만 가져오고 당점은 화면에 켜져 있던 것을 그대로 쓰면
-  //   **찾은 경로와 그려지는 궤적이 서로 다른 공**이 된다.
-  //   pickRoute() 는 당점·판독창·조준을 한꺼번에 옮긴다. 그것을 부른다.
-  pickRoute(list[bi]);
-  S.snapA = list[bi].a;                 // 이 각에서 벗어나야 다시 붙는다
-  // ⚠️ 안내 글은 넣지 않는다 (사용자 2026-08-12: '안내는 필요없어요').
-  //    깜빡임이 붙었다는 신호이고, 판독창이 이미 진로·두께·팁수를 보여준다.
+  if (hitA === null){ S.routeIx = -1; return false; }
+  // 득점하는 구간의 **가운데**로 옮긴다 (제일 관대한 자리)
+  // ⚠️ 넓히는 폭을 R 로 묶는다. 안 묶으면 한 번 움직일 때 scoresAt 을 수백 번 불러
+  //    폰에서 손가락이 끊긴다 (경로 폭은 보통 0.2~0.6도라 이만하면 충분하다).
+  let lo = hitA, hi = hitA, n = 0;
+  while (n++ < 30 && scoresAt(lo - STEP, k0)) lo -= STEP;
+  n = 0;
+  while (n++ < 30 && scoresAt(hi + STEP, k0)) hi += STEP;
+  const a = (lo + hi)/2;
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+  S.snapA = a;                       // 이 각에서 벗어나야 다시 붙는다
+  S.blink = nowMs();                 // ★ 3초 깜빡임
+  S.routeIx = -1;
+  // 판독창을 그 진로에 맞춘다 (pickRoute 와 같은 규칙, 당점은 안 건드린다)
+  S.sysMode = (got.name === '횡단샷') ? 3 : (got.name === '옆돌리기') ? 5
+            : /돌리기/.test(got.name || '') ? 1 : 0;      // pickRoute 와 같은 규칙
   return true;
 }
 
