@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 234;
+const MOBILE_VER = 235;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2554,10 +2554,90 @@ function findRoutes(){
   //      Node 로 재 보니 7.jpg 의 앞돌리기(0.94)·뒤돌리기(0.99)가 엔진에서 공 하나만 맞혔다.
   //   → 실측 마찰(simRunLen)로 **끝까지 가는지** 재서, 못 가면 뒤로 민다.
   //     ★ 빼지 않는다. 점수만 내린다 (인수인계서 4번 — 없애지 말고 뒤로 민다).
-  for (const r of list) r.reach = routeReach(r);
+  for (const r of list){
+    r.reach = routeReach(r);
+    // ★ 키스도 **엔진 판정**으로 덮어쓴다 (위 kissRun 주석 — 옛 판정은 30% 틀렸다).
+    //   순위 규칙(키스 −250)은 그대로다. 판정의 **입력만** 정확해진다.
+    const ke = routeKiss(r);
+    if (ke !== null) r.kiss = ke;
+  }
   list.sort((a, b) => rank(b) - rank(a));                   // 넓은 것부터 = 쉬운 것부터
   ROUTES = {key, list};
   return list;
+}
+// ★★★ 한 조준의 '칠 계획' — 그리기·추천·키스가 **다 이걸 쓴다.**
+function planShot(cueP, aim){
+  const hits = pathFromAim(cueP, aim, S.corr), kk = LAST_K;
+  const cut = cutAtBall([cueP, ...hits.map(h => h.p)]);
+  if (!cut.hit) return null;
+  const P = cut.pts[cut.pts.length-1];
+  const af = afterHit(cut.from, P, cut.obj);
+  if (!af) return null;
+  const bud = afterCushions(cut.pts.length - 2);
+  let pts2;
+  if (bud <= 0){
+    const nx0 = nextRail(P, af.dir, T.width, T.height);
+    pts2 = nx0 ? cutAtBall([P, nx0[1]], cut.obj).pts : [P];
+  } else {
+    const later = roll(P, af.dir, Math.min(bud, BIG_MAX_C), kk);
+    pts2 = cutAtBall([P, ...later.map(h => h.p)], cut.obj).pts;
+  }
+  const poly = [...cut.pts, ...pts2.slice(1)];
+  if (poly.length < 2) return null;
+  const share = Math.max(0.10, Math.min(0.95, af.thick));
+  const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
+  return {kk, cut, af, poly, keepC, V0: simNeedV0(poly, keepC), dir: dirOf(cueP, aim)};
+}
+// ★★★ 키스를 **엔진으로** 판정한다 (사용자 승인 2026-08-13).
+//   ⚠️⚠️ kissAt() 은 옛 물리다 — 세기 2600 고정 · 등감속 500 · 쿠션 손실 없음.
+//      Node 로 추천 상위 20개를 재 보니 **6개(30%)가 틀렸다** —
+//        못 잡은 키스 5개 (앱은 '없음' 인데 실제로 부딪힌다)
+//        헛 경보   1개   (앱은 '키스' 인데 비껴간다 → 멀쩡한 길이 −250 으로 밀렸다)
+//   → ▶ 와 **같은 물리**로 굴려 접촉을 **사건 단위**로 센다.
+//     득점에 필요한 두 접촉(수구→1적구, 수구→2적구) **외의 접촉이 곧 키스**다.
+//   ⚠️ 훑기(수천 번)에는 못 쓴다. kissAt 은 굵은 예선으로 두고 최종 목록·그리는 경로에만.
+const KISS_DT = 0.002;      // 3000mm/s 라도 한 걸음 6mm 라 충분하다
+function kissRun(dir, V0, k, E){
+  const sim = simInit(dir, V0, k, E);
+  const D = T.ball_diameter, inside = {}, ev = [];
+  for (let n = 0; n < 12000; n++){
+    simStep(sim, KISS_DT);
+    for (let i = 0; i < sim.balls.length; i++)
+      for (let j = i+1; j < sim.balls.length; j++){
+        const A = sim.balls[i], B = sim.balls[j], key = A.key + '|' + B.key;
+        const near = Math.hypot(A.p[0]-B.p[0], A.p[1]-B.p[1]) < D + 0.8;
+        if (near && !inside[key])
+          ev.push({key, cue: A.key === 'cue' || B.key === 'cue',
+                   at: [(A.p[0]+B.p[0])/2, (A.p[1]+B.p[1])/2]});
+        inside[key] = near;
+      }
+    if (sim.balls.every(b => !b.v[0] && !b.v[1])) break;
+  }
+  const need = {}; let kiss = null;
+  for (const e of ev){
+    if (e.cue && !need[e.key]){ need[e.key] = 1; continue; }
+    if (!kiss) kiss = e.at;
+  }
+  return {kiss, score: Object.keys(need).length >= 2};
+}
+function kissEngine(cueP, aim){
+  const pl = planShot(cueP, aim);
+  if (!pl) return {kiss:null, score:false};
+  return kissRun(pl.dir, pl.V0, pl.kk, englishSideFor(cueP, pl.dir));
+}
+// 이 경로에서 **실제로** 키스가 나나 (엔진). 못 재면 null → 옛 판정을 그대로 둔다.
+function routeKiss(r){
+  const cue = S.balls.cue;
+  if (!cue || r.a === undefined) return null;
+  const hS = S.tipH, vS = S.tipV, rS = S.tipR;
+  let out = null;
+  try {
+    S.tipH = r.tip; S.tipV = r.tipV; S.tipR = Math.min(3, Math.hypot(r.tip, r.tipV));
+    const dir = [Math.cos(r.a), Math.sin(r.a)];
+    out = !!kissEngine(cue.p, [cue.p[0] + dir[0]*500, cue.p[1] + dir[1]*500]).kiss;
+  } catch(e){ out = null; }
+  S.tipH = hS; S.tipV = vS; S.tipR = rS;
+  return out;
 }
 // 이 경로를 **끝까지 갈 수 있나.** 1 이면 완주, 0.6 이면 60% 지점에서 선다.
 // 그리는 쪽(drawPath)과 같은 순서로 길을 만들고, 엔진과 같은 세기·마찰로 굴려 본다.
@@ -2802,14 +2882,19 @@ function drawSysName(){
   // ★ 키스가 나면 **피하는 두께**를 바로 아래에 한 줄로
   const fix = kissFreeThick();
   if (fix){
-    const t2 = '키스 — 8/' + thick8(fix.thick*8) + ' 로 ' +
-               (fix.thick < fix.now ? '얇게' : '두껍게');
+    // ★ 두께 한 줄 + 당점이 바뀌면 한 줄 더 (사용자 2026-08-13: '당점조정 두께조정')
+    const lines = ['키스 — 8/' + thick8(fix.thick*8) + ' 로 ' +
+                   (fix.thick < fix.now ? '얇게' : '두껍게')];
+    if (fix.tipChanged) lines.push('당점 ' + tipName(fix.tipH, fix.tipV) + ' 로');
     g.font = '800 ' + Math.round(c.h*0.058) + 'px system-ui, sans-serif';
     g.lineWidth = Math.max(3, c.h*0.013);
-    g.strokeStyle = 'rgba(8,10,14,0.92)';
-    g.strokeText(t2, best.x, best.y + c.h*0.085);
-    g.fillStyle = '#ffd400';
-    g.fillText(t2, best.x, best.y + c.h*0.085);
+    for (let i = 0; i < lines.length; i++){
+      const yy = best.y + c.h*(0.085 + i*0.068);
+      g.strokeStyle = 'rgba(8,10,14,0.92)';
+      g.strokeText(lines[i], best.x, yy);
+      g.fillStyle = '#ffd400';
+      g.fillText(lines[i], best.x, yy);
+    }
   }
   g.restore();
 }
@@ -2822,27 +2907,66 @@ function drawSysName(){
 //   두께를 찾는다. 있으면 '8/2 로 얇게' 처럼 한 줄로 알려 준다.
 //   ⚠️ 두께만 본다. 힘·회전은 우리가 낼 수 있는 값이 아니다 (속도를 안 재 봤다).
 let KISSFIX = {key:null, val:null};
+// 당점을 사람이 읽는 말로. 0=12시 · 5=2시30분 · 6=3시 · 12=6시 (TIP_DIRS 24칸)
+function tipName(h, v){
+  // ⚠️ 팁수는 3 이 최대다 (앱이 S.tipR = min(3, hypot) 로 자른다). 여기도 같이 자른다.
+  const r = Math.min(3, Math.hypot(h, v));
+  if (r < 0.2) return '무회전';
+  const d = ((Math.round(Math.atan2(h, v) / (Math.PI/12)) % 24) + 24) % 24;
+  const hh = Math.floor(d/2) === 0 ? 12 : Math.floor(d/2);
+  return hh + ((d % 2) ? '시30분 ' : '시 ') + (Math.round(r*10)/10) + '팁';
+}
+// ★★★ 키스를 피하는 **두께와 당점**을 찾는다 (사용자 승인 2026-08-13 —
+//   '경로에 충돌이 예상되면 **당점조정 두께조정**을 해서 피해가는 길을 찾아주는 앱입니다.')
+//   같은 회로(쿠션 차례)를 지키면서 —
+//     1단계  조준각만 좌우로 (= 두께만 바꾼다). 대부분 여기서 찾는다
+//     2단계  못 찾으면 **당점까지** 같이 (좌우 7 × 상하 3)
+//   판정은 전부 **엔진**이다 (kissRun). 득점도 같이 본다 — 키스만 피하고 못 넣으면 소용없다.
+//   ⚠️ 키스가 날 때만 돌고 결과는 캐시한다. 안 그러면 매 프레임 엔진을 수백 번 돌린다.
 function kissFreeThick(){
   const cue = S.balls.cue;
   if (!cue || !S.aim || !S.lockRails) return null;
   const key = cue.p + '|' + S.aim + '|' + S.tipH + '|' + S.tipV + '|' + S.corr;
   if (KISSFIX.key === key) return KISSFIX.val;
   let out = null;
-  const d0 = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
-  const a0 = Math.atan2(d0[1], d0[0]);
-  let k0 = 0;
-  try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; }
-  const now = scoresAt(a0, k0);
-  if (now && now.kiss){                       // 지금 키스가 난다 — 벗어날 두께를 찾는다
-    const STEP = 0.05*Math.PI/180, R = 4*Math.PI/180;
-    for (let dd = STEP; dd <= R && !out; dd += STEP)
-      for (const sg of [1,-1]){
-        const r = scoresAt(a0 + sg*dd, k0);
-        if (r && !r.kiss && (r.rails||[]).join('-') === S.lockRails){
-          out = {thick: r.thick, now: now.thick}; break;
+  const hS = S.tipH, vS = S.tipV, rS = S.tipR;
+  try {
+    const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
+    const aimAt = a => [cue.p[0] + Math.cos(a)*200, cue.p[1] + Math.sin(a)*200];
+    const now = planShot(cue.p, aimAt(a0));
+    if (now && kissRun(now.dir, now.V0, now.kk, englishSideFor(cue.p, now.dir)).kiss){
+      const nowThick = now.af.thick;
+      const tryOne = (a, tp, tv) => {
+        S.tipH = tp; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(tp, tv));
+        const r0 = scoresAt(a, now.kk);
+        if (!r0 || (r0.rails||[]).join('-') !== S.lockRails) return null;   // 같은 회로만
+        const pl = planShot(cue.p, aimAt(a));
+        if (!pl) return null;
+        const k = kissRun(pl.dir, pl.V0, pl.kk, englishSideFor(cue.p, pl.dir));
+        if (k.kiss || !k.score) return null;
+        return {thick: pl.af.thick, now: nowThick, tipH: tp, tipV: tv,
+                tipChanged: (tp !== hS || tv !== vS)};
+      };
+      const RG = 4*Math.PI/180;
+      for (let dd = 0.1*Math.PI/180; dd <= RG && !out; dd += 0.1*Math.PI/180)   // 1단계
+        for (const sg of [1,-1]){ const r = tryOne(a0 + sg*dd, hS, vS); if (r){ out = r; break; } }
+      if (!out){                                                                // 2단계
+        const S2 = 0.4*Math.PI/180;
+        for (const tv of [3, 0.78, -3]){
+          for (const tp of [-3,-2,-1,0,1,2,3]){
+            if (tp === hS && tv === vS) continue;
+            for (let dd = 0; dd <= RG && !out; dd += S2)
+              for (const sg of (dd === 0 ? [1] : [1,-1])){
+                const r = tryOne(a0 + sg*dd, tp, tv); if (r){ out = r; break; }
+              }
+            if (out) break;
+          }
+          if (out) break;
         }
       }
-  }
+    }
+  } catch(e){ out = null; }
+  S.tipH = hS; S.tipV = vS; S.tipR = rS;
   KISSFIX = {key, val: out};
   return out;
 }
