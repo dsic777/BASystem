@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 252;
+const MOBILE_VER = 253;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1687,8 +1687,7 @@ function draw(){
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawSysName(); drawPath(); drawBalls(); drawClock(); }
-  drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawTipCorner();
-  drawRouteList(); drawTipPanel();
+  drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList(); drawTipPanel();
   drawDebugXY();
   requestAnimationFrame(draw);
 }
@@ -1725,38 +1724,6 @@ function applySetLayout(){
   if (SET_LAYOUT.corr !== undefined) S.corr = SET_LAYOUT.corr;
   S.place = null;
 }
-// ★ 당점을 다이 좌측상단에 늘 보이게 (사용자 2026-08-14)
-//   '당점을 좌측상단에 넣어주세요. 볼라면 당점으로 들어가야 합니다.'
-//   지금까지는 당점 화면에 들어가야만 지금 당점이 뭔지 알 수 있었다.
-//   버튼 위 미리보기는 너무 작고 오른쪽 끝이라 눈에 안 들어온다.
-function drawTipCorner(){
-  if (previewOn() || S.routeList || S.tipPanel) return;
-  const c = L.cloth;
-  const R  = c.h * 0.085;
-  const cx = c.x + R * 1.45;
-  const cy = c.y + R * 1.45 + (SHOW_XY ? c.h * 0.055 : 0);
-  const f  = v => (v >= 0 ? '+' : '') + (v || 0).toFixed(1);
-  const txt = f(S.tipH) + ' / ' + f(S.tipV);
-  g.save();
-  g.font = '700 ' + Math.round(R*0.66) + 'px system-ui, -apple-system, sans-serif';
-  const tw = g.measureText(txt).width;
-  // 경로선 위에 겹쳐도 읽히게 어두운 판을 깐다
-  const px = cx - R*1.30, py = cy - R*1.30, pw = R*2.60 + tw + R*0.55, ph = R*2.60;
-  g.beginPath();
-  if (g.roundRect) g.roundRect(px, py, pw, ph, R*0.42);
-  else g.rect(px, py, pw, ph);
-  g.fillStyle = 'rgba(14,16,20,0.72)'; g.fill();
-  g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = Math.max(1, R*0.055); g.stroke();
-  g.restore();
-  drawTipBall(cx, cy, R, S.tipH, S.tipV);
-  g.save();
-  g.font = '700 ' + Math.round(R*0.66) + 'px system-ui, -apple-system, sans-serif';
-  g.textAlign = 'left'; g.textBaseline = 'middle';
-  g.fillStyle = 'rgba(240,244,250,0.95)';
-  g.fillText(txt, cx + R*1.30, cy);
-  g.restore();
-}
-
 function drawDebugXY(){
   if (!SHOW_XY || previewOn() || S.routeList || S.tipPanel) return;
   const c = L.cloth, cue = S.balls.cue;
