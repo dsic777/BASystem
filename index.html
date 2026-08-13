@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 241;
+const MOBILE_VER = 242;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1578,7 +1578,11 @@ const SHOW_XY = true;
 //   ⚠️ 다 보고 나면 null 로 되돌린다 — 안 그러면 켤 때마다 이 배치가 나온다.
 //   좌표는 mm, 좌하단이 0,0. 수구는 cue 로 적는다.
 //     예) {cue:'yellow', yellow:[1962,592], white:[1927,259], red:[983,907], aim:[1723,1224]}
-const SET_LAYOUT = null;
+const SET_LAYOUT = {cue:'white', white:[920,615], yellow:[1816,627], red:[2250,998],
+                    aim:[1620,637], tipH:0, tipV:1.5, corr:0};
+//   ↑ 2026-08-13 영상(15-55-33)의 그 대회전. 무회전 자연회전(v241) 확인용.
+//     두께 74% · 분리각 52° · 1쿠션 상단 x=2182 (영상에서 잰 값과 같다)
+//     ⚠️ 확인이 끝나면 null 로 되돌린다.
 function applySetLayout(){
   if (!SET_LAYOUT) return;
   S.cueWhite = (SET_LAYOUT.cue !== 'yellow');
