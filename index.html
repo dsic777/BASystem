@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 245;
+const MOBILE_VER = 246;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -206,12 +206,23 @@ function revStrength(ptLeft){
   return Math.max(0, Math.min(1, (ptLeft - 1) / 2)) * REV_MAX;   // 1pt 0% · 3pt 이상 50%
 }
 // 지금 속도로 앞으로 더 갈 수 있는 거리 (실측 마찰) → 포인트
+// ★ 눈금 맞춤 (사용자 관측 2026-08-13, 11.jpg)
+//   '3쿠션에서 4쿠션 반사각이 눕는 자리입니다. 53,4 자리로 갑니다.
+//    거울에서 역회전이라 더 꺾은 것 같은데 실제는 그렇지 않아요.'
+//   그 배치의 3쿠션에서 '굴러갈 수 있는 거리'는 7.7포인트로 나왔는데
+//   실제로는 역각이 안 걸린다 = 사용자 눈금으로 1포인트다. 그래서 8로 나눈다.
+//   덕분에 앞서 주신 말씀과도 맞는다 —
+//   '공의 힘이 세면 ... 역각은 그럴 때만 발생을 합니다.'
+//   → 보통 세기면 3쿠션쯤에 1포인트 이하가 되어 거울이 되고,
+//     세게 친 공만 3포인트를 넘겨 역각이 걸린다.
+//   ⚠️ 관측 한 점으로 맞춘 값이다 (③ 경험치). 대회 영상으로 대조해야 한다.
+const PT_FEEL = 8;
 function ptLeftAt(v){
   if (!(v > 0)) return 0;
   const A0 = DRAG_A0 * DRAG_TABLE, KV = DRAG_KV / DRAG_TABLE;
   const lo = A0 + SIM_STOP*SIM_STOP/KV, hi = A0 + v*v/KV;
   if (hi <= lo) return 0;
-  return (KV/2) * Math.log(hi/lo) / PT_MM;
+  return (KV/2) * Math.log(hi/lo) / PT_MM / PT_FEEL;
 }
 function bend(d, rail, k, E, ptLeft){
   const n = RAILS[rail], tg = [-n[1], n[0]];
@@ -2206,7 +2217,7 @@ function simulate(dir, k){
   if (!seq.length) return null;
   let cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!cut1.hit) return null;                       // 1적구를 못 맞힌다
-  const c1 = cut1.pts.length - 2;                   // 1적구 전에 쓴 쿠션 수
+  let c1 = cut1.pts.length - 2;                     // 1적구 전에 쓴 쿠션 수
   // ★ 사용자 2026-08-12: '추천도 직접 겨냥만으로 한정을 했는데 책에서 학습한 대로
   //   영역을 넓혀보시죠.' → 뱅크샷(걸어치기)을 다시 넣는다.
   //   ⚠️ 2026-08-11 에는 '뱅크샷은 일단 제외' 였다. 책에 걸어치기 장이 통째로
@@ -2219,7 +2230,7 @@ function simulate(dir, k){
   //   ⚠️ 경로 찾기에서 이걸 안 쓰고 있었다 — 그래서 쿠션을 잔뜩 쓴 뒤 두껍게 맞고도
   //      또 멀리 굴러가는 길이 추천에 올라왔다 (사용자 1~5.jpg: '공이 그렇게
   //      움직이지 않습니다'). 그리기(drawPath)는 이미 이 표를 쓰고 있었다.
-  const budget = afterCushions(c1);
+  let budget = afterCushions(c1);
   // ★★★ 사용자 2026-08-13: 파이브앤하프 쓰리뱅크가 추천에 **하나도 안 나온다.**
   //   ⚠️⚠️ 범인 하나가 여기였다. speed.json 표가 '충돌 전 3쿠션 → 충돌 후 0쿠션'
   //      이라 budget 이 0 이 되고 그 자리에서 return null 했다.
@@ -2238,7 +2249,7 @@ function simulate(dir, k){
     cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
   }
   if (!cut2.hit) return null;                       // 2적구를 못 맞힌다
-  const c2 = cut2.pts.length - 2;                   // 충돌 후 2적구 전까지 쿠션 수
+  let c2 = cut2.pts.length - 2;                     // 충돌 후 2적구 전까지 쿠션 수
   if (c2 > budget) return null;                     // 표가 허락한 것보다 멀리 갔다
   if (c1 + c2 < MIN_C_NOW) return null;             // ★ 3쿠션 미달 — 득점이 아니다
   // ★★ 사용자 승인 2026-08-13 — 훑기에도 **남은 힘**을 넣는다.
@@ -2250,12 +2261,13 @@ function simulate(dir, k){
     const V0 = needV0exact([...cut1.pts, ...cut2.pts.slice(1)], keep0);
     const s1 = roll(cue.p, dir, SWEEP_C_NOW, k, E, V0);
     const q1 = cutAtBall([cue.p, ...s1.map(h => h.p)]);
-    if (!q1.hit || q1.pts.length - 2 !== c1) return null;      // 1차와 달라지면 버린다
+    if (!q1.hit) return null;
+    const d1 = q1.pts.length - 2;
     const P2 = q1.pts[q1.pts.length-1];
     const a2 = afterHit(q1.from, P2, q1.obj);
     if (!a2) return null;
-    // 충돌에서 두께만큼 잃고 나간다
-    let v2 = V0;
+    const b2 = afterCushions(d1);
+    let v2 = V0;                                    // 충돌 지점까지 굴러오며 잃는다
     for (let i = 0; i < q1.pts.length-1; i++){
       const L = Math.hypot(q1.pts[i+1][0]-q1.pts[i][0], q1.pts[i+1][1]-q1.pts[i][1]);
       const A0 = DRAG_A0*DRAG_TABLE, KV = DRAG_KV/DRAG_TABLE;
@@ -2263,11 +2275,25 @@ function simulate(dir, k){
       v2 = u > 0 ? Math.sqrt(u*KV) : 0;
       if (i < q1.pts.length-2) v2 *= CUSHION_KEEP;
     }
-    v2 *= keep0;
-    const s2 = roll(P2, a2.dir, Math.min(budget, SWEEP_C_NOW - c1), k, E, v2);
-    const q2 = cutAtBall([P2, ...s2.map(h => h.p)], q1.obj);
-    if (!q2.hit || q2.pts.length - 2 !== c2) return null;      // 1차와 달라지면 버린다
+    v2 *= Math.sqrt(Math.max(0.04, 1 - Math.min(0.95, a2.thick)**2));   // 두께만큼 또 잃는다
+    let s2, q2;
+    if (b2 <= 0){
+      const nx0 = nextRail(P2, a2.dir, T.width, T.height);
+      if (!nx0) return null;
+      s2 = []; q2 = cutAtBall([P2, nx0[1]], q1.obj);
+    } else {
+      s2 = roll(P2, a2.dir, Math.min(b2, SWEEP_C_NOW - d1), k, E, v2);
+      q2 = cutAtBall([P2, ...s2.map(h => h.p)], q1.obj);
+    }
+    // ★ 2차가 정답이다 — 1차와 다르다고 **버리지 않고 다시 센다.**
+    //   버리기만 했더니 역각 눈금(PT_FEEL)을 맞춘 뒤 찾는 길이 38→25 로 줄었다.
+    //   1차는 힘을 모른 채 굴린 임시 경로다. 조건 검사도 2차 값으로 다시 한다.
+    if (!q2.hit) return null;                       // 2적구를 못 맞힌다
+    const d2 = q2.pts.length - 2;
+    if (d2 > b2) return null;                       // 표가 허락한 것보다 멀리 갔다
+    if (d1 + d2 < MIN_C_NOW) return null;           // 3쿠션 미달 — 득점이 아니다
     seq = s1; cut1 = q1; af = a2; seq2 = s2; cut2 = q2;
+    c1 = d1; c2 = d2; budget = b2;
   }
   const rails = seq.slice(0, c1).map(h => h.rail)
            .concat(seq2.slice(0, c2).map(h => h.rail));
