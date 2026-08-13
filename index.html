@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 256;
+const MOBILE_VER = 257;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3287,10 +3287,9 @@ function drawGrid(){
   // ★ 다이 바닥이 여기까지다 — 테두리도 격자로 두른다 (사용자 2026-08-14)
   //   '격자무니 다이 테두리에도 넣으세요. 다이바닥이 여기까지다를 표시하세요.'
   //   전에는 안쪽 줄(세로 7 · 가로 3)만 그려 쿠션 코가 어디인지 안 보였다.
-  //   안쪽 줄보다 조금 진하고 굵게 — 끝선이라는 것이 읽혀야 한다.
+  //   ⚠️ 처음엔 진하고 굵게 그렸는데 사용자가 '격자와 같은 두께로. 더 두꺼워 보여요'
+  //      (2026-08-14) → 안쪽 줄과 **똑같이** 그린다. 색도 굵기도 위에서 정한 그대로 쓴다.
   const c0 = toPx(0,0), c1 = toPx(T.width,0), c2 = toPx(T.width,T.height), c3 = toPx(0,T.height);
-  g.strokeStyle = 'rgba(255,255,255,0.34)';
-  g.lineWidth = Math.max(1.5, L.cloth.h*0.0058);
   g.beginPath();
   g.moveTo(c0[0],c0[1]); g.lineTo(c1[0],c1[1]);
   g.lineTo(c2[0],c2[1]); g.lineTo(c3[0],c3[1]);
