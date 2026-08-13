@@ -192,8 +192,24 @@ def measure(cue, obj, fps, ball_d):
     v_out = v_roll or v_now
     if not v_out:
         return None
+    # ★★ 분리각 — 충돌 전 진행 방향과 충돌 후 진행 방향 사이의 각 (2026-08-14)
+    #   앞돌리기가 공 반개 짧게 가는 원인을 가리려고 넣었다. 빈쿠션은 3쿠션까지
+    #   중앙오차 17~21mm 로 맞았으니, 남은 차이는 1적구와의 충돌뿐이다.
+    #   ⚠️ 두 번 잰다 — 상단 팁이면 충돌 직후와 되살아난 뒤의 방향이 다르다.
+    #      data/separation.json 의 표는 **충돌 직후** 기준이다.
+    def _ang(a, b):
+        if a is None or b is None:
+            return None
+        c = max(-1.0, min(1.0, a[0]*b[0] + a[1]*b[1]))
+        return round(math.degrees(math.acos(c)), 1)
+    d_now  = fit_dir(cp, k + 1, k + NOW)
+    d_roll = fit_dir(cp, k + ROLL0, k + ROLL1)
+    d_obj  = fit_dir(obj.points, oi, oi + POST)
     return {"frame": fc, "minute": fc / fps / 60,
             "thick": round(thick, 3),
+            "sep_now": _ang(d, d_now),        # 분리각 (충돌 직후)
+            "sep_roll": _ang(d, d_roll),      # 분리각 (되살아난 뒤)
+            "obj_deg": _ang(d, d_obj),        # 1적구가 나간 각
             "cue_in": round(v_in, 3),
             "cue_now": round(v_now, 3) if v_now else None,    # 직후
             "cue_roll": round(v_roll, 3) if v_roll else None,  # 되살아난 뒤

@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 258;
+const MOBILE_VER = 259;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -412,6 +412,66 @@ function pathFromAim(cue, aim, shift){
   LAST_K = 0;
   const base = roll(cue, d, AIM_MAX_C, 0);
   if (!shift || !base.length) return base;
+  // ★★ 공을 먼저 맞히는 길(앞돌리기·뒤돌리기)은 1쿠션이 **분리각**으로 정해진다.
+  //   조준을 옮기면 1쿠션이 따라오지 않고 **두께**가 바뀌어 분리각이 바뀐다.
+  //   사용자 2026-08-14: '원쿠션 앞돌리기 ... 공 반개정도가 짧아지는 현상이 계속'
+  //   → 그래서 이쪽은 **충돌 뒤 1쿠션 점**을 한 눈금(STEP_MM)씩 옮기도록 조준을 돌린다.
+  //   ⚠️ 표(data/separation.json)는 안 건드린다. 영상에서 두께 측정이 깨져 있어
+  //      (1적구 각과 안 맞는다) 그 값으로 표를 고치면 근거 없는 숫자가 된다.
+  //      다이마다 다른 몫이기도 하므로 손잡이로 두는 것이 맞다.
+  {
+    const h0 = cutAtBall([cue, ...base.map(x => x.p)]);
+    if (h0.hit && h0.pts.length === 2){                 // 쿠션 전에 적구를 맞는다
+      const P0 = h0.pts[1], a0 = afterHit(cue, P0, h0.obj);
+      const r0 = a0 ? roll(P0, a0.dir, 1, 0) : [];
+      if (r0.length){
+        const rl = r0[0].rail, nn = RAILS[rl], tt = [-nn[1], nn[0]];
+        const p0 = r0[0].p;
+        const fwd = ((p0[0]-P0[0])*tt[0] + (p0[1]-P0[1])*tt[1]) >= 0 ? 1 : -1;
+        const want = shift * STEP_MM * fwd;             // + 는 진행 쪽으로 = 길게
+        // 지금 적구가 조준선의 어느 쪽에 있나 — 이 쪽이 바뀌면 수구가 반대로 꺾인다
+        const sideOf = (dd, P, ob) => Math.sign(dd[0]*(ob[1]-P[1]) - dd[1]*(ob[0]-P[0]));
+        const nd0 = Math.hypot(d[0], d[1]);
+        const side0 = sideOf([d[0]/nd0, d[1]/nd0], P0, h0.obj);
+        const off = ang => {
+          const c = Math.cos(ang), si = Math.sin(ang);
+          const dd = [d[0]*c - d[1]*si, d[0]*si + d[1]*c];
+          const rr = roll(cue, dd, AIM_MAX_C, 0);
+          if (!rr.length) return null;
+          const h = cutAtBall([cue, ...rr.map(x => x.p)]);
+          if (!h.hit || h.pts.length !== 2) return null;
+          const P = h.pts[1], a2 = afterHit(cue, P, h.obj);
+          if (!a2) return null;
+          // ⚠️ 적구를 넘어가면 꺾이는 쪽이 뒤집혀 1쿠션이 통째로 튄다. 같은 쪽만 쓴다.
+          const un = Math.hypot(dd[0], dd[1]);
+          if (sideOf([dd[0]/un, dd[1]/un], P, h.obj) !== side0) return null;
+          const q = roll(P, a2.dir, 1, 0);
+          if (!q.length || q[0].rail !== rl) return null;
+          // ⚠️ 두께 90% 를 넘으면 표가 되레 줄어(0.75→50도 · 0.875→48도) 방향이
+          //    되돌아온다. 그 구간은 빼야 손잡이가 헛돌지 않는다.
+          if (a2.thick < 0.05 || a2.thick > 0.88) return null;
+          return (q[0].p[0]-p0[0])*tt[0] + (q[0].p[1]-p0[1])*tt[1];
+        };
+        // ⚠️ 이분법은 못 쓴다 — 위 이유로 오프셋이 각도에 대해 단조롭지 않다.
+        //    조준을 적구 폭 안에서 촘촘히 훑어 **want 에 제일 가까운 각**을 고른다.
+        const L = Math.max(1, Math.hypot(P0[0]-cue[0], P0[1]-cue[1]));
+        const R = T.ball_diameter * 0.5 / L;
+        let bestA = null, bestE = Infinity;
+        for (let i = 0; i <= 80; i++){
+          const ang = -R + 2*R*i/80, v = off(ang);
+          if (v === null) continue;
+          const e = Math.abs(v - want);
+          if (e < bestE){ bestE = e; bestA = ang; }
+        }
+        if (bestA !== null && bestE < Math.abs(want)*0.5 + STEP_MM*0.35){
+          const c = Math.cos(bestA), si = Math.sin(bestA);
+          const out2 = roll(cue, [d[0]*c - d[1]*si, d[0]*si + d[1]*c], AIM_MAX_C, 0);
+          if (out2.length) return out2;
+        }
+      }
+      return base;                                      // 못 풀면 그대로 둔다
+    }
+  }
   const rail = base[0].rail, n = RAILS[rail], tg = [-n[1], n[0]];
   const aimAt = s => {
     const q = [base[0].p[0] + tg[0]*s, base[0].p[1] + tg[1]*s];
