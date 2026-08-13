@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 243;
+const MOBILE_VER = 244;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -192,7 +192,28 @@ function englishSide(){                       // 화면의 지금 조준 기준
   return englishSideFor(cue.p, [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]]);
 }
 
-function bend(d, rail, k, E){
+// ★★★ 역각은 **남아 있는 힘**이 정한다 (사용자 경험치 2026-08-13)
+//   '남아있는 힘이 3포인트일 경우 역각이 50% 걸립니다. 1포인트정도이면 입사반사각이 같습니다.'
+//   '3포인트 이상이면 50%. 더 세분화 하지 마세요.'
+//   ⚠️ 지금까지는 남은 힘과 무관하게 **늘 100%** 로 걸었다. 그래서 힘이 다 빠진
+//      3·4쿠션에서도 반사각을 4분의 1로 꺾어 **누워 들어온 공이 솟구쳐** 나갔다
+//      (사용자 9·10.jpg — '55 자리로 가야 하는데 바로 아래로 내려온다').
+//   1 포인트 = 다이아 한 칸 = 2448/8 = 306mm
+const PT_MM = 306;
+const REV_MAX = 0.5;               // 힘이 남아 있어도 역각은 절반까지만
+function revStrength(ptLeft){
+  if (ptLeft === undefined) return REV_MAX;        // 남은 힘을 모르면 최대로 본다
+  return Math.max(0, Math.min(1, (ptLeft - 1) / 2)) * REV_MAX;   // 1pt 0% · 3pt 이상 50%
+}
+// 지금 속도로 앞으로 더 갈 수 있는 거리 (실측 마찰) → 포인트
+function ptLeftAt(v){
+  if (!(v > 0)) return 0;
+  const A0 = DRAG_A0 * DRAG_TABLE, KV = DRAG_KV / DRAG_TABLE;
+  const lo = A0 + SIM_STOP*SIM_STOP/KV, hi = A0 + v*v/KV;
+  if (hi <= lo) return 0;
+  return (KV/2) * Math.log(hi/lo) / PT_MM;
+}
+function bend(d, rail, k, E, ptLeft){
   const n = RAILS[rail], tg = [-n[1], n[0]];
   const dn = d[0]*n[0] + d[1]*n[1], dt = d[0]*tg[0] + d[1]*tg[1];
   const ain = Math.atan2(Math.abs(dt), Math.abs(dn)) * 180/Math.PI;
@@ -249,7 +270,13 @@ function bend(d, rail, k, E){
   const AIN_HEADON = 2.0, REV_KEEP = 0.25;
   if (e !== 0 && e * sIn < 0 && ain > 1e-9){   // 역회전 — 회전이 흐른 쪽과 반대다
     const tp   = Math.min(3, Math.abs(S.tipH));
-    const keep = Math.max(0, 1 - (1 - REV_KEEP) * tp / 3);
+    // ★ 남은 힘만큼만 건다 (위 revStrength 주석 참고).
+    //     역각 100% 일 때의 keep 을 먼저 구하고, 거기에 r(0~0.5) 만큼만 다가간다.
+    //     r=0   → keep 1     → 입사각 = 반사각 (1포인트)
+    //     r=0.5 → 3팁이면 keep 0.625 (3포인트 이상)
+    const r    = revStrength(ptLeft);
+    const full = Math.max(0, 1 - (1 - REV_KEEP) * tp / 3);
+    const keep = 1 - (1 - full) * r;
     const w    = Math.min(1, ain / AIN_HEADON);          // 정면이면 0
     signed = sIn * ain * keep * w + signed * (1 - w);
   }
@@ -262,16 +289,25 @@ function bend(d, rail, k, E){
 // E — 이 샷의 회전 쪽. 안 주면 화면의 지금 조준으로 정한다.
 //     ⚠️ 충돌 뒤 구간도 **그 샷의 조준**으로 정한 값을 그대로 이어 써야 한다.
 //        회전은 공에 붙어 있고 충돌로 바뀌지 않는다.
-function roll(start, d, cushions, k, E){
+// v0 를 주면 쿠션마다 **남은 힘**을 계산해 역각 세기에 쓴다 (위 revStrength 주석).
+//   안 주면 지금까지처럼 최대(50%)로 본다.
+function roll(start, d, cushions, k, E, v0){
   const n = Math.hypot(d[0], d[1]);
   if (n < 1e-9) return [];
-  let p = start.slice(), dir = [d[0]/n, d[1]/n], out = [];
+  let p = start.slice(), dir = [d[0]/n, d[1]/n], out = [], v = v0;
   for (let i = 0; i < cushions; i++){
     const nx = nextRail(p, dir, T.width, T.height);
     if (!nx) break;
     const [rail, q] = nx;
-    const [nd] = bend(dir, rail, k, E);
+    if (v !== undefined){                       // 이 구간을 굴러온 만큼 힘이 준다
+      const L = Math.hypot(q[0]-p[0], q[1]-p[1]);
+      const A0 = DRAG_A0 * DRAG_TABLE, KV = DRAG_KV / DRAG_TABLE;
+      const u = (A0 + v*v/KV) * Math.exp(-2*L/KV) - A0;
+      v = u > 0 ? Math.sqrt(u*KV) : 0;
+    }
+    const [nd] = bend(dir, rail, k, E, v === undefined ? undefined : ptLeftAt(v));
     out.push({rail, p: q});
+    if (v !== undefined) v *= CUSHION_KEEP;     // 쿠션에서 잃는다
     dir = nd; p = q;
   }
   return out;
