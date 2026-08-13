@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 247;
+const MOBILE_VER = 248;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -213,39 +213,45 @@ function englishSide(){                       // 화면의 지금 조준 기준
   return englishSideFor(cue.p, [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]]);
 }
 
-// ★★★ 역각은 **남아 있는 힘**이 정한다 (사용자 경험치 2026-08-13)
-//   '남아있는 힘이 3포인트일 경우 역각이 50% 걸립니다. 1포인트정도이면 입사반사각이 같습니다.'
-//   '3포인트 이상이면 50%. 더 세분화 하지 마세요.'
-//   ⚠️ 지금까지는 남은 힘과 무관하게 **늘 100%** 로 걸었다. 그래서 힘이 다 빠진
-//      3·4쿠션에서도 반사각을 4분의 1로 꺾어 **누워 들어온 공이 솟구쳐** 나갔다
-//      (사용자 9·10.jpg — '55 자리로 가야 하는데 바로 아래로 내려온다').
-//   1 포인트 = 다이아 한 칸 = 2448/8 = 306mm
-const PT_MM = 306;
-const REV_MAX = 0.5;               // 힘이 남아 있어도 역각은 절반까지만
-function revStrength(ptLeft){
-  if (ptLeft === undefined) return REV_MAX;        // 남은 힘을 모르면 최대로 본다
-  return Math.max(0, Math.min(1, (ptLeft - 1) / 2)) * REV_MAX;   // 1pt 0% · 3pt 이상 50%
+// ★★★ 역각은 **속도**가 정한다 — 실측 2026-08-14
+//   사용자가 촬영해 온 두 영상이 위아래를 각각 잡아 줬다.
+//
+//   ① 역각25.mp4   1쿠션 27접점 (9시 2팁 · 중단 · 입사 25~26도 · 같은 배치, 속도만 다름)
+//        속도(m/s)  개수   입사     반사    역각 세기
+//         1.0~1.3     4   26.1도  25.1도     8 %
+//         1.3~1.8     5   25.7    22.9      23 %
+//         1.8~2.6     6   25.9    22.2      28 %
+//         2.6~3.6    11   26.0    18.2      63 %
+//
+//   ② 앞돌리기 역각보기.mp4   좌측 쿠션 10접점 — **아래에서 순각으로 뒤집힌다**
+//        1.15 · 1.09 · 1.09 · 0.94 m/s  →  −19.8 · −10.2 · −6.0 · −2.1 도   (역각)
+//        0.55 · 0.49 · 0.49 · 0.46 · 0.40 · 0.39  →  +3.4 · +4.2 · −0.4 · +1.7 · +5.6 · +3.6
+//        0.8m/s 이상 평균 −9.5도 · 0.8m/s 미만 평균 +3.0도
+//      사용자가 9.jpg 를 보여주려고 **일부러 찍은** 영상이다 (2026-08-14).
+//      2026-08-13 말씀 그대로다 — '공의 힘이 세면 ... 역각은 그럴때만 발생을 합니다.
+//      공의 속도가 느려지면 순각(제회전)으로 변합니다.'
+//
+//   ⚠️ 여기서 두 번 틀렸다 —
+//      v245 이전  남은 힘과 무관하게 늘 100% → 힘 빠진 3·4쿠션에서도 반사각을 4분의 1로 꺾었다
+//      v246       남은 힘(포인트)으로 줄였는데 **아래가 0에서 멈췄다** → 느려져도 거울까지만 가고
+//                 순각으로 넘어가지 못했다. 9·10.jpg 의 4쿠션 이후가 계속 이상했던 이유다.
+//   → 속도 하나로 잰다. 음수면 순각 쪽으로 넘어간다. PT_FEEL(관측 한 점으로 맞춘 눈금)은 없앴다.
+//
+//   ⚠️ 두 영상의 눈금을 그대로 섞은 것은 아니다. ①은 1쿠션·2팁이라 회전이 생생하고
+//      ②는 앞돌리기의 2~4쿠션이라 팁수를 모른다. **뒤집히는 자리는 ②로, 위쪽 기울기는 ①로** 잡았다.
+//   ⚠️ 3.1m/s 위로는 늘리지 않는다 — 잰 것이 거기까지다.
+const REV_SPEED = [[400, -0.20], [800, 0.00], [1000, 0.05],
+                   [1550, 0.23], [2200, 0.28], [3100, 0.63]];
+const REV_DEFAULT_V = 1800;        // 속도를 모를 때 (중 세기 상당)
+function revStrength(v){
+  const x = (v === undefined || !(v >= 0)) ? REV_DEFAULT_V : v, t = REV_SPEED;
+  if (x <= t[0][0]) return t[0][1];
+  for (let i = 0; i < t.length-1; i++)
+    if (x <= t[i+1][0])
+      return t[i][1] + (t[i+1][1]-t[i][1]) * (x-t[i][0]) / (t[i+1][0]-t[i][0]);
+  return t[t.length-1][1];
 }
-// 지금 속도로 앞으로 더 갈 수 있는 거리 (실측 마찰) → 포인트
-// ★ 눈금 맞춤 (사용자 관측 2026-08-13, 11.jpg)
-//   '3쿠션에서 4쿠션 반사각이 눕는 자리입니다. 53,4 자리로 갑니다.
-//    거울에서 역회전이라 더 꺾은 것 같은데 실제는 그렇지 않아요.'
-//   그 배치의 3쿠션에서 '굴러갈 수 있는 거리'는 7.7포인트로 나왔는데
-//   실제로는 역각이 안 걸린다 = 사용자 눈금으로 1포인트다. 그래서 8로 나눈다.
-//   덕분에 앞서 주신 말씀과도 맞는다 —
-//   '공의 힘이 세면 ... 역각은 그럴 때만 발생을 합니다.'
-//   → 보통 세기면 3쿠션쯤에 1포인트 이하가 되어 거울이 되고,
-//     세게 친 공만 3포인트를 넘겨 역각이 걸린다.
-//   ⚠️ 관측 한 점으로 맞춘 값이다 (③ 경험치). 대회 영상으로 대조해야 한다.
-const PT_FEEL = 8;
-function ptLeftAt(v){
-  if (!(v > 0)) return 0;
-  const A0 = DRAG_A0 * DRAG_TABLE, KV = DRAG_KV / DRAG_TABLE;
-  const lo = A0 + SIM_STOP*SIM_STOP/KV, hi = A0 + v*v/KV;
-  if (hi <= lo) return 0;
-  return (KV/2) * Math.log(hi/lo) / PT_MM / PT_FEEL;
-}
-function bend(d, rail, k, E, ptLeft){
+function bend(d, rail, k, E, vIn){
   const n = RAILS[rail], tg = [-n[1], n[0]];
   const dn = d[0]*n[0] + d[1]*n[1], dt = d[0]*tg[0] + d[1]*tg[1];
   const ain = Math.atan2(Math.abs(dt), Math.abs(dn)) * 180/Math.PI;
@@ -306,7 +312,8 @@ function bend(d, rail, k, E, ptLeft){
     //     역각 100% 일 때의 keep 을 먼저 구하고, 거기에 r(0~0.5) 만큼만 다가간다.
     //     r=0   → keep 1     → 입사각 = 반사각 (1포인트)
     //     r=0.5 → 3팁이면 keep 0.625 (3포인트 이상)
-    const r    = revStrength(ptLeft);
+    //   r > 0 이면 좁아지고(역각), r < 0 이면 벌어진다(순각으로 넘어간다).
+    const r    = revStrength(vIn);
     const full = Math.max(0, 1 - (1 - REV_KEEP) * tp / 3);
     const keep = 1 - (1 - full) * r;
     const w    = Math.min(1, ain / AIN_HEADON);          // 정면이면 0
@@ -337,7 +344,7 @@ function roll(start, d, cushions, k, E, v0){
       const u = (A0 + v*v/KV) * Math.exp(-2*L/KV) - A0;
       v = u > 0 ? Math.sqrt(u*KV) : 0;
     }
-    const [nd] = bend(dir, rail, k, E, v === undefined ? undefined : ptLeftAt(v));
+    const [nd] = bend(dir, rail, k, E, v);
     out.push({rail, p: q});
     if (v !== undefined) v *= CUSHION_KEEP;     // 쿠션에서 잃는다
     dir = nd; p = q;
@@ -3890,7 +3897,8 @@ function simStep(sim, dt){
     if (!rail) continue;
     const dir = [b.v[0]/sp, b.v[1]/sp];
     let nd;
-    if (b.spin) nd = bend(dir, rail, sim.k, sim.E)[0];          // 수구 — 회전이 걸린다
+    // ★ 엔진도 그 순간 속도를 넘긴다 — 역각이 속도로 정해지므로 (2026-08-14)
+    if (b.spin) nd = bend(dir, rail, sim.k, sim.E, sp)[0];     // 수구 — 회전이 걸린다
     else { const n = RAILS[rail], dot = dir[0]*n[0] + dir[1]*n[1];
            nd = [dir[0]-2*dot*n[0], dir[1]-2*dot*n[1]]; }       // 적구 — 거울반사
     // ★★★ 사용자 2026-08-13 (영상 14-10-35): 수구가 2적구를 **한 공 폭쯤 비껴간다.**
