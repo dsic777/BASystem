@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 228;
+const MOBILE_VER = 229;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3094,7 +3094,9 @@ function afterCushions(used){
 //      0.35 로 보면 30초짜리가 된다. 그래서 **실제 다이보다 30% 느리게** 로 다시 잡는다.
 //   보는 속도만 늦춘다 — 가는 거리와 서는 자리는 그대로다.
 // ★ 사용자 2026-08-13: '시뮬레이션 속도도 10% 올려보세요.'  0.70 × 1.10 = 0.77
-const PLAY_RATE = 0.77;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
+//   다시 '스피드 10씩 더 올려주세요' · '모두 올려주세요' → 0.70 × 1.1³ = 0.94
+//   ★ 0.94 는 사실상 **실제 다이와 같은 속도**다. 더 올리면 실제보다 빨라진다.
+const PLAY_RATE = 0.94;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
 // ★★ 사용자 2026-08-13: '수구가 3쿠션 후 다이에서 **가속도가 붙습니다.**'
 //   ⚠️ 내가 **모든 꺾임점마다** 쿠션 이득(×1.06)을 걸고 있었다. 쿠션이 아닌 곳
 //      (1적구·2적구 충돌점, 연장 구간)에서도. 구간이 짧으면 마찰로 잃는 것보다
@@ -3203,7 +3205,20 @@ function atTime(tr, t){
 //     분리각 separationAngle · objectAngle  세기  needV0
 //   ⚠️ 회전(사이드)은 **수구만** 갖는다. 1·2적구는 큐에 안 맞았으니 거울반사다
 //      (rollPlain 이 실측 반사표를 안 쓰는 것과 같은 이유).
-const SIM_DT   = 0.002;     // 2ms 고정 스텝. 이보다 크면 쿠션·충돌을 지나친다
+// ★★ 사용자 2026-08-13: '돌릴 때마다 약간의 차이가 발생하여 키스가 나기도 안나기도.'
+//   ⚠️ **버그다.** 같은 배치는 늘 같은 결과가 나와야 판정을 믿을 수 있다.
+//   영상(09-41-36)에서 같은 배치 5판을 시작시각에 맞춰 겹쳐 재 봤다 —
+//       t+0.00   1.2px      출발은 똑같다
+//       t+0.17    24px      벌써 갈라진다
+//       t+6.00   351px      2적구와 부딪히는 자리
+//       t+8.25   966px      완전히 다른 경로
+//   원인 = 물리 스텝을 **화면 프레임 시간에 맞춰 잘랐다.** 프레임 간격이 흔들리니
+//     ① 마찰 적분(v -= a(v)·h) ② 충돌 검사 위치 ③ 쿠션 되접기 가 매번 달라졌다.
+//   고친 것 셋 —
+//     ① simAcc — 남는 시간을 다음 프레임으로 넘겨 **늘 SIM_DT 씩만** 간다
+//     ② 스텝을 0.5ms 로. 2ms 면 빠른 공이 한 스텝에 18mm(공 지름의 30%)를 지나간다
+//     ③ 겹치면 **닿은 순간까지 되감아** 두께를 정확히 잰다 (아래 sBack)
+const SIM_DT   = 0.0005;    // 0.5ms 고정 스텝
 const SIM_TAIL = 1.0;       // 세 공이 다 선 뒤 더 보여 주는 시간(초)
 
 // ★★★ 마찰 — 사용자가 준 실제 영상에서 **실측**했다.
@@ -3274,7 +3289,9 @@ function simRunLen(poly, v0, keepC){
 // ★ 사용자 2026-08-13: '시뮬레이션시 공이 굴러가는 힘을 10%만 더 주세요.'
 //   경로를 완주할 세기(이분법) → 여유 10% → 여기서 다시 10%.
 //   ⚠️ 천장(9000)에 걸린 뒤에 곱한다. 안 그러면 두껍게 맞은 배치는 늘 천장이라 안 바뀐다.
-const SHOT_BOOST = 1.10;
+//   ★ 2026-08-13 다시: '스피드 10씩 더 올려주세요. 공과 시뮬레이션 모두 너무 느린 것 같아요.'
+//     '공의 세기 시뮬레이션 모두 올려주세요'  → 한 번 더.  1.10 × 1.10 × 1.10 = 1.33
+const SHOT_BOOST = 1.33;
 function simNeedV0(poly, keepC){
   let lo = 300, hi = 9000;
   for (let i = 0; i < 24; i++){
@@ -3356,9 +3373,20 @@ function simStep(sim, dt){
       const dx = B.p[0]-A.p[0], dy = B.p[1]-A.p[1], d = Math.hypot(dx, dy);
       if (d >= D || d < 1e-9) continue;
       if ((A.v[0]-B.v[0])*dx + (A.v[1]-B.v[1])*dy <= 0) continue;   // 멀어지는 중이면 둔다
-      const ux = dx/d, uy = dy/d, push = (D-d)/2;                   // 겹친 만큼 떼어 놓는다
-      A.p[0] -= ux*push; A.p[1] -= uy*push;
-      B.p[0] += ux*push; B.p[1] += uy*push;
+      // ★ **닿은 순간까지 되감는다.** 겹친 채로 재면 두께가 스텝 크기만큼 틀린다.
+      //   |(B−A) − (vB−vA)·s| = D 를 s(되감을 시간)에 대해 푼다.
+      const wx = B.v[0]-A.v[0], wy = B.v[1]-A.v[1];
+      const aa = wx*wx + wy*wy, bb = dx*wx + dy*wy, cc = d*d - D*D;
+      const disc = bb*bb - aa*cc;
+      if (aa > 1e-12 && disc >= 0){
+        const sBack = Math.min(4*SIM_DT, Math.max(0, (bb + Math.sqrt(disc))/aa));
+        A.p[0] -= A.v[0]*sBack; A.p[1] -= A.v[1]*sBack;
+        B.p[0] -= B.v[0]*sBack; B.p[1] -= B.v[1]*sBack;
+      } else {                                        // 못 풀면 겹친 만큼만 떼어 놓는다
+        const ux = dx/d, uy = dy/d, push = (D-d)/2;
+        A.p[0] -= ux*push; A.p[1] -= uy*push;
+        B.p[0] += ux*push; B.p[1] += uy*push;
+      }
       simHit(A, B);
     }
 }
@@ -3563,13 +3591,17 @@ function drawPath(){
         S.sim     = simInit(dirOf(cue.p, S.aim), V0, kk, englishSide());
         S.simLast = performance.now();
         S.simRest = S.simLast;
+        S.simAcc  = 0;
       }
       const now = performance.now();
       // 본 시간 → 물리 시간. PLAY_RATE 만큼 느리게 **보기만** 한다 (물리는 그대로).
       // ⚠️ 창을 가렸다 돌아오면 dt 가 몇 초씩 튄다. 0.20 초로 막는다.
-      let dt = Math.min(0.20, Math.max(0, (now - S.simLast)/1000)) * PLAY_RATE;
+      // ★★ 남는 시간은 **다음 프레임으로 넘긴다.** 물리는 늘 SIM_DT 씩만 간다 —
+      //    그래야 프레임이 흔들려도 같은 배치가 늘 같은 결과를 낸다 (위 SIM_DT 주석).
+      S.simAcc += Math.min(0.20, Math.max(0, (now - S.simLast)/1000)) * PLAY_RATE;
       S.simLast = now;
-      while (dt > 1e-9){ const h = Math.min(SIM_DT, dt); simStep(S.sim, h); dt -= h; }
+      if (S.simAcc > 0.20) S.simAcc = 0.20;
+      while (S.simAcc >= SIM_DT){ simStep(S.sim, SIM_DT); S.simAcc -= SIM_DT; }
       for (const b of S.sim.balls) simBall(b.p, b.color, R);
       // ★ 사용자 2026-08-13: '시뮬레이션 종료 후 공이 멈추고 1초 후 전 상태로.'
       const moving = S.sim.balls.some(b => b.v[0] || b.v[1]);
