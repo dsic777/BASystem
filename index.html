@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 231;
+const MOBILE_VER = 232;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1965,8 +1965,11 @@ function shotName(c1, rails, cueP, objP){
   //   **흰선 첫 번째 포인트가 가장 중요합니다.** 그 포인트를 알아야 1적구를 뒤로
   //   걸어칠 수 있습니다. 이 또한 많이 사용하는 경로입니다.'
   //   → 투뱅크(빈쿠션 2개)도 이름을 준다. 순위는 빈쿠션 개수가 정한다 (3순위).
-  //   ⚠️ 쓰리뱅크(빈쿠션 3개)는 아직 안 낸다 — 배치 조건을 못 받았다.
-  if (c1 > 0) return DROP_BANK ? null : (c1 <= 2 ? BANK_KR[c1] : null);
+  //   ★★ 2026-08-13 쓰리뱅크도 낸다 — 사용자: '2배치가 전형적인 파이브앤하프시스템
+  //      쓰리뱅크입니다. 2.jpg 는 손으로 조준해서 만든 길이 정답입니다.'
+  //      전에는 c1 <= 2 만 이름을 줘서 빈쿠션 3개는 이름이 없었고, 아래
+  //      '뱅크는 이름이 있어야 한다' 에 걸려 통째로 사라졌다.
+  if (c1 > 0) return DROP_BANK ? null : (c1 <= 3 ? BANK_KR[c1] : null);
   const r0 = rails[0], r1 = rails[1];
   if (!r0 || !r1) return null;
   if (isLong(r0) === isLong(r1)) return null;        // ① 2쿠션이 같은 종류 = 도는 것이 아니다
@@ -2074,9 +2077,23 @@ function simulate(dir, k){
   //      또 멀리 굴러가는 길이 추천에 올라왔다 (사용자 1~5.jpg: '공이 그렇게
   //      움직이지 않습니다'). 그리기(drawPath)는 이미 이 표를 쓰고 있었다.
   const budget = afterCushions(c1);
-  if (budget <= 0) return null;                     // 3쿠션 다 돌고 맞으면 거기서 선다
-  const seq2 = roll(P, af.dir, Math.min(budget, SWEEP_C_NOW - c1), k, E);
-  const cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
+  // ★★★ 사용자 2026-08-13: 파이브앤하프 쓰리뱅크가 추천에 **하나도 안 나온다.**
+  //   ⚠️⚠️ 범인 하나가 여기였다. speed.json 표가 '충돌 전 3쿠션 → 충돌 후 0쿠션'
+  //      이라 budget 이 0 이 되고 그 자리에서 return null 했다.
+  //      그런데 쓰리뱅크는 **빈쿠션 3개 → 1적구 → 그대로 2적구** 다.
+  //      쿠션을 더 안 써도 득점이다 (c1+c2 = 3+0 = 3).
+  //   → budget 이 0 이면 **쿠션 없이 직선으로** 2적구에 닿는지만 본다.
+  //     쿠션에 닿는 데까지만 본다 (nextRail) — 쿠션 너머의 공을 맞을 수는 없다.
+  let seq2, cut2;
+  if (budget <= 0){
+    const nx0 = nextRail(P, af.dir, T.width, T.height);
+    if (!nx0) return null;
+    seq2 = [];
+    cut2 = cutAtBall([P, nx0[1]], cut1.obj);
+  } else {
+    seq2 = roll(P, af.dir, Math.min(budget, SWEEP_C_NOW - c1), k, E);
+    cut2 = cutAtBall([P, ...seq2.map(h => h.p)], cut1.obj);
+  }
   if (!cut2.hit) return null;                       // 2적구를 못 맞힌다
   const c2 = cut2.pts.length - 2;                   // 충돌 후 2적구 전까지 쿠션 수
   if (c2 > budget) return null;                     // 표가 허락한 것보다 멀리 갔다
@@ -2164,7 +2181,12 @@ function simulate(dir, k){
   //   → 뱅크샷은 **얇게(1/2 이하) · 분리각 20~45도** 인 것만 남긴다.
   //   ⚠️ 직접 치는 길에는 안 건다. 사용자가 93% 두께 옆돌리기를 OK 한 적이 있다
   //      (route_verdicts.json 배치_A 1번).
-  if (c1 > 0 && (af.thick > 0.5 || af.deg < 20 || af.deg > 45)) return null;
+  //   ⚠️⚠️ 2026-08-13 — 이 잘라내기가 **쓰리뱅크를 죽이는 세 번째 자리**였다.
+  //      2.jpg 의 정답 경로는 두께 **99%** 다 (빈쿠션 3개를 돌아 나란히 선 두 공에
+  //      두껍게 붙인다). 위 규칙은 2026-08-12 에 **원뱅크**(쿠션 한 번 돌고 93% 두께로
+  //      맞은 뒤 또 세 쿠션)를 보고 만든 것이라 성격이 다르다.
+  //   → 원뱅크·투뱅크(c1 ≤ 2)에만 건다. 쓰리뱅크는 안 건다.
+  if (c1 > 0 && c1 <= 2 && (af.thick > 0.5 || af.deg < 20 || af.deg > 45)) return null;
   // ★★ 사용자 2026-08-12 (9.jpg) — 두 번 물어 확정한 것.
   //   처음에 나는 '얇게 맞히고 멀리 보내서' 라고 읽고 **거리**로 걸었는데 틀렸다.
   //   사용자: '아니오, 거리의 문제가 아니고 수구가 **원쿠션 후 1적구로 그 방향으로
@@ -2320,7 +2342,18 @@ function rank(r){
   //   '테이블이 돌아가는 방향으로 회전을 주고 돌린다' 가 기본이다.
   const bad = (r.flips || 0) + (r.rev || 0);
   //   뱅크 0 · 이름 없는 것 1 · 그 위는 순리도와 역회전 쿠션 수로
-  const tier = r.before > 0 ? 0 : r.loose ? 1 : Math.max(2, 5 - bad);
+  // ★★★ 사용자 2026-08-13: '1의 형태는 무조건 2가 1순위' (2 = 파이브앤하프 쓰리뱅크)
+  //   ⚠️ 옛 코드는 빈쿠션이 하나라도 있으면 **원뱅크든 쓰리뱅크든 전부 맨 뒤(0군)** 였다.
+  //   → **쓰리뱅크(빈쿠션 3개)는 순리 진로와 같은 급**으로 본다. 그 안에서는 폭이 정한다.
+  //     근거는 폭 그 자체다 — 1.jpg 배치를 재 보니
+  //       쓰리뱅크 6.97도 · 3쿠션 1.61도 · 대회전 1.16도 · 앞돌리기 0.50도
+  //     쓰리뱅크가 **14배 관대**한데 군이 맨 뒤라 17위에 묻혀 있었다.
+  //   ⚠️ 원뱅크·투뱅크는 그대로 맨 뒤다. 사용자: '첫 포인트를 눈으로 짐작할 뿐이지
+  //     정확한 경로를 찾아내기가 매우 어렵습니다' · '성공률이 거의 없어요'.
+  //   ★ 4·5.jpg(대회전 배치)에는 쓰리뱅크가 **0개**라 대회전이 밀리지 않는다 (확인함).
+  const tier = (r.before > 0 && r.before < 3) ? 0
+             : r.loose ? 1
+             : Math.max(2, 5 - bad);
   v += tier * 100;                     // 군이 다르면 폭은 못 뒤집는다
   // ★ 표준 당점(3팁)에서 출발한 길을 앞에 놓는다 (사용자 2026-08-12:
   //   '3시·9시 3팁이 표준입니다. 모두 거기서 출발하면 됩니다. 그 후 보정을 하면 되고').
@@ -2418,6 +2451,47 @@ function findRoutes(){
       if (cur) runs.push(cur);
     }
   }
+  }
+  // ★★★ 빈쿠션(뱅크) 길 — **따로 한 바퀴 훑는다.**
+  //   사용자 2026-08-13: '1의 배치에서 최우선으로 나와야 하는 추천경로는 2라야 하는데'
+  //     '2배치가 전형적인 파이브앤하프시스템 쓰리뱅크입니다.'
+  //     '2.jpg 는 손으로 조준해서 만든 길이 정답입니다. 당신 기준이 안맞으면 기준을 고치세요.'
+  //   ⚠️⚠️ 확인해 보니 **그 길은 추천 목록에 아예 없었다.** 위 훑기는
+  //      ⑴ 적구를 겨냥하는 창(3~6도)만 보고 ⑵ 빈쿠션이 하나라도 있으면
+  //      (before !== 0) 그 자리에서 버렸다. 순위를 아무리 바꿔도 **없는 것은 못 민다.**
+  //      (Node 로 1.jpg 배치를 돌려 보니 16개 전부 before === 0 이었다 — 앱의
+  //       '카드 5개 + 외 11개' 와 정확히 같다)
+  //   → 빈쿠션 길만 따로 훑는다. 두 가지가 위와 다르다 —
+  //     ⑴ **한 바퀴(360도)** 를 돈다. 빈쿠션은 겨냥할 적구가 없다
+  //     ⑵ 당점은 **파이브앤하프 표준 넷만** 본다 (좌우 3팁 × 상단).
+  //        42가지를 다 돌면 표본이 25배가 되어 폰에서 못 쓴다.
+  //        CLAUDE.md — '파이브앤하프: 상단 2~3팁, 미들 팔로우'
+  //   ⚠️ 원뱅크·투뱅크도 **같이 담는다.** 사용자가 '첫 포인트를 눈으로 짐작할 뿐이라
+  //      성공률이 거의 없다' 고 했지만, 없애지 않고 rank() 가 뒤로 민다 (인수인계서 4번).
+  SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
+  {
+    const BANK_TIPS = [[3, 3], [3, 0.78], [-3, 3], [-3, 0.78]];   // [좌우, 상하]
+    const m360 = Math.ceil(2*Math.PI / step);
+    for (const [tp, tv] of BANK_TIPS){
+      S.tipR = Math.min(3, Math.hypot(tp, tv));
+      S.tipH = tp; S.tipV = tv; TIP_NOW = tp; TIPV_NOW = tv;
+      let cur = null;
+      for (let i = 0; i <= m360; i++){
+        const a = -Math.PI + i*step;
+        const r = at(a);
+        if (r && r.before === 0){ if (cur){ runs.push(cur); cur = null; } continue; }
+        if (cur && (!r || r.key !== cur.key)){ runs.push(cur); cur = null; }
+        if (r){
+          if (cur) cur.aHi = a;
+          else cur = {key:r.key, aLo:a, aHi:a, rails:r.rails, first:r.first,
+                      rail1:r.rail1, turn1:r.turn1,
+                      cushions:r.cushions, name:r.name, loose:r.loose, before:r.before,
+                      kiss:r.kiss, flips:r.flips, rev:r.rev,
+                      sep:r.sep, thick:r.thick, tip:TIP_NOW, tipV:TIPV_NOW};
+        }
+      }
+      if (cur) runs.push(cur);
+    }
   }
   SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
   S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave; TIP_NOW = tipSave; TIPV_NOW = vSave;
