@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 235;
+const MOBILE_VER = 236;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3655,9 +3655,19 @@ function simStep(sim, dt){
     if (b.spin) nd = bend(dir, rail, sim.k, sim.E)[0];          // 수구 — 회전이 걸린다
     else { const n = RAILS[rail], dot = dir[0]*n[0] + dir[1]*n[1];
            nd = [dir[0]-2*dot*n[0], dir[1]-2*dot*n[1]]; }       // 적구 — 거울반사
+    // ★★★ 사용자 2026-08-13 (영상 14-10-35): 수구가 2적구를 **한 공 폭쯤 비껴간다.**
+    //   ⚠️⚠️ 옛 코드는 넘어간 **수직 거리(depth)** 만큼 되돌렸다. 그런데 공은
+    //      **진행 방향으로** 넘어간 것이라, 쿠션에 닿는 자리가 레일을 따라 어긋난다.
+    //      크기는 0.5~2mm 로 작지만, 두께 20% 같은 **얇은 컷을 지나면 증폭된다** —
+    //        2mm → 두께 1.6%p → 분리각 0.3° → 2.5m 뒤엔 수십 mm → 공을 스친다.
+    //      (앞서 '작으니 원인이 아니다' 라고 했는데 그 판단이 틀렸다)
+    //   → 진행 방향으로 **정확히 되돌려** 쿠션 위에서 꺾고, 남은 만큼 새 방향으로 간다.
+    const back = depth / Math.max(1e-9, Math.abs(
+                   (rail === 'left' || rail === 'right') ? dir[0] : dir[1]));
+    b.p[0] -= dir[0]*back; b.p[1] -= dir[1]*back;    // 닿은 그 자리로
     if (rail === 'left') b.p[0] = 0; else if (rail === 'right') b.p[0] = T.width;
-    else if (rail === 'bottom') b.p[1] = 0; else b.p[1] = T.height;
-    b.p[0] += nd[0]*depth; b.p[1] += nd[1]*depth;    // 넘어간 만큼 새 방향으로 다시 간다
+    else if (rail === 'bottom') b.p[1] = 0; else b.p[1] = T.height;   // 반올림 찌꺼기 제거
+    b.p[0] += nd[0]*back; b.p[1] += nd[1]*back;      // 남은 만큼 새 방향으로
     b.v = [nd[0]*sp*gain, nd[1]*sp*gain];
   }
   // ⑶ 공끼리 — **여기서 쫑쫑이 나온다**
