@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 230;
+const MOBILE_VER = 231;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3342,6 +3342,27 @@ function simHit(A, B){
          (dx*Math.sin(r)  + dy*Math.cos(r))  * sp*keep  + b0y];
   B.v = [(dx*Math.cos(ro) - dy*Math.sin(ro)) * sp*thick + b0x,
          (dx*Math.sin(ro) + dy*Math.cos(ro)) * sp*thick + b0y];
+  // ★★★ 사용자 2026-08-13 (영상 10-36-53): 흰공과 빨간공이 **나란히 붙어서**
+  //   다이를 10초 동안 가로질렀다.
+  //   ⚠️⚠️ 분리각표는 각도와 세기를 **따로** 재서 넣은 것이라 중심선 방향 운동량이
+  //      안 맞는다. 재 보니 **얇게 맞으면 충돌 뒤에도 두 공이 서로에게 다가간다** —
+  //        두께 0.05 +544 · 0.10 +540 · 0.20 +278 · 0.24 +126 (mm/s, +면 다가간다)
+  //        두께 0.30 부터 −29 로 비로소 멀어진다
+  //      다가가니 다음 스텝에서 또 부딪히고, 되풀이하다 **두 공 속도가 같아져**
+  //      나란히 굴러간다. (5.jpg 배치가 두께 24% 라 딱 걸렸다)
+  //   → 중심선 방향으로 **다가가는 몫만 뒤집는다.** 운동량·에너지 그대로다
+  //     (같은 무게라 상대속도 크기가 안 변한다). **표의 각도·세기는 안 건드린다** —
+  //     그려지는 궤적이 바뀌면 안 된다.
+  const nx0 = B.p[0]-A.p[0], ny0 = B.p[1]-A.p[1];
+  const nn = Math.hypot(nx0, ny0);
+  if (nn > 1e-9){
+    const nx = nx0/nn, ny = ny0/nn;
+    const closing = (A.v[0]-B.v[0])*nx + (A.v[1]-B.v[1])*ny;
+    if (closing > 0){                                // 아직 다가가면 그만큼 밀어낸다
+      A.v[0] -= nx*closing; A.v[1] -= ny*closing;
+      B.v[0] += nx*closing; B.v[1] += ny*closing;
+    }
+  }
 }
 function simStep(sim, dt){
   const D = T.ball_diameter;
