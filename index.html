@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 239;
+const MOBILE_VER = 240;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1545,6 +1545,28 @@ function draw(){
 //      재현되지 않아 원인을 못 짚었다. 이 한 줄이면 그 어긋남이 없어진다.
 //   ⚠️ 평소에는 **false 로 꺼 둔다.** 이상한 경로를 봤을 때만 켜서 캡처한다.
 const SHOW_XY = true;
+// ★★ 진단 배치 — 사용자 2026-08-13: '그런 배치가 있으면 직접 화면에 올려주세요.'
+//   여기에 좌표를 적고 배포하면 앱이 켜질 때 **그 배치로 공을 놓는다.**
+//   유동주님은 앱만 열면 그 배치가 나와 있다. 손으로 다시 놓을 필요가 없다.
+//   ⚠️ 주소 파라미터(?a=..)는 설치한 앱(PWA)에서 안 먹는다 (CLAUDE.md). 그래서 상수로 둔다.
+//   ⚠️ 다 보고 나면 null 로 되돌린다 — 안 그러면 켤 때마다 이 배치가 나온다.
+//   좌표는 mm, 좌하단이 0,0. 수구는 cue 로 적는다.
+//     예) {cue:'yellow', yellow:[1962,592], white:[1927,259], red:[983,907], aim:[1723,1224]}
+const SET_LAYOUT = null;
+function applySetLayout(){
+  if (!SET_LAYOUT) return;
+  S.cueWhite = (SET_LAYOUT.cue !== 'yellow');
+  S.balls = {};
+  for (const c of ['white','yellow','red'])
+    if (SET_LAYOUT[c]) S.balls[roleOf(c)] = {p: SET_LAYOUT[c].slice(), color: c};
+  if (SET_LAYOUT.aim) S.aim = S.lastAim = SET_LAYOUT.aim.slice();
+  if (SET_LAYOUT.tipH !== undefined) S.tipH = SET_LAYOUT.tipH;
+  if (SET_LAYOUT.tipV !== undefined) S.tipV = SET_LAYOUT.tipV;
+  if (SET_LAYOUT.tipH !== undefined || SET_LAYOUT.tipV !== undefined)
+    S.tipR = Math.min(3, Math.hypot(S.tipH || 0, S.tipV || 0));
+  if (SET_LAYOUT.corr !== undefined) S.corr = SET_LAYOUT.corr;
+  S.place = null;
+}
 function drawDebugXY(){
   if (!SHOW_XY || previewOn() || S.routeList || S.tipPanel) return;
   const c = L.cloth, cue = S.balls.cue;
@@ -5226,6 +5248,7 @@ addEventListener('pointercancel', cancelTouch);
       ANSWER = mA[1];
       log('정답 배치 ' + ANSWER + ' ' + LAYOUTS[ANSWER].name);
     }
+    applySetLayout();                       // ★ 진단 배치가 있으면 그것으로 놓는다
     resize(); draw();
     log('그리기 시작 · 캔버스 ' + cv.width + 'x' + cv.height);
   }catch(e){
