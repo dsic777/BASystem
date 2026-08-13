@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 229;
+const MOBILE_VER = 230;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3311,13 +3311,23 @@ function simInit(dir, v0, k, E){
 }
 // 두 공이 닿았다 — 두께 하나로 **둘 다** 방향과 세기가 정해진다.
 // 그리는 쪽(afterHit)과 **같은 표**를 쓴다. 그래야 궤적선과 공이 안 어긋난다.
+//
+// ★★★ 사용자 2026-08-13 (영상 10-01-04): 수구가 1적구를 맞고 **230mm 만 가고 섰다.**
+//   ⚠️⚠️ 옛 코드는 빠른 쪽을 '때린 공' 으로 잡고 **맞은 공의 속도를 통째로 덮어썼다** —
+//        b.v = 방향 × (때린 공 속도 × 두께).  분리각표가 '맞는 공은 서 있다' 를 전제로
+//        잰 것이라 그렇게 만들었는데, 맞는 공이 **이미 굴러가고 있으면** 그 속도가
+//        통째로 사라진다. 1적구가 수구를 얇게 스치면 수구가 그 자리에 선다.
+//        (힘도 쿠션도 아니었다. 속도가 덮여 없어진 것이다)
+//   → **상대속도로 푼다.** 맞는 공을 세워 놓고 본 뒤(갈릴레이 변환) 그 속도를 다시 더한다.
+//     표는 그대로 쓰고, 굴러가던 속도는 안 없어진다. B 가 서 있으면 옛 식과 똑같다.
+//   ★ 빠른 쪽을 고르던 것도 없앴다. 상대속도로 보면 **다가가는 쪽이 늘 때린 공**이고,
+//     부르는 쪽에서 이미 '다가가는 중' 인 것만 넘겨준다.
 function simHit(A, B){
-  let a = A, b = B;                                  // 빠른 쪽이 때린 공이다
-  if (Math.hypot(B.v[0],B.v[1]) > Math.hypot(A.v[0],A.v[1])){ a = B; b = A; }
-  const sp = Math.hypot(a.v[0], a.v[1]);
+  const ux = A.v[0]-B.v[0], uy = A.v[1]-B.v[1];      // B 를 세워 놓고 본 A 의 속도
+  const sp = Math.hypot(ux, uy);
   if (sp < 1e-6) return;
-  const dx = a.v[0]/sp, dy = a.v[1]/sp;
-  const ox = b.p[0]-a.p[0], oy = b.p[1]-a.p[1];
+  const dx = ux/sp, dy = uy/sp;
+  const ox = B.p[0]-A.p[0], oy = B.p[1]-A.p[1];
   const side = dx*oy - dy*ox;                        // 맞는 공이 왼쪽(+)인가 오른쪽(−)인가
   const D = T.ball_diameter;
   const thick = Math.max(0, Math.min(1, (D - Math.abs(side)) / D));
@@ -3327,10 +3337,11 @@ function simHit(A, B){
   const r  = -sgn * deg * Math.PI/180;               // 때린 공은 반대쪽으로 꺾인다
   const ro =  sgn * od  * Math.PI/180;               // 맞은 공은 같은 쪽으로 나간다
   const keep = Math.sqrt(Math.max(0.04, 1 - thick*thick));   // 두께만큼 넘겨준다
-  a.v = [(dx*Math.cos(r)  - dy*Math.sin(r))  * sp*keep,
-         (dx*Math.sin(r)  + dy*Math.cos(r))  * sp*keep];
-  b.v = [(dx*Math.cos(ro) - dy*Math.sin(ro)) * sp*thick,
-         (dx*Math.sin(ro) + dy*Math.cos(ro)) * sp*thick];
+  const b0x = B.v[0], b0y = B.v[1];                  // 세워 놓고 봤으니 다시 더해 준다
+  A.v = [(dx*Math.cos(r)  - dy*Math.sin(r))  * sp*keep  + b0x,
+         (dx*Math.sin(r)  + dy*Math.cos(r))  * sp*keep  + b0y];
+  B.v = [(dx*Math.cos(ro) - dy*Math.sin(ro)) * sp*thick + b0x,
+         (dx*Math.sin(ro) + dy*Math.cos(ro)) * sp*thick + b0y];
 }
 function simStep(sim, dt){
   const D = T.ball_diameter;
