@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 257;
+const MOBILE_VER = 258;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -4495,23 +4495,34 @@ function drawClock(){
     g.fillStyle = 'rgba(24,26,30,0.88)'; g.fill();
   }
   // ★ 당점 이름 — 가운데(보정 0 위)에 늘 띄운다 (사용자 2026-08-14)
+  //   ⚠️ 한 줄로 작게 넣었더니 '안보여요' 하셨다 (2026-08-14).
+  //      → **두 줄**로 나누고(윗줄 2시30분 · 아랫줄 3팁) 글자를 두 단계 키운다.
+  //        두 줄이면 한 줄 길이가 절반이라 훨씬 크게 넣을 수 있다.
   {
     const cl = cluster();
-    const txt = tipName(S.tipH, S.tipV).replace(/ (\S+팁)$/, ' · $1');  // 당점판과 같은 표기
+    const raw = tipName(S.tipH, S.tipV);
+    const sp  = raw.lastIndexOf(' ');
+    const ln  = sp > 0 ? [raw.slice(0, sp), raw.slice(sp+1)] : [raw];
+    // 당점 공과 ▶ 사이의 빈 폭
+    const step = cl.q.bw + cl.q.gap;
+    const room = Math.max(cl.q.bw, step*2 - cl.r*2.1);
     g.save();
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    let fs = cl.r * 0.52;
-    g.font = '800 ' + Math.round(fs) + 'px system-ui, -apple-system, sans-serif';
-    const room = cl.q.bw * 1.9;
-    const tw = g.measureText(txt).width;
-    if (tw > room){                                  // 칸을 넘으면 글자만 줄인다
-      fs = Math.max(9, fs * room / tw);
-      g.font = '800 ' + Math.round(fs) + 'px system-ui, -apple-system, sans-serif';
-    }
+    let fs = cl.r * 0.78;                              // 0.52 → 0.78 (두 단계)
+    const fit = () => {
+      g.font = '900 ' + Math.round(fs) + 'px system-ui, -apple-system, sans-serif';
+      return Math.max(...ln.map(t => g.measureText(t).width));
+    };
+    let tw = fit();
+    if (tw > room){ fs = Math.max(10, fs * room / tw); tw = fit(); }
+    const gapY = ln.length > 1 ? fs * 0.60 : 0;
     g.lineJoin = 'round';
-    g.strokeStyle = 'rgba(12,14,18,0.85)'; g.lineWidth = Math.max(2, fs*0.30);
-    g.strokeText(txt, cl.nam[0], cl.nam[1]);
-    g.fillStyle = '#f2f4f8'; g.fillText(txt, cl.nam[0], cl.nam[1]);
+    ln.forEach((t, i) => {
+      const yy = cl.nam[1] + (i - (ln.length-1)/2) * gapY * 2;
+      g.strokeStyle = 'rgba(10,12,16,0.90)'; g.lineWidth = Math.max(2.5, fs*0.34);
+      g.strokeText(t, cl.nam[0], yy);
+      g.fillStyle = '#ffffff'; g.fillText(t, cl.nam[0], yy);
+    });
     g.restore();
   }
   const [x,y] = tipCenter(), R = clockR();
