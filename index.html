@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 236;
+const MOBILE_VER = 237;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -889,7 +889,7 @@ function drawAnswer(){
 // ---------------------------------------------------------------- 상태
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
-           blink:0, pal:null,
+           blink:0, pal:null, routePage:0, listDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
@@ -1221,7 +1221,7 @@ function tapButton(px,py){
       //     배치가 바뀌었는지는 routeKey() 가 알려 준다 (공·보정·당점이 들어 있다).
       findRoutes();
       const k = placeKey();              // ★ 공 배치만 본다 (당점 아니다)
-      if (S.listShown !== k){ S.listShown = k; S.routeIx = -1; S.routeList = true; }
+      if (S.listShown !== k){ S.listShown = k; S.routeIx = -1; S.routeList = true; S.routePage = 0; }
       else nextRoute();
     }
     return true;
@@ -1331,14 +1331,10 @@ function down(px,py){
   if (S.tipPanel){ tapTipPanel(px,py); return; }
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
   if (S.routeList){
-    const list = routesReady() || [];
-    for (const q of ROUTE_CELLS){
-      if (px < q.x || px > q.x+q.w || py < q.y || py > q.y+q.h) continue;
-      if (q.i === ROUTE_SHOW_CELLS-1){ S.routeIx = -1; S.routeList = false; return; }
-      if (!list[q.i]) return;
-      S.routeIx = q.i; pickRoute(list[q.i]); S.routeList = false; return;
-    }
-    S.routeList = false; return;                    // 바깥을 누르면 닫는다
+    // ★ 누르는 순간에 고르지 않는다 — **손을 뗄 때** 탭인지 스와이프인지 가른다.
+    //   (누르자마자 골라 버리면 밀 수가 없다)
+    S.listDrag = {x:px, y:py, dx:0};
+    return;
   }
   if (tapButton(px,py)) return;
   if (S.place){
@@ -1379,6 +1375,7 @@ function down(px,py){
 }
 function move(px,py){
   if (S.tipPanel) return;
+  if (S.listDrag){ S.listDrag.dx = px - S.listDrag.x; return; }   // 목록에서 미는 중
   if (S.pal){                                    // 색 버튼에서 끌어오는 중
     if (Math.hypot(px - S.pal.x, py - S.pal.y) > BW * 0.25) S.pal.moved = true;
     S.pal.x = px; S.pal.y = py;
@@ -1411,6 +1408,23 @@ function move(px,py){
 }
 function up(px, py){
   if (S.tipPanel) return;
+  // ★ 추천 목록 — 가로로 많이 밀었으면 쪽 넘김, 아니면 그 칸 선택 (사용자 2026-08-13)
+  if (S.listDrag){
+    const q0 = S.listDrag; S.listDrag = null;
+    if (Math.abs(q0.dx) > L.cloth.w*0.08){          // 화면폭의 8% 넘게 밀면 스와이프
+      S.routePage = Math.max(0, Math.min(ROUTE_PAGES-1,
+                     (S.routePage|0) + (q0.dx < 0 ? 1 : -1)));   // 좌로 밀면 다음 쪽
+      return;
+    }
+    const list = routesReady() || [];
+    for (const q of ROUTE_CELLS){
+      if (q0.x < q.x || q0.x > q.x+q.w || q0.y < q.y || q0.y > q.y+q.h) continue;
+      if (q.i === ROUTE_SHOW_CELLS-1){ S.routeIx = -1; S.routeList = false; return; }
+      if (!list[q.i]) return;
+      S.routeIx = q.i; pickRoute(list[q.i]); S.routeList = false; return;
+    }
+    S.routeList = false; return;                    // 바깥을 누르면 닫는다
+  }
   // 끌어온 자리가 다이 안이면 거기 놓는다. 움직이지 않았으면 탭으로 본다.
   // ⚠️ 끌고 가는 동안은 아직 안 놓인 상태라 다른 공 위를 지나가도 상관없다.
   //    놓는 순간에만 separate() 로 겹침을 푼다.
@@ -1877,7 +1891,10 @@ function twoBank(){
 //    pathFromAim 이 한 번에 40번씩 이분법을 돌아 폰에서 몇 초가 걸린다.
 //    보정은 다이(쿠션)의 값이라 조준 방향에 따라 크게 변할 것이 아니다.
 let TIP_NOW = 0, TIPV_NOW = 0; // 지금 훑고 있는 당점 좌우·상하 (findRoutes 안에서만)
-const ROUTE_SHOW = 5;         // 6칸 리스트에서 직접조준 한 칸을 뺀 수 (사용자 확정)
+// ★★ 사용자 2026-08-13: '추천을 확장합시다. 두 페이지로, 빠르게 고를 수 있게
+//   **페이지 스와이프**를 넣읍시다. 1페이지에서 좌로 밀면 2페이지, 거기서 우로 밀면 1페이지.'
+//   '한 페이지에 6개니 모두 11개입니다. 12(마지막)는 직접조준.'
+const ROUTE_SHOW = 11;        // 목록에 내놓는 경로 수 (두 페이지에 나눠 담는다)
 // ★ 2026-08-11 파이썬으로 같은 계산을 돌려 보고 정한 값들.
 //   허용오차는 실제로 0.2~0.6도로 좁다 — 3쿠션이 원래 그렇다. 1적구 두께가 조금만
 //   달라져도 분리각이 확 꺾이니 조준각 여유가 작을 수밖에 없다. 이건 물리가 맞다.
@@ -4008,7 +4025,9 @@ function blink(){ S.blink = Date.now() + 3000; }
 // '리스트 마지막에 직접조준'
 // 미리보기는 작으니 **큰 것 하나 + 색 하나** 만 넣는다 —
 //   가운데에 그 경로, 아래에 진로 이름. 키스가 나면 테두리를 빨갛게.
-const ROUTE_SHOW_CELLS = 6;
+const ROUTE_CELLS_PAGE = 6;   // 한 페이지 칸 수 (2행 × 3열 — 지금 그대로)
+const ROUTE_PAGES = 2;
+const ROUTE_SHOW_CELLS = ROUTE_CELLS_PAGE * ROUTE_PAGES;   // 12 = 경로 11 + 직접조준
 let ROUTE_CELLS = [];
 // 한 경로의 궤적을 점 목록으로 (미리보기용)
 // ★★ 사용자 2026-08-13: '미리보기 궤적이 정교하지 않습니다. 보여준 것과 실제 경로가
@@ -4058,11 +4077,12 @@ function drawRouteList(){
   g.fillStyle = 'rgba(8,10,14,0.88)';
   g.fillRect(c.x, c.y, c.w, c.h);
   const list = routesReady() || [];
-  const n = Math.min(list.length, ROUTE_SHOW);
   const pad = Math.max(6, c.w*0.014);
   const cw = (c.w - pad*4)/3, chh = (c.h - pad*3)/2;
-  for (let i = 0; i < ROUTE_SHOW_CELLS; i++){
-    const gx = c.x + pad + (i%3)*(cw+pad), gy = c.y + pad + Math.floor(i/3)*(chh+pad);
+  const pg = Math.max(0, Math.min(ROUTE_PAGES-1, S.routePage|0));
+  for (let j = 0; j < ROUTE_CELLS_PAGE; j++){
+    const i = pg*ROUTE_CELLS_PAGE + j;                    // 목록 전체에서의 번호
+    const gx = c.x + pad + (j%3)*(cw+pad), gy = c.y + pad + Math.floor(j/3)*(chh+pad);
     ROUTE_CELLS.push({x:gx, y:gy, w:cw, h:chh, i});
     const last = (i === ROUTE_SHOW_CELLS-1);
     const r = last ? null : list[i];
@@ -4105,16 +4125,31 @@ function drawRouteList(){
       drawTipBall(gx + cw - br - chh*0.10, gy + chh - br - chh*0.06, br,
                   r.tip, r.tipV);
     }
+    // ★ 사용자 2026-08-13: '두께가 보여야 합니다. 8/6 뒤가 잘립니다. 위치조정하세요.'
+    //   ⚠️ 당점 공(오른쪽 아래)이 글자 끝을 덮고 있었다. 공을 뺀 **왼쪽 칸에** 맞춘다.
+    const bw2 = last ? 0 : chh*0.155*2 + chh*0.16;        // 당점 공이 차지하는 폭
+    const tx0 = gx, tx1 = gx + cw - bw2;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = last ? '#cfd6e0' : (r.kiss ? '#ff8a80' : '#f2f4f8');
     let fs = chh*0.15;
-    for (let t = 0; t < 10; t++){
+    for (let t = 0; t < 14; t++){
       g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
-      if (g.measureText(label).width <= cw*0.88 || fs < 8) break;
+      if (g.measureText(label).width <= (tx1-tx0)*0.94 || fs < 8) break;
       fs *= 0.9;
     }
-    g.fillText(label, gx + cw/2, gy + chh*(last ? 0.5 : 0.86));
+    g.fillText(label, (tx0+tx1)/2, gy + chh*(last ? 0.5 : 0.86));
   }
+  // ★ 쪽 표시 — 지금 몇 쪽인지 점으로. 밀 수 있다는 것도 이걸로 알린다
+  const dr = Math.max(4, c.h*0.011), dy = c.y + c.h - pad*0.9;
+  for (let q = 0; q < ROUTE_PAGES; q++){
+    const dx = c.x + c.w/2 + (q - (ROUTE_PAGES-1)/2)*dr*4;
+    g.beginPath(); g.arc(dx, dy, dr, 0, 7);
+    g.fillStyle = (q === pg) ? '#ffd400' : '#4a5462'; g.fill();
+  }
+  g.textAlign = 'center'; g.textBaseline = 'bottom';
+  g.fillStyle = '#7d8593';
+  g.font = '700 ' + Math.round(c.h*0.030) + 'px system-ui, sans-serif';
+  g.fillText(pg === 0 ? '1쪽   ← 밀면 2쪽' : '2쪽   밀면 1쪽 →', c.x + c.w/2, dy - dr*2.4);
   // 남은 개수를 알려 준다 — 조용히 자르지 않는다
   if (list.length > ROUTE_SHOW){
     g.textAlign = 'right'; g.textBaseline = 'bottom';
