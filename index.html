@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 242;
+const MOBILE_VER = 243;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -288,9 +288,15 @@ const STEP_MM = 30.6;   // 보정 한 눈금. 단쿠션 1224/40 = 장쿠션 2448
 //   → 풀린 k 를 LAST_K 에 남겨서, 충돌 뒤 구간도 같은 k 로 굴린다.
 //     ⚠️ pathFromAim 을 부른 **직후**에 읽어야 한다. 다른 조준으로 또 부르면 덮인다.
 let LAST_K = 0;
+// ★★ 사용자 2026-08-13 (8.jpg): '경로가 계속 이어져야 하는데 5에서 끊어지네요.
+//   이어지면 7쿠션이 되잖아요.'
+//   ⚠️ 여기가 **5 로 박혀 있었다.** data/speed.json 은 충돌 전 0쿠션이면 7쿠션까지
+//      허락하는데, 조준 경로를 그 전에 5에서 잘라 버렸다.
+//      빈쿠션으로 여섯·일곱 쿠션을 돌아 공에 닿는 길이 통째로 안 그려졌다.
+const AIM_MAX_C = 7;
 function pathFromAim(cue, aim, shift){
   const d = [aim[0]-cue[0], aim[1]-cue[1]];
-  const base = roll(cue, d, 5, 0);
+  const base = roll(cue, d, AIM_MAX_C, 0);
   LAST_K = 0;
   if (!shift || base.length < 2) return base;
   const rail = base[1].rail, n = RAILS[rail], tg = [-n[1], n[0]];
@@ -310,7 +316,7 @@ function pathFromAim(cue, aim, shift){
     if (got < want) lo = mid; else hi = mid;
   }
   const k = (lo+hi)/2;
-  const out = roll(cue, d, 5, k);
+  const out = roll(cue, d, AIM_MAX_C, k);
   if (out.length < 2) return base;
   LAST_K = k;
   return out;
@@ -1578,8 +1584,7 @@ const SHOW_XY = true;
 //   ⚠️ 다 보고 나면 null 로 되돌린다 — 안 그러면 켤 때마다 이 배치가 나온다.
 //   좌표는 mm, 좌하단이 0,0. 수구는 cue 로 적는다.
 //     예) {cue:'yellow', yellow:[1962,592], white:[1927,259], red:[983,907], aim:[1723,1224]}
-const SET_LAYOUT = {cue:'white', white:[920,615], yellow:[1816,627], red:[2250,998],
-                    aim:[1620,637], tipH:0, tipV:1.5, corr:0};
+const SET_LAYOUT = null;
 //   ↑ 2026-08-13 영상(15-55-33)의 그 대회전. 무회전 자연회전(v241) 확인용.
 //     두께 74% · 분리각 52° · 1쿠션 상단 x=2182 (영상에서 잰 값과 같다)
 //     ⚠️ 확인이 끝나면 null 로 되돌린다.
@@ -3843,8 +3848,8 @@ function drawPath(){
     seg(before[i], before[i+1], thin, 1, c);
   }
 
-  if (!cut.hit){                                  // 안 맞으면 4쿠션까지 선만
-    const last = Math.min(full.length-1, 4);
+  if (!cut.hit){                                  // 안 맞으면 끝까지 선만 (위 AIM_MAX_C 주석)
+    const last = Math.min(full.length-1, AIM_MAX_C);
     for (let i = before.length-1; i < last; i++)
       seg(full[i], full[i+1], thin, 1, cols[Math.min(i,cols.length-1)]);
     drawCushionDots(full, Math.min(last, full.length-1));
