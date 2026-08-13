@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 244;
+const MOBILE_VER = 245;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2202,9 +2202,9 @@ function dirOf(a, b){
 function simulate(dir, k){
   const cue = S.balls.cue;
   const E = englishSideFor(cue.p, dir);       // 이 후보 방향의 회전 쪽 (위 ⚠️ 참고)
-  const seq = roll(cue.p, dir, SWEEP_C_NOW, k, E);
+  let seq = roll(cue.p, dir, SWEEP_C_NOW, k, E);
   if (!seq.length) return null;
-  const cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
+  let cut1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
   if (!cut1.hit) return null;                       // 1적구를 못 맞힌다
   const c1 = cut1.pts.length - 2;                   // 1적구 전에 쓴 쿠션 수
   // ★ 사용자 2026-08-12: '추천도 직접 겨냥만으로 한정을 했는데 책에서 학습한 대로
@@ -2212,7 +2212,7 @@ function simulate(dir, k){
   //   ⚠️ 2026-08-11 에는 '뱅크샷은 일단 제외' 였다. 책에 걸어치기 장이 통째로
   //      있으므로 이제 **이름을 붙여** 내놓는다 — 어떤 길인지 보이면 고를 수 있다.
   const P = cut1.pts[cut1.pts.length-1];
-  const af = afterHit(cut1.from, P, cut1.obj);
+  let af = afterHit(cut1.from, P, cut1.obj);
   if (!af) return null;
   // ★ 충돌 뒤에 갈 수 있는 쿠션 수는 **충돌 전에 쓴 쿠션 수**로 정해진다.
   //   data/speed.json 의 사용자 표 그대로 (0→7 · 1→6 · 2→3 · 3→0).
@@ -2241,6 +2241,34 @@ function simulate(dir, k){
   const c2 = cut2.pts.length - 2;                   // 충돌 후 2적구 전까지 쿠션 수
   if (c2 > budget) return null;                     // 표가 허락한 것보다 멀리 갔다
   if (c1 + c2 < MIN_C_NOW) return null;             // ★ 3쿠션 미달 — 득점이 아니다
+  // ★★ 사용자 승인 2026-08-13 — 훑기에도 **남은 힘**을 넣는다.
+  //   1차는 힘을 모른 채 굴려 길을 잡고, 그 길로 세기를 구한 뒤 **다시 굴린다.**
+  //   그래야 추천이 찾은 길과 그려지는 길이 뒤쪽 쿠션에서 안 어긋난다.
+  {
+    const share0 = Math.max(0.10, Math.min(0.95, af.thick));
+    const keep0  = Math.sqrt(Math.max(0.04, 1 - share0*share0));
+    const V0 = needV0exact([...cut1.pts, ...cut2.pts.slice(1)], keep0);
+    const s1 = roll(cue.p, dir, SWEEP_C_NOW, k, E, V0);
+    const q1 = cutAtBall([cue.p, ...s1.map(h => h.p)]);
+    if (!q1.hit || q1.pts.length - 2 !== c1) return null;      // 1차와 달라지면 버린다
+    const P2 = q1.pts[q1.pts.length-1];
+    const a2 = afterHit(q1.from, P2, q1.obj);
+    if (!a2) return null;
+    // 충돌에서 두께만큼 잃고 나간다
+    let v2 = V0;
+    for (let i = 0; i < q1.pts.length-1; i++){
+      const L = Math.hypot(q1.pts[i+1][0]-q1.pts[i][0], q1.pts[i+1][1]-q1.pts[i][1]);
+      const A0 = DRAG_A0*DRAG_TABLE, KV = DRAG_KV/DRAG_TABLE;
+      const u = (A0 + v2*v2/KV) * Math.exp(-2*L/KV) - A0;
+      v2 = u > 0 ? Math.sqrt(u*KV) : 0;
+      if (i < q1.pts.length-2) v2 *= CUSHION_KEEP;
+    }
+    v2 *= keep0;
+    const s2 = roll(P2, a2.dir, Math.min(budget, SWEEP_C_NOW - c1), k, E, v2);
+    const q2 = cutAtBall([P2, ...s2.map(h => h.p)], q1.obj);
+    if (!q2.hit || q2.pts.length - 2 !== c2) return null;      // 1차와 달라지면 버린다
+    seq = s1; cut1 = q1; af = a2; seq2 = s2; cut2 = q2;
+  }
   const rails = seq.slice(0, c1).map(h => h.rail)
            .concat(seq2.slice(0, c2).map(h => h.rail));
   // ⚠️ 같은 쿠션이 연달아 나오면 쿠션을 **스치며 미끄러진** 것이지 경로가 아니다.
@@ -3725,6 +3753,23 @@ function simRunLen(poly, v0, keepC){
 //   ★ 2026-08-13 다시: '스피드 10씩 더 올려주세요. 공과 시뮬레이션 모두 너무 느린 것 같아요.'
 //     '공의 세기 시뮬레이션 모두 올려주세요'  → 한 번 더.  1.10 × 1.10 × 1.10 = 1.33
 const SHOT_BOOST = 1.33;
+// ★ 세기를 **뒤에서부터 거꾸로** 한 번에 푼다 (이분법 없이 O(n)).
+//   훑기는 초당 수천 번 도는데 simNeedV0 는 이분법 24회 × 20mm 걸음이라 못 쓴다.
+//   같은 마찰 모델이라 값은 같다.
+function needV0exact(poly, keepC){
+  const A0 = DRAG_A0 * DRAG_TABLE, KV = DRAG_KV / DRAG_TABLE;
+  let v2 = SIM_STOP * SIM_STOP;                       // 마지막에 이만큼은 남아 있어야 한다
+  for (let i = poly.length-2; i >= 0; i--){
+    const L = Math.hypot(poly[i+1][0]-poly[i][0], poly[i+1][1]-poly[i][1]);
+    v2 = (v2 + A0*KV) * Math.exp(2*L/KV) - A0*KV;     // 그 구간을 거꾸로 거슬러 올라간다
+    if (i > 0){                                       // 그 앞 꺾임에서 잃은 몫을 되돌린다
+      const f = onRail(poly[i]) ? CUSHION_KEEP : keepC;
+      v2 = v2 / Math.max(1e-6, f*f);
+    }
+    if (!isFinite(v2) || v2 > 1e9) return 9000 * SHOT_BOOST;
+  }
+  return Math.min(9000, Math.sqrt(Math.max(0, v2)) * 1.10) * SHOT_BOOST;
+}
 function simNeedV0(poly, keepC){
   let lo = 300, hi = 9000;
   for (let i = 0; i < 24; i++){
