@@ -54,6 +54,25 @@ SET_F = dict(
 )
 
 
+def tipface(p, cx, cy, R, hour=3, tips=2, lab="3시 2팁"):
+    """수구를 **뒤에서 본** 얼굴에 당점을 찍는다.
+    팁 눈금은 앱과 같게 3팁을 끝으로 본다 (S.tipR = 3). 3팁 자리를 반지름의 0.72 에 둔다.
+    """
+    d = p.d
+    d.ellipse([cx - R, cy - R, cx + R, cy + R], fill="#f2f0e8", outline="#8a93a0", width=3)
+    d.line([cx - R, cy, cx + R, cy], fill="#c9ccd2", width=2)
+    d.line([cx, cy - R, cx, cy + R], fill="#c9ccd2", width=2)
+    step = R * 0.72 / 3
+    ang = {3: (1, 0), 9: (-1, 0), 12: (0, -1), 6: (0, 1)}[hour]
+    for k in (1, 2, 3):                       # 1 · 2 · 3 팁 자리
+        qx, qy = cx + ang[0] * step * k, cy + ang[1] * step * k
+        d.ellipse([qx - 5, qy - 5, qx + 5, qy + 5], fill="#9aa4b2")
+        d.text((qx, qy + 26 if hour in (3, 9) else qy), str(k), font=f(20), fill="#6d7684", anchor="mm")
+    hx, hy = cx + ang[0] * step * tips, cy + ang[1] * step * tips
+    d.ellipse([hx - 19, hy - 19, hx + 19, hy + 19], fill=RED, outline="#14161a", width=3)
+    d.text((cx, cy + R + 22), "수구를 뒤에서 본 얼굴", font=f(23), fill=DIM, anchor="ma")
+
+
 def table(p, s):
     p.h(s["title"] + "      " + str(s["shots"]) + "샷", HOT)
     p.grid(s)
@@ -82,6 +101,7 @@ def pageR1():
     p.rule()
     table(p, SET_E)
     p.t("한 배치에서 약 5샷 · 중 5샷 · 강 5샷. 두 배치니 30샷이다.", DIM, 28)
+    p.t("★ 당점은 30샷 내내 고정이다 ▶ 3시 2팁 · 높이는 중단. 촬영R2 그림 참고", HOT, 29)
     p.t("★ 공을 하나만 놓는다. 빈쿠션이라야 분리각이 안 섞인다.", HOT, 29)
     p.t("★ 끝까지 굴러가게 둔다. 멈출 때까지 손대지 않는다 → 쿠션마다 남은 힘을 잰다.", HOT, 29)
 
@@ -110,7 +130,19 @@ def pageR2():
     p.gap(6)
 
     p.t("빨간선처럼 더 좁게 꺾이면 역각이 걸린 것이고, 점선(거울)대로 가면 안 걸린 것이다.", DIM, 28)
-    p.gap(54)
+    p.gap(30)
+
+    ty = p.y + 116
+    tipface(p, 200, ty, 92, hour=3, tips=2)
+    p.d.text((360, ty - 104), "당점 ▶ 3시 2팁 · 중단", font=f(36, True), fill=RED)
+    p.d.text((360, ty - 52), "높이는 정확히 한가운데. 밀어치기도 끌어치기도 아니다.",
+             font=f(28), fill=INK)
+    p.d.text((360, ty - 12), "좌우만 오른쪽으로 2팁. 3팁까지 주지 않는다.", font=f(28), fill=INK)
+    p.d.text((360, ty + 38), "★ 30샷 내내 이 자리 하나다 — 고정이다.", font=f(30, True), fill=HOT)
+    p.d.text((360, ty + 82), "   흔들리면 세기 탓인지 당점 탓인지 못 가른다. 30샷이 통째로 버려진다.",
+             font=f(27, True), fill=HOT)
+    p.y = ty + 200
+    p.gap(40)
 
     y = p.y
     for i, L in enumerate(LAYOUTS):
