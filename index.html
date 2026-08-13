@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 240;
+const MOBILE_VER = 241;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -116,6 +116,29 @@ function reflect(a, tip){
   return Math.max(x, Math.min(x + (y - x) * (h/2), 89.9));
 }
 
+// ★★★ 무회전이어도 쿠션에서 회전이 생긴다 (자연회전 / Running Spin)
+//   사용자 2026-08-13: '거기는 **정회전이 작용할 자리**입니다.'
+//   ⚠️⚠️ 지금까지 무회전(좌우 0팁)이면 bend() 의 e 가 0 이라 실측표가 통째로 안 걸리고
+//      **완전한 거울반사**가 됐다. 영상(15-55-33)의 대회전이 일곱 쿠션 전부 입사=반사였다.
+//   → 무회전으로 들어가도 쿠션 고무·라사와의 접선 마찰로 순회전이 생기고, 그만큼 넓어진다.
+//
+//   ⚠️ 출처 — 사용자 제공 AI 정리본 2026-08-13. **CLAUDE.md 값의 무게 ④번**이다
+//      (인터넷·AI 자료. 혼자서는 근거가 못 된다). 받아들인 근거 두 가지 —
+//        ① 0808 실측표는 '당점 2시30분 고정' 이라 **무회전 자료가 아예 없다.**
+//           우리 실측과 부딪히지 않고 빈 칸을 채운다.
+//        ② '입사각이 클수록(누울수록) 덜 먹는다' 가 사용자 관찰과 일치한다.
+//      실측으로 바뀌면 이 표를 갈아 끼운다.
+//
+//   입사각(법선 기준) → 무회전일 때 넓어지는 각
+const NAT_SPIN = [[15, 4.0], [30, 4.0], [45, 3.5], [55, 2.5], [65, 1.5], [80, 0.5], [90, 0]];
+function naturalAdd(ain){
+  const t = NAT_SPIN, x = Math.abs(ain);
+  if (x <= t[0][0]) return t[0][1];
+  for (let i = 0; i < t.length-1; i++)
+    if (t[i][0] <= x && x <= t[i+1][0])
+      return t[i][1] + (t[i+1][1]-t[i][1]) * (x-t[i][0]) / (t[i+1][0]-t[i][0]);
+  return 0;
+}
 function nextRail(p, d, w, h){
   const e = 1e-6;
   let best = null;
@@ -186,9 +209,12 @@ function bend(d, rail, k, E){
   //      회전이 진행 쪽과 같으면 순회전(길어진다), 반대면 역회전(짧아진다).
   //      정면이면 들어온 각이 0 이라 **회전이 미는 쪽으로만** 나간다 — 이게 맞는 그림이다.
   const sIn = dt >= 0 ? 1 : -1;
-  const add = Math.max(0, reflect(ain) - ain) + (k || 0);   // 회전 + 현장 보정
+  // ★ 무회전이어도 붙는 몫은 **흐르는 쪽(sIn)** 으로 간다 (위 naturalAdd 주석 참고).
+  //   좌우 회전이 더해 주는 몫은 그 위에 얹는다 — 2팁이면 합이 실측표 그대로가 된다.
+  const nat = naturalAdd(ain);
+  const add = Math.max(0, reflect(ain) - ain - nat) + (k || 0);
   const e = (E === undefined) ? englishSide() : E;
-  let signed = sIn * ain + e * add;
+  let signed = sIn * (ain + nat) + e * add;
   // ★ 사용자 2026-08-11 (3.jpg): '3쿠션으로 솟아오릅니다. 회전을 아무리 주더라도
   //   직선 정도로 갈 텐데.' → 역회전은 **거울을 지나 반대쪽으로 넘어가지 못한다.**
   //   넘어가면 거기서 멈춘다(거울반사). 짧아지는 것까지는 둔다 — 그게 역회전이다.
