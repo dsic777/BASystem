@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 238;
+const MOBILE_VER = 239;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1534,7 +1534,40 @@ function draw(){
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){ drawAnswer(); drawSysName(); drawPath(); drawBalls(); drawClock(); }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList(); drawTipPanel();
+  drawDebugXY();
   requestAnimationFrame(draw);
+}
+// ★★ 진단 표시 — 사용자 승인 2026-08-13 ('넣으세요').
+//   화면을 캡처해 주시면 이 숫자만으로 **화면과 똑같이 재현**할 수 있다.
+//   ⚠️ 왜 넣었나 — 하루에 세 번 같은 벽에 막혔다.
+//        채점 11개 · 8.jpg 배치 9개 · 마지막 쿠션 역회전 건
+//      전부 공 좌표를 화면 픽셀로 되읽다가 10~20mm 어긋나, 목록과 경로가
+//      재현되지 않아 원인을 못 짚었다. 이 한 줄이면 그 어긋남이 없어진다.
+//   ⚠️ 평소에는 **false 로 꺼 둔다.** 이상한 경로를 봤을 때만 켜서 캡처한다.
+const SHOW_XY = true;
+function drawDebugXY(){
+  if (!SHOW_XY || previewOn() || S.routeList || S.tipPanel) return;
+  const c = L.cloth, cue = S.balls.cue;
+  const parts = [];
+  for (const k in S.balls){
+    const b = S.balls[k];
+    parts.push((b.color === 'white' ? 'W' : b.color === 'yellow' ? 'Y' : 'R')
+             + (k === 'cue' ? '*' : '') + Math.round(b.p[0]) + ',' + Math.round(b.p[1]));
+  }
+  let t = parts.join(' ');
+  if (cue && S.aim)
+    t += ' | 조준 ' + (Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0])*180/Math.PI).toFixed(1) + '\u00b0';
+  const f = v => (v >= 0 ? '+' : '') + (v || 0).toFixed(1);
+  t += ' | 팁 ' + f(S.tipH) + '/' + f(S.tipV) + ' | 보정 ' + (S.corr || 0);
+  if (S.routeIx >= 0) t += ' | 추천 ' + (S.routeIx + 1);
+  g.save();
+  g.font = '700 ' + Math.round(c.h*0.032) + 'px ui-monospace, Menlo, monospace';
+  g.textAlign = 'left'; g.textBaseline = 'top';
+  const x = c.x + c.w*0.012, y = c.y + c.h*0.010;
+  g.strokeStyle = 'rgba(6,8,12,0.92)'; g.lineWidth = Math.max(4, c.h*0.010);
+  g.strokeText(t, x, y);
+  g.fillStyle = '#7fe3ff'; g.fillText(t, x, y);
+  g.restore();
 }
 function drawDiamonds(){
   // ⚠️ 반지름을 3px 로 박아두면 폰에서 안 보인다 (사용자 지적). 천 높이에 비례시키고
