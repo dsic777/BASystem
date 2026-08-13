@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 253;
+const MOBILE_VER = 254;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1216,8 +1216,7 @@ function corrGeom(ex, ey){
 
 function corrButtons(){
   if (S.anim) return [];                          // 시뮬레이션 중에는 보정 버튼도 없앤다
-  const [ex,ey] = tipCenter();
-  const q = corrGeom(ex, ey);
+  const q = cluster().q;                          // 당점·이름·▶ 와 같은 자리에서 나온다
   return ['-','0','+'].map((lb,i) =>
     ({x: q.x + i*(q.bw+q.gap), y: q.y, w: q.bw, h: q.bw, lb}));
 }
@@ -1278,17 +1277,38 @@ function rectD(b, p){
 
 // 당점 원 + 시뮬레이션 원 + 보정 바를 묶은 상자 [x0,y0,x1,y1]
 function clusterBox(t){
-  const r = clockR(), q = corrGeom(t[0], t[1]);
-  return [Math.min(t[0]-r*2.2, q.x), Math.min(t[1]-r, q.y),
-          Math.max(t[0]+r*2.2, q.x+q.w), Math.max(t[1]+r, q.y+q.h)];
+  // ⚠️ cluster() 와 같은 기준으로 잡아야 한다 (보정 바는 clockCenter 에서 r*1.15 왼쪽)
+  const r = clockR(), q = corrGeom(t[0] - r*1.15, t[1]);
+  return [Math.min(t[0]-r*2.2, q.x), Math.min(t[1]-r*1.3, q.y),
+          Math.max(t[0]+r*2.2, q.x+q.w), Math.max(t[1]+r*1.3, q.y+q.h)];
 }
 
 // ★★ 사용자 2026-08-13 (ss.jpg): '보정 아래에 공을 **2개** 배치하세요.
 //   좌측은 당점, 우측은 시뮬레이션(공 모양 · 수구 색깔 · 가운데 큰 화살표).
 //   추천 경로에서 시뮬레이션은 제거.'
 //   → clockCenter() 가 정하는 자리를 가운데로 보고 좌우로 갈라 놓는다.
-function tipCenter(){ const [x,y] = clockCenter(), r = clockR(); return [x - r*1.15, y]; }
-function simCenter(){ const [x,y] = clockCenter(), r = clockR(); return [x + r*1.15, y]; }
+// ★★ 당점 · 당점이름 · 시뮬레이션을 **보정 버튼 세 칸 위에 하나씩** 세운다
+//   (사용자 2026-08-14, 4·5.jpg) —
+//     '시물레이션 버튼은 보정+ 위에 고정하고 가운데에 2시30분·3팁 을 항상 넣어주라구요'
+//
+//        [당점 공]   2시30분 · 3팁   [▶]
+//           [−]          [0]        [+]
+//
+//   전에는 당점과 ▶ 가 clockCenter 를 가운데 두고 좌우로 붙어 있어, 보정 바가
+//   화면 끝에서 밀리면 세로줄이 안 맞았다.
+//   ⚠️ corrGeom 은 tipCenter 를 부르지 않는다 — clockCenter 로만 자리를 잡는다.
+//      (여기서 tipCenter 를 쓰면 서로 물고 돌아 화면이 죽는다)
+function cluster(){
+  const [cx0, cy] = clockCenter(), r = clockR();
+  const q = corrGeom(cx0 - r*1.15, cy);
+  const mid = q.bw/2, step = q.bw + q.gap;
+  return {q, r, y: cy,
+          tip: [q.x + mid,            cy],
+          nam: [q.x + mid + step,     cy],
+          sim: [q.x + mid + step*2,   cy]};
+}
+function tipCenter(){ return cluster().tip; }
+function simCenter(){ return cluster().sim; }
 function clockCenter(){
   const r = clockR(), m = r * 0.5, c = L.cloth;
   const spot = [[c.x + r + m,       c.y + r + m],          // 왼쪽 위 (기본)
@@ -4458,6 +4478,26 @@ function drawClock(){
     g.lineTo(sx - a*0.45, sy + a*0.62);
     g.closePath();
     g.fillStyle = 'rgba(24,26,30,0.88)'; g.fill();
+  }
+  // ★ 당점 이름 — 가운데(보정 0 위)에 늘 띄운다 (사용자 2026-08-14)
+  {
+    const cl = cluster();
+    const txt = tipName(S.tipH, S.tipV).replace(/ (\S+팁)$/, ' · $1');  // 당점판과 같은 표기
+    g.save();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    let fs = cl.r * 0.52;
+    g.font = '800 ' + Math.round(fs) + 'px system-ui, -apple-system, sans-serif';
+    const room = cl.q.bw * 1.9;
+    const tw = g.measureText(txt).width;
+    if (tw > room){                                  // 칸을 넘으면 글자만 줄인다
+      fs = Math.max(9, fs * room / tw);
+      g.font = '800 ' + Math.round(fs) + 'px system-ui, -apple-system, sans-serif';
+    }
+    g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(12,14,18,0.85)'; g.lineWidth = Math.max(2, fs*0.30);
+    g.strokeText(txt, cl.nam[0], cl.nam[1]);
+    g.fillStyle = '#f2f4f8'; g.fillText(txt, cl.nam[0], cl.nam[1]);
+    g.restore();
   }
   const [x,y] = tipCenter(), R = clockR();
   g.fillStyle = '#f0f0ea'; g.beginPath(); g.arc(x,y,R,0,7); g.fill();
