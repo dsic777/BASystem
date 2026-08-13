@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 232;
+const MOBILE_VER = 233;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3095,6 +3095,39 @@ function separationAngle(thick, tip){
 // 적구에 닿는 순간의 두께와, 그 뒤 수구가 갈 방향.
 //   두께 = (지름 − 중심선까지 거리) / 지름     (정면 1.0 · 반두께 0.5 · 스침 0)
 //   꺾이는 쪽은 적구가 있는 **반대쪽**이다.
+// ★★★ 충돌 결과를 **한 곳에서만** 낸다 (사용자 2026-08-13:
+//   '추천경로를 보여줬으면 공이 맞아야죠? 키스가 난 경우도 아니고').
+//   ⚠️⚠️ v231 에서 시뮬레이션 쪽(simHit)에만 '멀어지게 하는 보정' 을 걸었더니
+//      **충돌 모델이 두 개**가 됐다 —
+//        추천·그리기 afterHit  두께 0.05 → 분리각  4.8도
+//        시뮬레이션  simHit    두께 0.05 → 분리각 15.3도
+//      얇을수록 10도씩 어긋나서, 추천한 길과 공이 실제로 가는 길이 달라졌다.
+//      Node 로 재 보니 두께 0.02~0.14 짜리 추천이 엔진에서 **공 하나만 맞혔다.**
+//   → 두 쪽이 이 함수 하나를 같이 쓴다. 그림·추천·시뮬레이션이 늘 같은 값이 된다.
+//   ★ 두께 0.30 이상은 이미 멀어지므로 **값이 하나도 안 바뀐다** (v231 표 참고).
+//     바뀌는 것은 표가 물리적으로 불가능한 값을 주던 얇은 구간뿐이다.
+//   dx,dy = 때린 공의 진행 단위벡터 · ox,oy = 때린 공 → 맞는 공 (길이 = 공 지름)
+//   돌려주는 것은 **들어온 속도를 1 로 본** 두 공의 속도.
+function hitOut(dx, dy, ox, oy, thick, deg, od){
+  const side = dx*oy - dy*ox, sgn = Math.sign(side || 1);
+  const r  = -sgn * deg * Math.PI/180;               // 때린 공은 반대쪽으로
+  const ro =  sgn * od  * Math.PI/180;               // 맞은 공은 같은 쪽으로
+  const keep = Math.sqrt(Math.max(0.04, 1 - thick*thick));
+  let a = [(dx*Math.cos(r)  - dy*Math.sin(r))  * keep,
+           (dx*Math.sin(r)  + dy*Math.cos(r))  * keep];
+  let b = [(dx*Math.cos(ro) - dy*Math.sin(ro)) * thick,
+           (dx*Math.sin(ro) + dy*Math.cos(ro)) * thick];
+  const nn = Math.hypot(ox, oy);
+  if (nn > 1e-9){
+    const nx = ox/nn, ny = oy/nn;
+    const closing = (a[0]-b[0])*nx + (a[1]-b[1])*ny;   // >0 이면 아직 다가간다
+    if (closing > 0){                                  // 그만큼 서로 밀어낸다
+      a = [a[0]-nx*closing, a[1]-ny*closing];
+      b = [b[0]+nx*closing, b[1]+ny*closing];
+    }
+  }
+  return {a, b};
+}
 function afterHit(from, to, obj){
   const D = T.ball_diameter;
   let dx = to[0]-from[0], dy = to[1]-from[1];
@@ -3110,11 +3143,15 @@ function afterHit(from, to, obj){
   const sgn = Math.sign(side || 1);
   const r = -sgn * deg * Math.PI/180;                    // 수구는 적구 반대쪽으로
   const od = objectAngle(thick);
-  const ro = od === null ? null : sgn * od * Math.PI/180; // 1적구는 같은 쪽으로
-  return {thick, deg, objDeg: od,
-          dir: [dx*Math.cos(r) - dy*Math.sin(r), dx*Math.sin(r) + dy*Math.cos(r)],
-          objDir: ro === null ? null
-                : [dx*Math.cos(ro) - dy*Math.sin(ro), dx*Math.sin(ro) + dy*Math.cos(ro)]};
+  // ★ 위 hitOut 하나로 낸다 — 시뮬레이션과 같은 값이어야 한다
+  const o = hitOut(dx, dy, ox, oy, thick, deg, od === null ? 0 : od);
+  const na = Math.hypot(o.a[0], o.a[1]), nb = Math.hypot(o.b[0], o.b[1]);
+  const dir = na > 1e-9 ? [o.a[0]/na, o.a[1]/na] : [dx, dy];
+  // 화면에 적는 분리각도 **보정된 값**으로. 안 그러면 글자와 그림이 다르다.
+  const degOut = Math.acos(Math.max(-1, Math.min(1, dir[0]*dx + dir[1]*dy))) * 180/Math.PI;
+  return {thick, deg: degOut, objDeg: od, degRaw: deg,
+          dir,
+          objDir: (od === null || nb <= 1e-9) ? null : [o.b[0]/nb, o.b[1]/nb]};
 }
 
 // 1적구를 맞은 뒤 수구 경로를 몇 쿠션까지 그리나.
@@ -3402,41 +3439,16 @@ function simHit(A, B){
   if (sp < 1e-6) return;
   const dx = ux/sp, dy = uy/sp;
   const ox = B.p[0]-A.p[0], oy = B.p[1]-A.p[1];
-  const side = dx*oy - dy*ox;                        // 맞는 공이 왼쪽(+)인가 오른쪽(−)인가
   const D = T.ball_diameter;
+  const side = dx*oy - dy*ox;
   const thick = Math.max(0, Math.min(1, (D - Math.abs(side)) / D));
   const deg = separationAngle(thick), od = objectAngle(thick);
   if (deg === null || od === null) return;
-  const sgn = Math.sign(side || 1);
-  const r  = -sgn * deg * Math.PI/180;               // 때린 공은 반대쪽으로 꺾인다
-  const ro =  sgn * od  * Math.PI/180;               // 맞은 공은 같은 쪽으로 나간다
-  const keep = Math.sqrt(Math.max(0.04, 1 - thick*thick));   // 두께만큼 넘겨준다
+  // ★ 그리기·추천과 **같은 함수**로 낸다 (위 hitOut 주석 참고)
+  const o = hitOut(dx, dy, ox, oy, thick, deg, od);
   const b0x = B.v[0], b0y = B.v[1];                  // 세워 놓고 봤으니 다시 더해 준다
-  A.v = [(dx*Math.cos(r)  - dy*Math.sin(r))  * sp*keep  + b0x,
-         (dx*Math.sin(r)  + dy*Math.cos(r))  * sp*keep  + b0y];
-  B.v = [(dx*Math.cos(ro) - dy*Math.sin(ro)) * sp*thick + b0x,
-         (dx*Math.sin(ro) + dy*Math.cos(ro)) * sp*thick + b0y];
-  // ★★★ 사용자 2026-08-13 (영상 10-36-53): 흰공과 빨간공이 **나란히 붙어서**
-  //   다이를 10초 동안 가로질렀다.
-  //   ⚠️⚠️ 분리각표는 각도와 세기를 **따로** 재서 넣은 것이라 중심선 방향 운동량이
-  //      안 맞는다. 재 보니 **얇게 맞으면 충돌 뒤에도 두 공이 서로에게 다가간다** —
-  //        두께 0.05 +544 · 0.10 +540 · 0.20 +278 · 0.24 +126 (mm/s, +면 다가간다)
-  //        두께 0.30 부터 −29 로 비로소 멀어진다
-  //      다가가니 다음 스텝에서 또 부딪히고, 되풀이하다 **두 공 속도가 같아져**
-  //      나란히 굴러간다. (5.jpg 배치가 두께 24% 라 딱 걸렸다)
-  //   → 중심선 방향으로 **다가가는 몫만 뒤집는다.** 운동량·에너지 그대로다
-  //     (같은 무게라 상대속도 크기가 안 변한다). **표의 각도·세기는 안 건드린다** —
-  //     그려지는 궤적이 바뀌면 안 된다.
-  const nx0 = B.p[0]-A.p[0], ny0 = B.p[1]-A.p[1];
-  const nn = Math.hypot(nx0, ny0);
-  if (nn > 1e-9){
-    const nx = nx0/nn, ny = ny0/nn;
-    const closing = (A.v[0]-B.v[0])*nx + (A.v[1]-B.v[1])*ny;
-    if (closing > 0){                                // 아직 다가가면 그만큼 밀어낸다
-      A.v[0] -= nx*closing; A.v[1] -= ny*closing;
-      B.v[0] += nx*closing; B.v[1] += ny*closing;
-    }
-  }
+  A.v = [o.a[0]*sp + b0x, o.a[1]*sp + b0y];
+  B.v = [o.b[0]*sp + b0x, o.b[1]*sp + b0y];
 }
 function simStep(sim, dt){
   const D = T.ball_diameter;
