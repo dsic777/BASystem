@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 227;
+const MOBILE_VER = 228;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3093,7 +3093,8 @@ function afterCushions(used){
 //      실측 마찰을 넣은 지금은 **한 샷이 실제처럼 10초쯤** 간다 (영상도 8.2초였다).
 //      0.35 로 보면 30초짜리가 된다. 그래서 **실제 다이보다 30% 느리게** 로 다시 잡는다.
 //   보는 속도만 늦춘다 — 가는 거리와 서는 자리는 그대로다.
-const PLAY_RATE = 0.70;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
+// ★ 사용자 2026-08-13: '시뮬레이션 속도도 10% 올려보세요.'  0.70 × 1.10 = 0.77
+const PLAY_RATE = 0.77;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
 // ★★ 사용자 2026-08-13: '수구가 3쿠션 후 다이에서 **가속도가 붙습니다.**'
 //   ⚠️ 내가 **모든 꺾임점마다** 쿠션 이득(×1.06)을 걸고 있었다. 쿠션이 아닌 곳
 //      (1적구·2적구 충돌점, 연장 구간)에서도. 구간이 짧으면 마찰로 잃는 것보다
@@ -3270,13 +3271,17 @@ function simRunLen(poly, v0, keepC){
   }
   return poly.length-1;
 }
+// ★ 사용자 2026-08-13: '시뮬레이션시 공이 굴러가는 힘을 10%만 더 주세요.'
+//   경로를 완주할 세기(이분법) → 여유 10% → 여기서 다시 10%.
+//   ⚠️ 천장(9000)에 걸린 뒤에 곱한다. 안 그러면 두껍게 맞은 배치는 늘 천장이라 안 바뀐다.
+const SHOT_BOOST = 1.10;
 function simNeedV0(poly, keepC){
   let lo = 300, hi = 9000;
   for (let i = 0; i < 24; i++){
     const m = (lo+hi)/2;
     if (simRunLen(poly, m, keepC) >= poly.length-1 - 1e-9) hi = m; else lo = m;
   }
-  return Math.min(9000, hi * 1.10);                  // 조금 여유 있게 친다
+  return Math.min(9000, hi * 1.10) * SHOT_BOOST;     // 조금 여유 있게 친다
 }
 function simInit(dir, v0, k, E){
   const balls = [];
