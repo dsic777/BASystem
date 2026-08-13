@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 251;
+const MOBILE_VER = 252;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2028,7 +2028,8 @@ function drawTipBall(cx, cy, R, tipH, tipV){
   // 3팁이 공 가장자리 조금 안쪽에 오게 (당점판과 같은 비율 — 1팁 = 반지름의 0.195)
   const k = R * TIP_R;
   const x = cx + (tipH || 0) * k, y = cy - (tipV || 0) * k;
-  const rr = Math.max(2, R*0.30);                    // 빨간 점 (앱 전체와 같은 크기감)
+  // 빨간 점 = 큐팁 12mm 지름. 반지름 6mm = 1팁 = R*TIP_R (사용자 2026-08-14)
+  const rr = Math.max(2, R*TIP_R);
   g.beginPath(); g.arc(x, y, rr, 0, 7);
   g.fillStyle = '#de342c'; g.fill();
   g.strokeStyle = 'rgba(20,22,26,0.55)'; g.lineWidth = Math.max(0.8, R*0.05); g.stroke();
@@ -4510,7 +4511,7 @@ function drawClock(){
   //   크기는 20% 키웠다 (0.155 → 0.186) — 폰에서 당점이 작아 안 보인다.
   const [dx,dy] = tipOffset(R);
   g.fillStyle = '#de342c';
-  g.beginPath(); g.arc(x + dx, y + dy, R*0.186, 0, 7); g.fill();
+  g.beginPath(); g.arc(x + dx, y + dy, R*TIP_R, 0, 7); g.fill();   // 큐팁 12mm (2026-08-14)
 }
 // 교본이 낸 추천 팁수. 지금은 더불횡단 식만 있다 (책 145쪽).
 // ★ 사용자 2026-08-12: '추천에서 횡단샷을 선택하던 추천경로에서 넘어오던
@@ -4743,7 +4744,12 @@ function drawTipPanel(){
     const x = q.cx + ox, y = q.cy + oy;
     const on = d.dir === S.tipDir && d.r === S.tipR;
     const rr = Math.max(3, q.unit * (d.r === 3 ? 0.17 : 0.14));
-    g.beginPath(); g.arc(x, y, on ? q.unit*0.36 : rr, 0, 7);   // 20% 키움 (사용자 2026-08-12)
+    // ★★ 빨간 점 = **큐팁 그 자체**다 (사용자 2026-08-14)
+    //   '공과 큐팁에서 큐팁의 크기가 당점입니다. 큐팁 사이즈 12.0mm'
+    //   큐팁 12mm 지름 → 반지름 6mm. 그런데 1팁도 6mm(TIP_R = 6.0/30.75)다.
+    //   그래서 점의 반지름이 **정확히 한 팁 = q.unit** 이다.
+    //   전에는 q.unit*0.36 이라 지름 4.3mm 였다 — 실제 큐팁의 3분의 1.
+    g.beginPath(); g.arc(x, y, on ? q.unit : rr, 0, 7);
     g.fillStyle = on ? '#de342c' : 'rgba(58,60,68,0.55)'; g.fill();
     if (on){ g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, q.unit*0.13); g.stroke(); }
   }
