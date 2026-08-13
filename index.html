@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 233;
+const MOBILE_VER = 234;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2367,6 +2367,9 @@ function rank(r){
   if (M !== undefined && r.sep !== undefined) v -= 0.15 * Math.abs(r.sep - M);
   //   키스는 두 군쯤 뒤로 민다. **빼지는 않는다** (위 findRoutes 주석 참고).
   if (r.kiss) v -= 250;
+  // ★ 힘이 모자라 끝까지 못 가는 길은 키스보다 더 뒤로 (위 routeReach 주석 참고).
+  //   '성공 가능한 경로를 제시하는 앱' (사용자 2026-08-13) 의 첫 조각이다.
+  if (r.reach !== undefined && r.reach < 0.999) v -= 300 + 200 * (1 - r.reach);
   if (r.name === '뒤돌리기' && r.sep >= 20 && r.sep <= 45) v += 0.4;
   return v;
 }
@@ -2542,9 +2545,58 @@ function findRoutes(){
     name: r.name, loose: r.loose, before: r.before, kiss: r.kiss, sep: r.sep,
     flips: r.flips, rev: r.rev, tipV: r.tipV,
     thick: r.thick, tip: r.tip,
-  })).sort((a, b) => rank(b) - rank(a));                    // 넓은 것부터 = 쉬운 것부터
+  }));
+  // ★★★ 사용자 2026-08-13 승인 — 이 앱의 최종 목표는 **성공 가능한 경로를 제시**하는 것이다.
+  //   '추천경로를 보여줬으면 공이 맞아야죠? 키스가 난 경우도 아니고.'
+  //   ⚠️ 추천은 여기까지 **기하만** 보고 '닿는다' 로 판정했다. 공이 거기까지 갈
+  //      **힘이 있는지**는 안 봤다. 두께 99% 로 맞히면 수구에 14% 밖에 안 남는데
+  //      (√(1−0.99²)) 그 힘으로 3쿠션을 더 돌 수가 없다. 도중에 선다.
+  //      Node 로 재 보니 7.jpg 의 앞돌리기(0.94)·뒤돌리기(0.99)가 엔진에서 공 하나만 맞혔다.
+  //   → 실측 마찰(simRunLen)로 **끝까지 가는지** 재서, 못 가면 뒤로 민다.
+  //     ★ 빼지 않는다. 점수만 내린다 (인수인계서 4번 — 없애지 말고 뒤로 민다).
+  for (const r of list) r.reach = routeReach(r);
+  list.sort((a, b) => rank(b) - rank(a));                   // 넓은 것부터 = 쉬운 것부터
   ROUTES = {key, list};
   return list;
+}
+// 이 경로를 **끝까지 갈 수 있나.** 1 이면 완주, 0.6 이면 60% 지점에서 선다.
+// 그리는 쪽(drawPath)과 같은 순서로 길을 만들고, 엔진과 같은 세기·마찰로 굴려 본다.
+function routeReach(r){
+  const cue = S.balls.cue;
+  if (!cue || r.a === undefined) return 1;
+  const hS = S.tipH, vS = S.tipV, rS = S.tipR;
+  let out = 1;
+  try {
+    S.tipH = r.tip; S.tipV = r.tipV; S.tipR = Math.min(3, Math.hypot(r.tip, r.tipV));
+    const dir = [Math.cos(r.a), Math.sin(r.a)];
+    const aim = [cue.p[0] + dir[0]*500, cue.p[1] + dir[1]*500];
+    const hits = pathFromAim(cue.p, aim, S.corr), kk = LAST_K;
+    const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
+    if (cut.hit){
+      const P = cut.pts[cut.pts.length-1];
+      const af = afterHit(cut.from, P, cut.obj);
+      if (af){
+        const bud = afterCushions(cut.pts.length - 2);
+        let pts2;
+        if (bud <= 0){
+          const nx0 = nextRail(P, af.dir, T.width, T.height);
+          pts2 = nx0 ? cutAtBall([P, nx0[1]], cut.obj).pts : [P];
+        } else {
+          const later = roll(P, af.dir, Math.min(bud, BIG_MAX_C), kk);
+          pts2 = cutAtBall([P, ...later.map(h => h.p)], cut.obj).pts;
+        }
+        const poly = [...cut.pts, ...pts2.slice(1)];
+        if (poly.length >= 2){
+          const share = Math.max(0.10, Math.min(0.95, af.thick));
+          const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
+          const V0 = simNeedV0(poly, keepC);
+          out = simRunLen(poly, V0, keepC) / (poly.length - 1);
+        }
+      }
+    }
+  } catch(e){ out = 1; }
+  S.tipH = hS; S.tipV = vS; S.tipR = rS;
+  return Math.max(0, Math.min(1, out));
 }
 // 추천 버튼 — 한 번 누를 때마다 다음 경로로. 끝나면 직접조준으로 돌아온다.
 function nextRoute(){
