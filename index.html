@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 271;
+const MOBILE_VER = 272;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1674,7 +1674,8 @@ function down(px,py){
     // ★ 내보내기는 여기서 바로 처리한다 (사용자 2026-08-14)
     if (EXPORT_HIT && px >= EXPORT_HIT.x && px <= EXPORT_HIT.x + EXPORT_HIT.w &&
         py >= EXPORT_HIT.y && py <= EXPORT_HIT.y + EXPORT_HIT.h){
-      verExport(); blink(); return;
+      if (verLeft()) verSync(); else verExport();   // 밀린 것이 있으면 먼저 올린다
+      blink(); return;
     }
     // ★ 누르는 순간에 고르지 않는다 — **손을 뗄 때** 탭인지 스와이프인지 가른다.
     //   (누르자마자 골라 버리면 밀 수가 없다)
@@ -3220,6 +3221,57 @@ const BLINK_MS = 1000, BLINK_HZ = 2;      // 1초 · 2번
 const VER_KEY = 'bs_verdicts_v1';
 let VERDICTS = {};
 try { VERDICTS = JSON.parse(localStorage.getItem(VER_KEY) || '{}'); } catch(e){ VERDICTS = {}; }
+// ★★ 서버로 보낸다 (사용자 2026-08-14) —
+//   '자료를 DB화 하라는 겁니다. 서버에 저장을 하고 그것을 당신이 꺼내보면서
+//    프로그램 개선을 하자는 의도입니다.'
+//   창구는 /basystem/api/ (portfolio-nginx → basystem-api → portfolio-db).
+//   ⚠️ 폰에도 그대로 쌓아 둔다. 서버가 안 되거나 밖에 있어도 판정이 안 날아가야 한다.
+//     보낸 것은 rec.s 에 표시해 두고, 못 보낸 것만 나중에 다시 올린다.
+const API = 'api/';
+let VER_SENT = 0, VER_LAST = '';
+function verPush(pk, rk){
+  const rec = VERDICTS[pk];
+  if (!rec) return;
+  fetch(API + 'verdict', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({who: rec.who || VER_WHO, app: MOBILE_VER,
+                          place_key: pk, route_key: rk, verdict: rec.v[rk],
+                          balls: rec.balls, info: (rec.info||{})[rk]})})
+    .then(r => { if (r.ok){ (rec.s = rec.s || {})[rk] = 1; VER_SENT++; verSave(); } })
+    .catch(() => {});
+}
+// 못 보낸 것을 모아 한 번에 올린다 (앱을 열 때 · 목록을 열 때)
+function verSync(){
+  const out = {};
+  for (const pk in VERDICTS){
+    const rec = VERDICTS[pk], left = {};
+    for (const rk in (rec.v || {})) if (!(rec.s && rec.s[rk])) left[rk] = rec.v[rk];
+    if (Object.keys(left).length) out[pk] = {...rec, v: left};
+  }
+  if (!Object.keys(out).length) return;
+  fetch(API + 'verdicts', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({who: VER_WHO, app: MOBILE_VER, data: out})})
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      if (!j) return;
+      for (const pk in out){
+        const rec = VERDICTS[pk];
+        rec.s = rec.s || {};
+        for (const rk in out[pk].v) rec.s[rk] = 1;
+      }
+      VER_SENT += j.saved || 0; verSave();
+    })
+    .catch(() => {});
+}
+// 아직 서버에 못 올린 개수
+function verLeft(){
+  let n = 0;
+  for (const pk in VERDICTS){
+    const rec = VERDICTS[pk];
+    for (const rk in (rec.v || {})) if (!(rec.s && rec.s[rk])) n++;
+  }
+  return n;
+}
+
 function verSave(){
   try { localStorage.setItem(VER_KEY, JSON.stringify(VERDICTS)); } catch(e){}
 }
@@ -3245,12 +3297,14 @@ function verSet(r, val){
   }
   const rec = VERDICTS[k];
   rec.v[r.key] = val;
+  if (rec.s) delete rec.s[r.key];          // 다시 판정했으면 또 보낸다
   rec.info[r.key] = {name:r.name, before:r.before, after:r.after,
                            thick:r.thick === undefined ? null : Math.round(r.thick*100),
                            tip:r.tip, tipV:r.tipV, sep:r.sep === undefined ? null : Math.round(r.sep),
                            kiss:!!r.kiss, flips:r.flips, rev:r.rev,
                            reach:r.reach === undefined ? null : Math.round(r.reach*100)};
   verSave();
+  verPush(k, r.key);                       // 누르는 즉시 서버로
 }
 function verCount(){
   let n = 0;
@@ -4854,16 +4908,18 @@ function drawRouteList(){
   const nv = verCount();
   EXPORT_HIT = null;
   if (nv > 0){
-    const tw = c.w*0.30, th = c.h*0.075;
+    const tw = c.w*0.40, th = c.h*0.075;
     const ex = c.x + pad, ey = c.y + c.h - th - pad*0.4;
     EXPORT_HIT = {x:ex, y:ey, w:tw, h:th};
-    g.fillStyle = 'rgba(94,192,122,0.90)';
+    g.fillStyle = verLeft() ? 'rgba(224,90,82,0.90)' : 'rgba(94,192,122,0.90)';
     round(ex, ey, tw, th, th*0.28); g.fill();
     g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, th*0.10); g.stroke();
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.font = '900 ' + Math.round(th*0.46) + 'px system-ui, sans-serif';
     g.fillStyle = '#0f1114';
-    g.fillText('평가 ' + nv + '개 · 내보내기', ex + tw/2, ey + th/2);
+    const left = verLeft();
+    g.fillText(left ? ('평가 ' + nv + '개 · 못보낸 ' + left + '개 (눌러 다시)')
+                    : ('평가 ' + nv + '개 · 서버에 저장됨'), ex + tw/2, ey + th/2);
   }
 }
 let EXPORT_HIT = null;
@@ -5991,6 +6047,9 @@ addEventListener('pointercancel', cancelTouch);
     POST_CUSHIONS = spd['★_몇_쿠션까지_구르나']['★_충돌_후_그리는_쿠션'].table;
     msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
+    // ★ 앱을 열 때 못 보낸 판정을 서버에 올린다 (사용자 2026-08-14)
+    //   밖에서 판정하고 왔거나 서버가 잠깐 안 됐을 때를 위한 것이다.
+    try { verSync(); } catch(e){}
     const mA = location.search.match(/[?&]a=(\d{2})/);
     if (mA && LAYOUTS[mA[1]]){
       ANSWER = mA[1];
