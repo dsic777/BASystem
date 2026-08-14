@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 262;
+const MOBILE_VER = 263;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1101,7 +1101,7 @@ function drawAnswer(){
 }
 
 // ---------------------------------------------------------------- 상태
-const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false,
+const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:null,
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, pal:null, routePage:0, listDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
@@ -1507,9 +1507,18 @@ function randomLayout(){
   if (!got) return;                       // 40번 뿌려도 안 되면 배치를 안 바꾼다
   // ★ 사용자 2026-08-14: '또 흰공이 초구합니다.' → 초구는 흰공이다.
   S.cueWhite = true;
-  S.balls = {cue:  {p: got[0], color: 'white'},
-             obj1: {p: got[1], color: 'yellow'},
-             obj2: {p: got[2], color: 'red'}};
+  // ★★ 사용자 2026-08-14: '공 세개가 좌측하단에 모여 있다가 우측으로 날라가서
+  //   공끼리 충돌 후 돌아다니다가 서는 것을 시뮬레이션으로 보여주세요.'
+  //   → 결과만 놓지 않는다. **받아들여진 그 던지기를 그대로 다시 굴려** 보여 준다.
+  //     엔진이 고정 스텝이라 같은 시작이면 같은 자리에 선다 — 화면과 결과가 어긋나지 않는다.
+  S.balls = {cue:  {p: got.start[0].p.slice(), color: 'white'},
+             obj1: {p: got.start[1].p.slice(), color: 'yellow'},
+             obj2: {p: got.start[2].p.slice(), color: 'red'}};
+  S.scatter = {sim: {k:0, E:0, balls: got.start.map((b,i) =>
+                 ({key: ['cue','obj1','obj2'][i],
+                   color: ['white','yellow','red'][i],
+                   p: b.p.slice(), v: b.v.slice(), spin:false}))},
+               last: performance.now(), rest: performance.now(), acc: 0};
   // ★ 사용자 2026-08-14: '무작위배치 누르면 경로는 보여주지 말고 공만 배치하세요.'
   //   조준을 비우면 궤적이 안 그려진다 (곳곳에 !S.aim 이면 건너뛰게 되어 있다).
   S.aim = null;
@@ -1549,6 +1558,7 @@ function scatterLayout(){
     // 시작부터 다이 밖이면 버린다
     if (balls.some(b => b.p[0] < R || b.p[0] > T.width - R ||
                         b.p[1] < R || b.p[1] > T.height - R)) continue;
+    const start0 = balls.map(b => ({p: b.p.slice(), v: b.v.slice()}));   // 뿌린 그 순간
     const sim = {balls, k: 0, E: 0};
     let n = 0;
     while (n++ < 40000 && balls.some(b => Math.hypot(b.v[0], b.v[1]) > 0)) simStep(sim, SIM_DT);
@@ -1563,7 +1573,7 @@ function scatterLayout(){
     }
     if (mn < D * 1.15) continue;            // 붙어 있으면 다시 뿌린다
     if (mx < D * 6)    continue;            // 한 군데 뭉쳤으면 다시 뿌린다
-    return p.map(q => q.slice());
+    return {start: start0, final: p.map(q => q.slice())};
   }
   return null;
 }
@@ -1636,6 +1646,8 @@ function tapTipPanel(px,py){
 }
 
 function down(px,py){
+  // ★ 뿌리는 중이면 어디를 눌러도 끝까지 굴려 확정한다 (기다리기 싫을 때)
+  if (S.scatter){ scatterFinish(); blink(); return; }
   if (S.tipPanel){ tapTipPanel(px,py); return; }
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
   if (S.routeList){
@@ -1846,7 +1858,11 @@ function draw(){
   drawGrid(); drawDiamonds(); drawNumbers(); drawZoneGrid();
   // ⚠️ 사진을 보고 있을 때는 **사진만** 보여야 한다. 앞서 읽은 공·궤적·당점을 겹쳐
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
-  if (!PREVIEW){ drawAnswer(); drawSysName(); drawPath(); drawBalls(); drawClock(); }
+  if (!PREVIEW){
+    drawAnswer(); drawSysName();
+    if (!drawScatter()){ drawPath(); drawBalls(); }   // 뿌리는 중엔 궤적·공을 안 그린다
+    drawClock();
+  }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList(); drawTipPanel();
   drawDebugXY();
   requestAnimationFrame(draw);
@@ -3834,7 +3850,8 @@ function afterCushions(used){
 // ★ 사용자 2026-08-13: '시뮬레이션 속도도 10% 올려보세요.'  0.70 × 1.10 = 0.77
 //   다시 '스피드 10씩 더 올려주세요' · '모두 올려주세요' → 0.70 × 1.1³ = 0.94
 //   ★ 0.94 는 사실상 **실제 다이와 같은 속도**다. 더 올리면 실제보다 빨라진다.
-const PLAY_RATE = 0.94;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
+const PLAY_RATE = 0.94;
+const SCATTER_RATE = 2.6;   // 초구 뿌리기만 빨리 본다 (11초 → 4.2초)                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
 // ★★ 사용자 2026-08-13: '수구가 3쿠션 후 다이에서 **가속도가 붙습니다.**'
 //   ⚠️ 내가 **모든 꺾임점마다** 쿠션 이득(×1.06)을 걸고 있었다. 쿠션이 아닌 곳
 //      (1적구·2적구 충돌점, 연장 구간)에서도. 구간이 짧으면 마찰로 잃는 것보다
@@ -4426,6 +4443,44 @@ function drawCushionDots(pts, upto){
     g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   }
 }
+// ★ 뿌리는 장면 — 다 설 때까지 보여 주고, 서면 그 자리를 배치로 굳힌다.
+//   돌아가는 동안에는 공을 여기서 그리므로 drawBalls() 는 건너뛴다.
+// 뿌리는 중에 화면을 누르면 기다리지 않고 끝까지 굴려 확정한다.
+function scatterFinish(){
+  const sc = S.scatter;
+  if (!sc) return;
+  let n = 0;
+  while (n++ < 40000 && sc.sim.balls.some(b => b.v[0] || b.v[1])) simStep(sc.sim, SIM_DT);
+  const q = sc.sim.balls;
+  S.balls = {cue:  {p: q[0].p.slice(), color:'white'},
+             obj1: {p: q[1].p.slice(), color:'yellow'},
+             obj2: {p: q[2].p.slice(), color:'red'}};
+  S.scatter = null;
+}
+
+function drawScatter(){
+  if (!S.scatter) return false;
+  const sc = S.scatter, now = performance.now();
+  // ★ 뿌리기는 다 서는 데 11초쯤 걸린다 (200판 중앙값) — 보기엔 너무 길다.
+  //   **보는 속도만** 빠르게 한다. 물리는 그대로라 서는 자리는 안 바뀐다.
+  sc.acc += Math.min(0.20, Math.max(0, (now - sc.last)/1000)) * SCATTER_RATE;
+  sc.last = now;
+  if (sc.acc > 0.20) sc.acc = 0.20;
+  while (sc.acc >= SIM_DT){ simStep(sc.sim, SIM_DT); sc.acc -= SIM_DT; }
+  const R = ballR();
+  for (const b of sc.sim.balls) simBall(b.p, b.color, R);
+  const moving = sc.sim.balls.some(b => b.v[0] || b.v[1]);
+  if (moving) sc.rest = now;
+  else if (now - sc.rest > 500){                 // 다 서고 잠깐 뒤 확정
+    const q = sc.sim.balls;
+    S.balls = {cue:  {p: q[0].p.slice(), color:'white'},
+               obj1: {p: q[1].p.slice(), color:'yellow'},
+               obj2: {p: q[2].p.slice(), color:'red'}};
+    S.scatter = null;
+  }
+  return true;
+}
+
 function drawBalls(){
   // ★ 사용자 2026-08-13: '시뮬레이션이 시작되면 **배치 전 공은 지워져야** 하고
   //   실제 시뮬레이션을 하고 있는 공만 보여져야 합니다. 둘 다 보이니 이상합니다.'
