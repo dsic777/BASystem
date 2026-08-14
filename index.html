@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 272;
+const MOBILE_VER = 273;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3218,7 +3218,9 @@ const BLINK_MS = 1000, BLINK_HZ = 2;      // 1초 · 2번
 //   ⚠️ 앱은 정적 페이지라 서버에 못 쓴다. 폰 안(localStorage)에 쌓고,
 //      목록 화면 아래 '내보내기' 로 클립보드에 복사해 보내 주시면
 //      data/route_verdicts.json 에 넣는다.
-const VER_KEY = 'bs_verdicts_v1';
+// ⚠️ 2026-08-14 사용자 지시로 자료를 통째로 지웠다 (서버 TRUNCATE).
+//   폰에 남은 옛 판정이 다시 올라오면 안 되므로 열쇠를 바꾼다 — v1 은 버린다.
+const VER_KEY = 'bs_verdicts_v2';
 let VERDICTS = {};
 try { VERDICTS = JSON.parse(localStorage.getItem(VER_KEY) || '{}'); } catch(e){ VERDICTS = {}; }
 // ★★ 서버로 보낸다 (사용자 2026-08-14) —
@@ -3272,6 +3274,7 @@ function verLeft(){
   return n;
 }
 
+
 function verSave(){
   try { localStorage.setItem(VER_KEY, JSON.stringify(VERDICTS)); } catch(e){}
 }
@@ -3306,9 +3309,16 @@ function verSet(r, val){
   verSave();
   verPush(k, r.key);                       // 누르는 즉시 서버로
 }
+// ★ 사용자 2026-08-14: '목록화면에서는 지금 배치된 것에 한해서 저장건수를 보여주세요.'
+//   전에는 모든 배치의 합을 셌다 — 2개 눌렀는데 10개로 보였다.
 function verCount(){
+  const rec = VERDICTS[placeKey()];
+  return rec ? Object.keys(rec.v || {}).length : 0;
+}
+// 전체 (내보내기용)
+function verCountAll(){
   let n = 0;
-  for (const k in VERDICTS) n += Object.keys(VERDICTS[k].v).length;
+  for (const k in VERDICTS) n += Object.keys(VERDICTS[k].v || {}).length;
   return n;
 }
 
@@ -4907,7 +4917,7 @@ function drawRouteList(){
   //   폰에 쌓인 판정을 클립보드로 복사해 카톡으로 보내 주시면 data/ 에 넣는다.
   const nv = verCount();
   EXPORT_HIT = null;
-  if (nv > 0){
+  if (nv > 0 || verCountAll() > 0){
     const tw = c.w*0.40, th = c.h*0.075;
     const ex = c.x + pad, ey = c.y + c.h - th - pad*0.4;
     EXPORT_HIT = {x:ex, y:ey, w:tw, h:th};
@@ -4917,9 +4927,10 @@ function drawRouteList(){
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.font = '900 ' + Math.round(th*0.46) + 'px system-ui, sans-serif';
     g.fillStyle = '#0f1114';
-    const left = verLeft();
-    g.fillText(left ? ('평가 ' + nv + '개 · 못보낸 ' + left + '개 (눌러 다시)')
-                    : ('평가 ' + nv + '개 · 서버에 저장됨'), ex + tw/2, ey + th/2);
+    const left = verLeft(), all = verCountAll();
+    g.fillText(left ? ('이 배치 ' + nv + '개 · 못보낸 ' + left + '개 (눌러 다시)')
+                    : ('이 배치 ' + nv + '개 · 모두 ' + all + '개 저장됨'),
+               ex + tw/2, ey + th/2);
   }
 }
 let EXPORT_HIT = null;
@@ -4933,7 +4944,7 @@ function verExport(){
     msg.style.display = 'block'; msg.textContent = t;
     setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 3500);
   };
-  const okMsg = () => say('평가 ' + verCount() + '개를 복사했습니다 — 붙여넣기로 보내주세요');
+  const okMsg = () => say('평가 ' + verCountAll() + '개를 복사했습니다 — 붙여넣기로 보내주세요');
   // ⚠️ 복사는 실패할 수 있다 (브라우저가 막거나 권한이 없을 때).
   //   실패했는데 '복사했습니다' 라고 하면 자료가 안 넘어갔는데 넘어간 줄 아신다.
   //   그래서 실패하면 **글자를 화면에 띄워** 직접 복사하게 한다.
