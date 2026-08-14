@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 269;
+const MOBILE_VER = 270;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3292,13 +3292,17 @@ function drawVerBar(){
     else g.rect(b.x+1, b.y, b.w-2, b.h);
     g.fillStyle = on ? col : soft ? 'rgba(200,162,58,0.28)' : 'rgba(16,19,24,0.80)';
     g.fill();
-    g.strokeStyle = on ? '#0f1114' : 'rgba(226,232,240,0.45)';
+    // ★ 사용자 2026-08-14: '검은테두리 핑크' — 고른 칸에서 검정을 다 핑크로 바꾼다
+    g.strokeStyle = on ? '#ff5fa8' : 'rgba(226,232,240,0.45)';
     g.lineWidth = Math.max(2, h*0.06); g.stroke();
     g.save();
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.font = '900 ' + Math.round(h*0.52) + 'px system-ui, -apple-system, sans-serif';
     g.lineJoin = 'round';
-    g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(2, h*0.10);
+    //   글자 테두리도 핑크 계열로. 아주 옅은 핑크면 초록·노랑 바탕에서 글자가 묻히므로
+    //   **진한 핑크**를 쓴다 — 핑크로 보이면서 획은 살아 있다.
+    g.strokeStyle = on ? '#8a0f42' : 'rgba(10,12,16,0.85)';
+    g.lineWidth = Math.max(2, h*0.10);
     g.strokeText(txt, b.x + b.w/2, b.y + b.h/2);
     // ★ 사용자 2026-08-14: '선택한 버튼은 좋은데 폰트컬러 핑크로 해 주세요.'
     //   앱에서 이미 쓰는 핑크(보정 음수)와 같은 색으로 맞춘다.
