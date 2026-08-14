@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 259;
+const MOBILE_VER = 260;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1494,6 +1494,38 @@ function separate(role, p){
   return [x, y];
 }
 
+// ★★ 카메라 모드에서 상황판을 터치하면 **랜덤 배치** (사용자 2026-08-14)
+//   '카메라 모드로 들어가서 상황판을 터치하면 랜덤으로 공을 배치해 주세요.
+//    이때 수구는 기존에 설정되어 있는 수구입니다.
+//    여기서 추천을 누르고 이상한 경로들을 걸러냅시다.'
+//   → 배치를 손으로 놓지 않고 계속 뽑아 가며 추천을 훑어보기 위한 것이다.
+//   ⚠️ 수구 색은 안 바꾼다 (S.cueWhite 그대로). 놓이는 자리만 새로 뽑는다.
+//   ⚠️ 쿠션에 딱 붙은 배치는 이 앱이 배우려는 것이 아니다 (허공에 뜬 공).
+//      쿠션에서 공 하나 반쯤 띄우고, 공끼리도 두 개 폭 이상 벌린다.
+function randomLayout(){
+  const D = T.ball_diameter, m = D * 1.4, gap = D * 2.2;
+  const rx = () => m + Math.random() * (T.width  - m*2);
+  const ry = () => m + Math.random() * (T.height - m*2);
+  const pts = [];
+  for (let i = 0; i < 3; i++){
+    let p = [rx(), ry()];
+    for (let k = 0; k < 300; k++){
+      p = [rx(), ry()];
+      if (pts.every(q => Math.hypot(q[0]-p[0], q[1]-p[1]) >= gap)) break;
+    }
+    pts.push(p);
+  }
+  const cueC = S.cueWhite ? 'white' : 'yellow';
+  const othC = S.cueWhite ? 'yellow' : 'white';
+  S.balls = {cue:  {p: pts[0], color: cueC},
+             obj1: {p: pts[1], color: othC},
+             obj2: {p: pts[2], color: 'red'}};
+  S.aim = pts[1].slice();                 // 일단 1적구를 겨냥해 둔다
+  // ROUTES 는 배치로 키를 잡으니 저절로 새로 계산된다. 화면 상태만 되돌린다.
+  S.corr = 0; S.routeIx = -1; S.routeList = false; S.listShown = null;
+  S.place = null; S.drag = null; S.anim = null; S.routePage = 0;
+}
+
 function roleOf(c){
   if (c === 'red') return 'obj2';
   return c === (S.cueWhite ? 'white' : 'yellow') ? 'cue' : 'obj1';
@@ -1584,9 +1616,15 @@ function down(px,py){
   //   버튼을 늘리지 않으려고 여기 붙였다. 바뀌는 것이 바로 그 창이라 눈에 띈다.
   //   ⚠️ 폰에서 손가락 접촉은 40~50px 다. 판독창이 얇으므로 위아래로 넉넉히 잡는다.
   const rm = READOUT ? Math.max(10, READOUT.h * 0.35) : 0;
-  if (READOUT && !previewOn() &&
+  const inRO = READOUT &&
       px >= READOUT.x - rm && px <= READOUT.x + READOUT.w + rm &&
-      py >= READOUT.y - rm && py <= READOUT.y + READOUT.h + rm){
+      py >= READOUT.y - rm && py <= READOUT.y + READOUT.h + rm;
+  // ★ 카메라 모드에서 상황판을 누르면 랜덤 배치 (사용자 2026-08-14)
+  if (inRO && previewOn()){
+    stopCam(); TEST.img = null;           // 미리보기를 끄고 다이를 보여준다
+    randomLayout(); blink(); return;
+  }
+  if (inRO && !previewOn()){
     S.sysMode = (S.sysMode + 1) % 6;   // 자동 → 파앤하 → 2뱅크 → 횡단샷 → 리버스 → 옆돌리기 → 자동
     if (S.sysMode === 3) aimForCross();   // 횡단샷을 고르면 그 두께·팁으로 조준선을 잡는다
     return;
