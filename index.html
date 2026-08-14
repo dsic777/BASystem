@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 265;
+const MOBILE_VER = 266;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1275,7 +1275,8 @@ function corrGeom(ex, ey){
 }
 
 function corrButtons(){
-  if (S.anim) return [];                          // 시뮬레이션 중에는 보정 버튼도 없앤다
+  // ★ 사용자 2026-08-14: '공이 난수로 움직일때는 보정상황판은 꺼주시고 공이 멈춘후 보여주세요.'
+  if (S.anim || S.scatter) return [];             // 시뮬레이션·초구 뿌리기 중에는 보정 버튼도 없앤다
   const q = cluster().q;                          // 당점·이름·▶ 와 같은 자리에서 나온다
   return ['-','0','+'].map((lb,i) =>
     ({x: q.x + i*(q.bw+q.gap), y: q.y, w: q.bw, h: q.bw, lb}));
@@ -4695,7 +4696,8 @@ function drawClock(){
   // ★ 사용자 2026-08-13: '시뮬레이션이 시작되면 **보정과 팁, 시뮬레이션 공까지**
   //   지워주세요. 종료 시 복원.'  → 굴러가는 동안 다이 위에는 공과 궤적만 남는다.
   //   S.anim 이 꺼지면 저절로 돌아온다 (상태 하나로 켜고 끈다).
-  if (S.anim) return;
+  // ★ 초구 뿌리기도 같다 (사용자 2026-08-14) — 공이 날아다니는 동안 다이 위를 비운다.
+  if (S.anim || S.scatter) return;
   // ★ 시뮬레이션 공 — 수구 색 + 가운데 큰 화살표 (사용자 2026-08-13)
   {
     const [sx,sy] = simCenter(), sr = clockR();
