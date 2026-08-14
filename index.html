@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 261;
+const MOBILE_VER = 262;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1503,29 +1503,69 @@ function separate(role, p){
 //   ⚠️ 쿠션에 딱 붙은 배치는 이 앱이 배우려는 것이 아니다 (허공에 뜬 공).
 //      쿠션에서 공 하나 반쯤 띄우고, 공끼리도 두 개 폭 이상 벌린다.
 function randomLayout(){
-  const D = T.ball_diameter, m = D * 1.4, gap = D * 2.2;
-  const rx = () => m + Math.random() * (T.width  - m*2);
-  const ry = () => m + Math.random() * (T.height - m*2);
-  const pts = [];
-  for (let i = 0; i < 3; i++){
-    let p = [rx(), ry()];
-    for (let k = 0; k < 300; k++){
-      p = [rx(), ry()];
-      if (pts.every(q => Math.hypot(q[0]-p[0], q[1]-p[1]) >= gap)) break;
-    }
-    pts.push(p);
-  }
-  const cueC = S.cueWhite ? 'white' : 'yellow';
-  const othC = S.cueWhite ? 'yellow' : 'white';
-  S.balls = {cue:  {p: pts[0], color: cueC},
-             obj1: {p: pts[1], color: othC},
-             obj2: {p: pts[2], color: 'red'}};
+  const got = scatterLayout();
+  if (!got) return;                       // 40번 뿌려도 안 되면 배치를 안 바꾼다
+  // ★ 사용자 2026-08-14: '또 흰공이 초구합니다.' → 초구는 흰공이다.
+  S.cueWhite = true;
+  S.balls = {cue:  {p: got[0], color: 'white'},
+             obj1: {p: got[1], color: 'yellow'},
+             obj2: {p: got[2], color: 'red'}};
   // ★ 사용자 2026-08-14: '무작위배치 누르면 경로는 보여주지 말고 공만 배치하세요.'
   //   조준을 비우면 궤적이 안 그려진다 (곳곳에 !S.aim 이면 건너뛰게 되어 있다).
   S.aim = null;
   // ROUTES 는 배치로 키를 잡으니 저절로 새로 계산된다. 화면 상태만 되돌린다.
   S.corr = 0; S.routeIx = -1; S.routeList = false; S.listShown = null;
   S.place = null; S.drag = null; S.anim = null; S.routePage = 0;
+}
+
+// ★★★ 실제 당구장에서 초구를 놓는 방식 그대로 (사용자 2026-08-14) —
+//   '좌측하단에서 공 세개를 손으로 잡고 우측방향으로 뿌립니다. 그러면 공끼리 충돌을
+//    하고 사방으로 뿌려집니다. 우측방향은 상단 끝에서 하단끝까지 랜덤이고 뿌리는
+//    힘의 세기도 랜덤입니다. 서로 충돌을 하고 각각 돌다가 멈추면 초구의 위치가 됩니다.'
+//   → 자리를 난수로 찍지 않는다. **엔진으로 실제로 뿌려서** 멈춘 자리를 쓴다.
+//     그래야 실전에 나오는 배치 분포가 나온다 (코너에 몰리는 것도, 붙는 것도 자연스럽게).
+//   ⚠️ 회전은 안 준다 (손으로 뿌리는 것이다). k=0 · E=0 · spin=false.
+function scatterLayout(){
+  const D = T.ball_diameter, R = D/2;
+  const KEYS = ['cue','obj1','obj2'];
+  for (let tryN = 0; tryN < 40; tryN++){
+    // 손에 쥔 자리 — 좌측하단
+    const ox = R + D*(0.3 + Math.random()*0.8);
+    const oy = R + D*(0.3 + Math.random()*1.2);
+    // 뿌리는 방향 — 우측 레일의 위쪽 끝에서 아래쪽 끝까지
+    const ty   = R + Math.random()*(T.height - 2*R);
+    const base = Math.atan2(ty - oy, (T.width - R) - ox);
+    const v0   = 2300 + Math.random()*2800;              // 뿌리는 세기도 난수
+    // 손에서 빠질 때 세 공이 붙어 있다 — 진행 방향 옆으로 나란히 놓아 서로 부딪게 한다
+    const px = -Math.sin(base), py = Math.cos(base);
+    const balls = KEYS.map((key, i) => {
+      const t = (i - 1) * D * 1.02;
+      const a = base + (i - 1) * 0.10 + (Math.random()-0.5)*0.16;
+      const sp = v0 * (0.72 + Math.random()*0.56);
+      return {key, color: null, spin: false,
+              p: [ox + px*t, oy + py*t],
+              v: [Math.cos(a)*sp, Math.sin(a)*sp]};
+    });
+    // 시작부터 다이 밖이면 버린다
+    if (balls.some(b => b.p[0] < R || b.p[0] > T.width - R ||
+                        b.p[1] < R || b.p[1] > T.height - R)) continue;
+    const sim = {balls, k: 0, E: 0};
+    let n = 0;
+    while (n++ < 40000 && balls.some(b => Math.hypot(b.v[0], b.v[1]) > 0)) simStep(sim, SIM_DT);
+    const p = balls.map(b => b.p);
+    // 멈춘 자리가 쓸 만한가 — 다이 안 · 서로 안 붙음 · 한 군데 뭉치지 않음
+    if (p.some(q => q[0] < R-1 || q[0] > T.width-R+1 || q[1] < R-1 || q[1] > T.height-R+1)) continue;
+    let mn = 1e9, mx = 0;
+    for (let i = 0; i < 3; i++) for (let j = i+1; j < 3; j++){
+      const dd = Math.hypot(p[i][0]-p[j][0], p[i][1]-p[j][1]);
+      if (dd < mn) mn = dd;
+      if (dd > mx) mx = dd;
+    }
+    if (mn < D * 1.15) continue;            // 붙어 있으면 다시 뿌린다
+    if (mx < D * 6)    continue;            // 한 군데 뭉쳤으면 다시 뿌린다
+    return p.map(q => q.slice());
+  }
+  return null;
 }
 
 function roleOf(c){
