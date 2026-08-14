@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 270;
+const MOBILE_VER = 271;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -4873,14 +4873,40 @@ function verExport(){
   const txt = JSON.stringify({_desc:'추천 경로 평가 (앱에서 내보냄)',
                               _app: MOBILE_VER, at: new Date().toISOString(),
                               data: VERDICTS}, null, 1);
-  const done = () => {
-    msg.style.display = 'block';
-    msg.textContent = '평가 ' + verCount() + '개를 복사했습니다 — 붙여넣기로 보내주세요';
-    setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 3000);
+  const say = t => {
+    msg.style.display = 'block'; msg.textContent = t;
+    setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 3500);
+  };
+  const okMsg = () => say('평가 ' + verCount() + '개를 복사했습니다 — 붙여넣기로 보내주세요');
+  // ⚠️ 복사는 실패할 수 있다 (브라우저가 막거나 권한이 없을 때).
+  //   실패했는데 '복사했습니다' 라고 하면 자료가 안 넘어갔는데 넘어간 줄 아신다.
+  //   그래서 실패하면 **글자를 화면에 띄워** 직접 복사하게 한다.
+  const showBox = () => {
+    if (document.getElementById('verbox')) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'verbox';
+    wrap.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;'
+      + 'background:rgba(8,10,14,0.94);z-index:99999;display:flex;'
+      + 'flex-direction:column;padding:12px;box-sizing:border-box;gap:8px';
+    const t = document.createElement('textarea');
+    t.value = txt;
+    t.style.cssText = 'flex:1;width:100%;font:12px ui-monospace,monospace;'
+      + 'background:#11151b;color:#e8ecf2;border:1px solid #3a4450;border-radius:8px;padding:8px';
+    const b2 = document.createElement('button');
+    b2.textContent = '닫기';
+    b2.style.cssText = 'height:44px;font:800 17px system-ui;background:#c8a23a;'
+      + 'color:#1a1508;border:0;border-radius:10px';
+    b2.onclick = () => wrap.remove();
+    const h = document.createElement('div');
+    h.textContent = '자동 복사가 막혔습니다 — 아래 글을 길게 눌러 전체 선택 후 복사하세요';
+    h.style.cssText = 'color:#ffd400;font:700 15px system-ui';
+    wrap.appendChild(h); wrap.appendChild(t); wrap.appendChild(b2);
+    document.body.appendChild(wrap);
+    t.focus(); t.select();
   };
   if (navigator.clipboard && navigator.clipboard.writeText)
-    navigator.clipboard.writeText(txt).then(done, done);
-  else done();
+    navigator.clipboard.writeText(txt).then(okMsg, showBox);
+  else showBox();
 }
 
 function drawClock(){
