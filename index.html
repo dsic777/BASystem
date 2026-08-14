@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 267;
+const MOBILE_VER = 268;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1416,6 +1416,7 @@ function tapButton(px,py){
     else if (b.lb === '-'){ S.corr -= 0.5; reaimForTip(); }
     else if (b.lb === '0'){ S.corr = 0; reaimForTip(); }
     else if (b.lb === 'cam') shoot();
+
     else if (b.lb === 'exit'){
       // 설치한 앱(PWA)이면 창이 닫히고, 브라우저 탭이면 못 닫는 경우가 있다.
       // 그때는 사진과 공을 지워 처음 상태로 돌린다.
@@ -1660,7 +1661,21 @@ function down(px,py){
   if (S.scatter){ scatterFinish(); blink(); return; }
   if (S.tipPanel){ tapTipPanel(px,py); return; }
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
+  // ★ 상·중·하 — 다이 안 막대 (사용자 2026-08-14)
+  for (const b of VER_HIT){
+    if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h){
+      const list0 = routesReady();
+      const r0 = (list0 && S.routeIx >= 0) ? list0[S.routeIx] : null;
+      if (r0){ verSet(r0, b.v); blink(); }
+      return;
+    }
+  }
   if (S.routeList){
+    // ★ 내보내기는 여기서 바로 처리한다 (사용자 2026-08-14)
+    if (EXPORT_HIT && px >= EXPORT_HIT.x && px <= EXPORT_HIT.x + EXPORT_HIT.w &&
+        py >= EXPORT_HIT.y && py <= EXPORT_HIT.y + EXPORT_HIT.h){
+      verExport(); blink(); return;
+    }
     // ★ 누르는 순간에 고르지 않는다 — **손을 뗄 때** 탭인지 스와이프인지 가른다.
     //   (누르자마자 골라 버리면 밀 수가 없다)
     S.listDrag = {x:px, y:py, dx:0};
@@ -1898,7 +1913,7 @@ function draw(){
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){
     drawAnswer(); drawSysName();
-    if (!drawScatter()){ drawPath(); drawBalls(); }   // 뿌리는 중엔 궤적·공을 안 그린다
+    if (!drawScatter()){ drawPath(); drawBalls(); drawVerBar(); }   // 뿌리는 중엔 궤적·공을 안 그린다
     drawClock();
   }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList(); drawTipPanel();
@@ -3196,6 +3211,101 @@ function nextRoute(){
 //   1초 후 바로 조정을 해야겠네요.'  → 3초 → **1초** 로 줄인다.
 //   깜빡임 횟수도 같이 줄여야 한다 — 1초에 4번이면 너무 빨라 떨리는 것처럼 보인다.
 const BLINK_MS = 1000, BLINK_HZ = 2;      // 1초 · 2번
+// ★★ 추천 경로 평가 (사용자 2026-08-14) —
+//   '나는 모든 추천경로를 확인하고 필요시 시물레이션도 해 볼겁니다.
+//    버튼의 디폴트는 가능입니다. 버튼을 누를때마다 추천평가 자료를 저장하세요.'
+//   ⚠️ 앱은 정적 페이지라 서버에 못 쓴다. 폰 안(localStorage)에 쌓고,
+//      목록 화면 아래 '내보내기' 로 클립보드에 복사해 보내 주시면
+//      data/route_verdicts.json 에 넣는다.
+const VER_KEY = 'bs_verdicts_v1';
+let VERDICTS = {};
+try { VERDICTS = JSON.parse(localStorage.getItem(VER_KEY) || '{}'); } catch(e){ VERDICTS = {}; }
+function verSave(){
+  try { localStorage.setItem(VER_KEY, JSON.stringify(VERDICTS)); } catch(e){}
+}
+// 이 배치에서 이 경로를 뭐라고 판정했나. 안 눌렀으면 undefined (= 디폴트 가능).
+function verGet(r){
+  const k = placeKey(), rec = VERDICTS[k];
+  return (rec && r && r.key) ? rec.v[r.key] : undefined;
+}
+// ★ 나중에 회원등록으로 넓힐 자리 (사용자 2026-08-14: '배포시 간단한 회원등록 절차를
+//   거치든지 할께요. 누가 어떤 배치를 어떻게 평가하는지를 봐야 할수도 있고').
+//   지금은 혼자 쓰시므로 비워 둔다 — 나중 자료와 한 표에 들어가야 하니 칸만 미리 만든다.
+let VER_WHO = '';
+try { VER_WHO = localStorage.getItem('bs_who') || ''; } catch(e){}
+function verSet(r, val){
+  if (!r || !r.key) return;
+  const k = placeKey();
+  if (!VERDICTS[k]){
+    VERDICTS[k] = {at: new Date().toISOString(), who: VER_WHO,
+                   balls: Object.keys(S.balls).map(q =>
+                     ({role:q, color:S.balls[q].color,
+                       p:[Math.round(S.balls[q].p[0]), Math.round(S.balls[q].p[1])]})),
+                   v: {}, info: {}};
+  }
+  const rec = VERDICTS[k];
+  rec.v[r.key] = val;
+  rec.info[r.key] = {name:r.name, before:r.before, after:r.after,
+                           thick:r.thick === undefined ? null : Math.round(r.thick*100),
+                           tip:r.tip, tipV:r.tipV, sep:r.sep === undefined ? null : Math.round(r.sep),
+                           kiss:!!r.kiss, flips:r.flips, rev:r.rev,
+                           reach:r.reach === undefined ? null : Math.round(r.reach*100)};
+  verSave();
+}
+function verCount(){
+  let n = 0;
+  for (const k in VERDICTS) n += Object.keys(VERDICTS[k].v).length;
+  return n;
+}
+
+// ★★ 상 · 중 · 하 (사용자 2026-08-14) —
+//   '상 좋은것 / 중 가능은 하지만 별로인것 / 하 추천하면 안되는것'
+//   '버튼위치도 테이블 안으로 이동할까요. 핸드폰은 너무 작아서'
+//   → 추천 경로를 보고 있을 때만 다이 아래쪽에 크게 띄운다.
+//     디폴트는 **중**이다. 다만 누른 것과 안 누른 것을 갈라 저장한다 —
+//     안 그러면 '안 본 것' 과 '보고 중이라 한 것' 이 섞여 자료가 흐려진다.
+const VER_LV = [['hi','상','#5ec07a'], ['mid','중','#c8a23a'], ['lo','하','#e05a52']];
+let VER_HIT = [];
+function verBar(){
+  if (!S.routeList && !previewOn() && !S.anim && !S.scatter && S.routeIx >= 0){
+    const c = L.cloth, w = Math.min(c.w*0.42, c.h*0.72), h = c.h*0.135;
+    const x0 = c.x + (c.w - w)/2, y0 = c.y + c.h - h - c.h*0.035;
+    return VER_LV.map(([v,,], i) =>
+      ({v, x: x0 + i*w/3, y: y0, w: w/3, h}));
+  }
+  return null;
+}
+function drawVerBar(){
+  VER_HIT = verBar() || [];
+  if (!VER_HIT.length) return;
+  const list = routesReady();
+  const r = (list && S.routeIx >= 0) ? list[S.routeIx] : null;
+  if (!r){ VER_HIT = []; return; }
+  const cur = verGet(r);
+  const h = VER_HIT[0].h;
+  VER_HIT.forEach((b, i) => {
+    const [v, txt, col] = VER_LV[i];
+    const on   = cur === v;
+    const soft = cur === undefined && v === 'mid';        // 디폴트 중 — 옅게
+    g.beginPath();
+    if (g.roundRect) g.roundRect(b.x+1, b.y, b.w-2, b.h, h*0.22);
+    else g.rect(b.x+1, b.y, b.w-2, b.h);
+    g.fillStyle = on ? col : soft ? 'rgba(200,162,58,0.28)' : 'rgba(16,19,24,0.80)';
+    g.fill();
+    g.strokeStyle = on ? '#0f1114' : 'rgba(226,232,240,0.45)';
+    g.lineWidth = Math.max(2, h*0.06); g.stroke();
+    g.save();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '900 ' + Math.round(h*0.52) + 'px system-ui, -apple-system, sans-serif';
+    g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(2, h*0.10);
+    g.strokeText(txt, b.x + b.w/2, b.y + b.h/2);
+    g.fillStyle = on ? '#0f1114' : '#f2f4f8';
+    g.fillText(txt, b.x + b.w/2, b.y + b.h/2);
+    g.restore();
+  });
+}
+
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 // 깜빡이는 동안은 경로가 **잠긴다** — 손가락을 움직여도 안 바뀐다.
 // ⚠️⚠️ 이름을 S.rblink 로 둔다. **S.blink 는 이미 쓰이고 있다** — 공을 놓을 때
@@ -4651,9 +4761,24 @@ function drawRouteList(){
     const on = last ? (S.routeIx < 0) : (S.routeIx === i);
     g.fillStyle = last ? '#242a33' : '#1a2029';
     round(gx, gy, cw, chh, chh*0.10); g.fill();
-    g.strokeStyle = (r && r.kiss) ? '#ff3b30' : on ? '#ffd400' : '#3a4450';
-    g.lineWidth = Math.max(2, chh*(on || (r&&r.kiss) ? 0.035 : 0.018));
+    // ★ 판정 (사용자 2026-08-14) — 불가면 테두리와 딱지로 바로 보인다
+    const vv = r ? verGet(r) : undefined;
+    g.strokeStyle = vv === 'lo' ? '#e05a52'
+                  : (r && r.kiss) ? '#ff3b30' : on ? '#ffd400' : '#3a4450';
+    g.lineWidth = Math.max(2, chh*(on || vv === 'lo' || (r&&r.kiss) ? 0.035 : 0.018));
     g.stroke();
+    if (vv){                                          // 판정한 칸에만 딱지를 붙인다
+      const LV = {hi:['상','#5ec07a'], mid:['중','#c8a23a'], lo:['하','#e05a52']}[vv] || ['?','#888'];
+      const tw2 = chh*0.22, th2 = chh*0.17;
+      g.fillStyle = LV[1];
+      round(gx + cw - tw2 - chh*0.05, gy + chh*0.05, tw2, th2, th2*0.34); g.fill();
+      g.save();
+      g.font = '900 ' + Math.round(th2*0.68) + 'px system-ui, sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#0f1114';
+      g.fillText(LV[0], gx + cw - tw2/2 - chh*0.05, gy + chh*0.05 + th2/2);
+      g.restore();
+    }
     // ★ 사용자 2026-08-12: '3쿠션이 성공할 수 있는 두께와 당점을 제공해 주세요.'
     // 글자는 진로와 두께까지. **당점은 글자가 아니라 공 그림으로** 낸다 (아래).
     const label = last ? '직접 조준'
@@ -4718,6 +4843,38 @@ function drawRouteList(){
     g.font = '700 ' + Math.round(c.h*0.035) + 'px system-ui, sans-serif';
     g.fillText('외 ' + (list.length - ROUTE_SHOW) + '개', c.x + c.w - pad, c.y + c.h - pad*0.4);
   }
+  // ★ 평가 내보내기 (사용자 2026-08-14) — 앱은 서버에 못 쓴다.
+  //   폰에 쌓인 판정을 클립보드로 복사해 카톡으로 보내 주시면 data/ 에 넣는다.
+  const nv = verCount();
+  EXPORT_HIT = null;
+  if (nv > 0){
+    const tw = c.w*0.30, th = c.h*0.075;
+    const ex = c.x + pad, ey = c.y + c.h - th - pad*0.4;
+    EXPORT_HIT = {x:ex, y:ey, w:tw, h:th};
+    g.fillStyle = 'rgba(94,192,122,0.90)';
+    round(ex, ey, tw, th, th*0.28); g.fill();
+    g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, th*0.10); g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '900 ' + Math.round(th*0.46) + 'px system-ui, sans-serif';
+    g.fillStyle = '#0f1114';
+    g.fillText('평가 ' + nv + '개 · 내보내기', ex + tw/2, ey + th/2);
+  }
+}
+let EXPORT_HIT = null;
+
+// 쌓인 판정을 클립보드로 (사용자 2026-08-14)
+function verExport(){
+  const txt = JSON.stringify({_desc:'추천 경로 평가 (앱에서 내보냄)',
+                              _app: MOBILE_VER, at: new Date().toISOString(),
+                              data: VERDICTS}, null, 1);
+  const done = () => {
+    msg.style.display = 'block';
+    msg.textContent = '평가 ' + verCount() + '개를 복사했습니다 — 붙여넣기로 보내주세요';
+    setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 3000);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(txt).then(done, done);
+  else done();
 }
 
 function drawClock(){
