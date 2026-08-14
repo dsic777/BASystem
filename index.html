@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 264;
+const MOBILE_VER = 265;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1514,7 +1514,7 @@ function randomLayout(){
   S.balls = {cue:  {p: got.start[0].p.slice(), color: 'white'},
              obj1: {p: got.start[1].p.slice(), color: 'yellow'},
              obj2: {p: got.start[2].p.slice(), color: 'red'}};
-  S.scatter = {sim: {k:0, E:0, balls: got.start.map((b,i) =>
+  S.scatter = {sim: {k:0, E:0, stop: SCATTER_STOP, balls: got.start.map((b,i) =>
                  ({key: ['cue','obj1','obj2'][i],
                    color: ['white','yellow','red'][i],
                    p: b.p.slice(), v: b.v.slice(), spin:false}))},
@@ -1559,11 +1559,11 @@ function scatterLayout(){
     if (balls.some(b => b.p[0] < R || b.p[0] > T.width - R ||
                         b.p[1] < R || b.p[1] > T.height - R)) continue;
     const start0 = balls.map(b => ({p: b.p.slice(), v: b.v.slice()}));   // 뿌린 그 순간
-    const sim = {balls, k: 0, E: 0};
+    const sim = {balls, k: 0, E: 0, stop: SCATTER_STOP};   // 화면과 같은 기준이라야 자리가 맞다
     let n = 0, bump = false;
     // ★ 사용자 2026-08-14: '또 공끼리 한번은 충돌을 해야 하는데'
     //   손으로 뿌리면 반드시 서로 부딪는다. 안 부딪은 던지기는 버린다.
-    while (n++ < 40000 && balls.some(b => Math.hypot(b.v[0], b.v[1]) > 0)){
+    while (n++ < 90000 && balls.some(b => Math.hypot(b.v[0], b.v[1]) > 0)){
       simStep(sim, SIM_DT);
       if (!bump){
         for (let i = 0; i < 3 && !bump; i++) for (let j = i+1; j < 3; j++)
@@ -3866,7 +3866,11 @@ const PLAY_RATE = 0.94;
 //   → 2.6배 고정이던 것을 **속도에 따라** 2.2 → 1.4 로 내린다.
 //     빠를 때 덜 빠르고, 느려질수록 더 천천히 보여 자연스럽게 선다.
 //   던지기 60개로 잰 화면 시간: 2.6고정 4.2초 · 1.4~2.2 **7.6초** · 1.0~1.8 10.5초
-const SCATTER_HI = 2.2, SCATTER_LO = 1.4, SCATTER_V = 1500;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
+const SCATTER_HI = 2.2, SCATTER_LO = 1.4, SCATTER_V = 1500;
+// ★ 사용자 2026-08-14: '마지막에 정지할때 조금만 더 자연스러우면 좋겠어요.
+//   천천히 멈추게 각 3개가 각자.'
+//   → 엔진 기본은 150mm/s 에서 뚝 세운다. 뿌리기만 50 으로 낮춰 각자 미끄러져 선다.
+const SCATTER_STOP = 50;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
 // ★★ 사용자 2026-08-13: '수구가 3쿠션 후 다이에서 **가속도가 붙습니다.**'
 //   ⚠️ 내가 **모든 꺾임점마다** 쿠션 이득(×1.06)을 걸고 있었다. 쿠션이 아닌 곳
 //      (1적구·2적구 충돌점, 연장 구간)에서도. 구간이 짧으면 마찰로 잃는 것보다
@@ -4134,7 +4138,10 @@ function simStep(sim, dt){
     if (sp < 1e-9) continue;
     b.p[0] += b.v[0]*dt; b.p[1] += b.v[1]*dt;
     const ns = sp - accelAt(sp)*dt;                  // 바닥 마찰 — 빠를수록 크다(실측)
-    if (ns < SIM_STOP){ b.v[0] = 0; b.v[1] = 0; }    // 이만큼 느려지면 그 자리에 선다
+    // ★ 서는 기준을 sim 마다 따로 줄 수 있다 (2026-08-14).
+    //   경로 계산은 SIM_STOP(150) 그대로 — 기어가는 꼬리를 끊어야 한다 (v223).
+    //   초구 뿌리기만 더 낮춰서 세 공이 **각자 미끄러져 서게** 한다.
+    if (ns < (sim.stop || SIM_STOP)){ b.v[0] = 0; b.v[1] = 0; }
     else { b.v[0] = b.v[0]/sp*ns; b.v[1] = b.v[1]/sp*ns; }
   }
   // ⑵ 쿠션 — 경로 계산과 같은 기준이다 (공 **중심**이 쿠션 선에 닿는다)
@@ -4465,7 +4472,7 @@ function scatterFinish(){
   const sc = S.scatter;
   if (!sc) return;
   let n = 0;
-  while (n++ < 40000 && sc.sim.balls.some(b => b.v[0] || b.v[1])) simStep(sc.sim, SIM_DT);
+  while (n++ < 90000 && sc.sim.balls.some(b => b.v[0] || b.v[1])) simStep(sc.sim, SIM_DT);
   const q = sc.sim.balls;
   S.balls = {cue:  {p: q[0].p.slice(), color:'white'},
              obj1: {p: q[1].p.slice(), color:'yellow'},
