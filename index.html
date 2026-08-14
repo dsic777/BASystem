@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 268;
+const MOBILE_VER = 269;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3300,7 +3300,9 @@ function drawVerBar(){
     g.lineJoin = 'round';
     g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(2, h*0.10);
     g.strokeText(txt, b.x + b.w/2, b.y + b.h/2);
-    g.fillStyle = on ? '#0f1114' : '#f2f4f8';
+    // ★ 사용자 2026-08-14: '선택한 버튼은 좋은데 폰트컬러 핑크로 해 주세요.'
+    //   앱에서 이미 쓰는 핑크(보정 음수)와 같은 색으로 맞춘다.
+    g.fillStyle = on ? '#ff5fa8' : '#f2f4f8';
     g.fillText(txt, b.x + b.w/2, b.y + b.h/2);
     g.restore();
   });
