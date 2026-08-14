@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 263;
+const MOBILE_VER = 264;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1560,8 +1560,18 @@ function scatterLayout(){
                         b.p[1] < R || b.p[1] > T.height - R)) continue;
     const start0 = balls.map(b => ({p: b.p.slice(), v: b.v.slice()}));   // 뿌린 그 순간
     const sim = {balls, k: 0, E: 0};
-    let n = 0;
-    while (n++ < 40000 && balls.some(b => Math.hypot(b.v[0], b.v[1]) > 0)) simStep(sim, SIM_DT);
+    let n = 0, bump = false;
+    // ★ 사용자 2026-08-14: '또 공끼리 한번은 충돌을 해야 하는데'
+    //   손으로 뿌리면 반드시 서로 부딪는다. 안 부딪은 던지기는 버린다.
+    while (n++ < 40000 && balls.some(b => Math.hypot(b.v[0], b.v[1]) > 0)){
+      simStep(sim, SIM_DT);
+      if (!bump){
+        for (let i = 0; i < 3 && !bump; i++) for (let j = i+1; j < 3; j++)
+          if (Math.hypot(balls[i].p[0]-balls[j].p[0],
+                         balls[i].p[1]-balls[j].p[1]) <= D*1.02){ bump = true; break; }
+      }
+    }
+    if (!bump) continue;                    // 한 번도 안 부딪었으면 다시 뿌린다
     const p = balls.map(b => b.p);
     // 멈춘 자리가 쓸 만한가 — 다이 안 · 서로 안 붙음 · 한 군데 뭉치지 않음
     if (p.some(q => q[0] < R-1 || q[0] > T.width-R+1 || q[1] < R-1 || q[1] > T.height-R+1)) continue;
@@ -3851,7 +3861,12 @@ function afterCushions(used){
 //   다시 '스피드 10씩 더 올려주세요' · '모두 올려주세요' → 0.70 × 1.1³ = 0.94
 //   ★ 0.94 는 사실상 **실제 다이와 같은 속도**다. 더 올리면 실제보다 빨라진다.
 const PLAY_RATE = 0.94;
-const SCATTER_RATE = 2.6;   // 초구 뿌리기만 빨리 본다 (11초 → 4.2초)                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
+// ★ 초구 뿌리기 보는 속도 (물리는 안 바뀐다). 사용자 2026-08-14:
+//   '공이 너무 빨리 날라다닙니다. 마지막에 서서히 멈추게 해 주세요.'
+//   → 2.6배 고정이던 것을 **속도에 따라** 2.2 → 1.4 로 내린다.
+//     빠를 때 덜 빠르고, 느려질수록 더 천천히 보여 자연스럽게 선다.
+//   던지기 60개로 잰 화면 시간: 2.6고정 4.2초 · 1.4~2.2 **7.6초** · 1.0~1.8 10.5초
+const SCATTER_HI = 2.2, SCATTER_LO = 1.4, SCATTER_V = 1500;                   // 시뮬레이션 재생 속도 (물리는 안 바뀐다)
 // ★★ 사용자 2026-08-13: '수구가 3쿠션 후 다이에서 **가속도가 붙습니다.**'
 //   ⚠️ 내가 **모든 꺾임점마다** 쿠션 이득(×1.06)을 걸고 있었다. 쿠션이 아닌 곳
 //      (1적구·2적구 충돌점, 연장 구간)에서도. 구간이 짧으면 마찰로 잃는 것보다
@@ -4463,7 +4478,9 @@ function drawScatter(){
   const sc = S.scatter, now = performance.now();
   // ★ 뿌리기는 다 서는 데 11초쯤 걸린다 (200판 중앙값) — 보기엔 너무 길다.
   //   **보는 속도만** 빠르게 한다. 물리는 그대로라 서는 자리는 안 바뀐다.
-  sc.acc += Math.min(0.20, Math.max(0, (now - sc.last)/1000)) * SCATTER_RATE;
+  const spNow = Math.max(...sc.sim.balls.map(b => Math.hypot(b.v[0], b.v[1])));
+  const rate = Math.max(SCATTER_LO, Math.min(SCATTER_HI, spNow / SCATTER_V));
+  sc.acc += Math.min(0.20, Math.max(0, (now - sc.last)/1000)) * rate;
   sc.last = now;
   if (sc.acc > 0.20) sc.acc = 0.20;
   while (sc.acc >= SIM_DT){ simStep(sc.sim, SIM_DT); sc.acc -= SIM_DT; }
@@ -5284,13 +5301,19 @@ function drawReadout(){
   g.strokeStyle = 'rgba(228,235,245,0.80)'; g.lineWidth = Math.max(1, r.h*0.026); g.stroke();
   g.textAlign = 'center';
   if (rnd){                       // ★ 카메라 미리보기 중 — 이 칸은 '무작위배치' 버튼이다
+    // ★ 사용자 2026-08-14: '무작위 폰트크기 80% 컬러는 어울리는 다른색으로,
+    //   초구배치 현재폰트 유지, 두줄로 해주세요.'
     g.textBaseline = 'middle';
-    g.font = '900 ' + Math.round(r.h*0.40) + 'px system-ui, -apple-system, sans-serif';
     g.lineJoin = 'round'; g.miterLimit = 2;
-    g.strokeStyle = '#000'; g.lineWidth = Math.max(3, r.h*0.10);
-    g.strokeText('무작위배치', r.x + r.w/2, r.y + r.h/2);
-    g.fillStyle = '#ffe98a';
-    g.fillText('무작위배치', r.x + r.w/2, r.y + r.h/2);
+    const cx = r.x + r.w/2, big = Math.round(r.h*0.40);
+    const two = [['무작위',  Math.round(big*0.80), '#8fd3ff', r.y + r.h*0.33],
+                 ['초구배치', big,                 '#ffe98a', r.y + r.h*0.71]];
+    for (const [t, fs, col, yy] of two){
+      g.font = '900 ' + fs + 'px system-ui, -apple-system, sans-serif';
+      g.strokeStyle = '#000'; g.lineWidth = Math.max(3, fs*0.26);
+      g.strokeText(t, cx, yy);
+      g.fillStyle = col; g.fillText(t, cx, yy);
+    }
     return;
   }
   // 어느 시스템을 보고 있는지 — 탭하면 바뀐다는 표시도 겸한다.
