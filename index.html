@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 266;
+const MOBILE_VER = 267;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1102,6 +1102,7 @@ function drawAnswer(){
 
 // ---------------------------------------------------------------- 상태
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:null,
+           sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, pal:null, routePage:0, listDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
@@ -1454,10 +1455,8 @@ function tapButton(px,py){
       //    돌아가지 말고 **하나씩** 넘긴다. 공배치를 바꾸고 다시 누르면 리스트부터.'
       //   → 배치가 그대로면 순환, 배치가 바뀌었으면 리스트.
       //     배치가 바뀌었는지는 routeKey() 가 알려 준다 (공·보정·당점이 들어 있다).
-      findRoutes();
-      const k = placeKey();              // ★ 공 배치만 본다 (당점 아니다)
-      if (S.listShown !== k){ S.listShown = k; S.routeIx = -1; S.routeList = true; S.routePage = 0; }
-      else nextRoute();
+      // ⚠️ 여기서는 아무것도 안 한다 — 짧게/길게를 가르려고 **뗄 때**(up) 처리한다.
+      //   down() 이 'suggest' 를 가로채므로 이 갈래는 사실상 안 온다.
     }
     return true;
   }
@@ -1667,6 +1666,16 @@ function down(px,py){
     S.listDrag = {x:px, y:py, dx:0};
     return;
   }
+  // ★★ 추천만 **뗄 때** 판단한다 — 짧게는 다음 경로, 길게는 목록 (사용자 2026-08-14 ③).
+  //   '추천 버튼을 길게 누르면 목록.' 윈도우 휴대폰연동에서는 왼쪽 버튼을 누른 채
+  //   0.5초 가만히 있다가 떼면 된다.
+  {
+    const b = BTN.find(q => q.lb === 'suggest');
+    if (b && px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h){
+      S.sugDown = {t: nowMs(), x: px, y: py};
+      blink(); return;
+    }
+  }
   if (tapButton(px,py)) return;
   if (S.place){
     const [x,y] = toMm(px,py);
@@ -1743,7 +1752,25 @@ function move(px,py){
     snapAim();                                     // 닿는 순간 바로 붙고 깜빡인다
   }
 }
+const LONG_MS = 450;                 // 이만큼 누르고 있으면 '길게'
+const LONG_MOVE = 14;                // 그 사이 이만큼 넘게 움직이면 끌기로 본다
 function up(px, py){
+  if (S.sugDown){
+    const d = S.sugDown; S.sugDown = null;
+    const held = nowMs() - d.t;
+    const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
+    if (moved <= LONG_MOVE){
+      findRoutes();
+      const k = placeKey();
+      const long = held >= LONG_MS;
+      if (long || S.listShown !== k || S.lapEnd){
+        // 길게 · 배치가 바뀌었을 때 · 한 바퀴를 돈 다음 — 목록을 보여준다
+        S.listShown = k; S.lapEnd = false;
+        S.routeList = true; S.routePage = 0;
+      } else nextRoute();
+    }
+    return;
+  }
   if (S.tipPanel) return;
   // ★ 추천 목록 — 가로로 많이 밀었으면 쪽 넘김, 아니면 그 칸 선택 (사용자 2026-08-13)
   if (S.listDrag){
@@ -3151,7 +3178,9 @@ function nextRoute(){
   const list = findRoutes();
   const cue = S.balls.cue;
   if (!list.length || !cue){ S.routeIx = -1; return; }
-  S.routeIx = S.routeIx + 1 >= Math.min(list.length, ROUTE_SHOW) ? -1 : S.routeIx + 1;
+  const wrap = S.routeIx + 1 >= Math.min(list.length, ROUTE_SHOW);
+  S.routeIx = wrap ? -1 : S.routeIx + 1;
+  if (wrap) S.lapEnd = true;              // 한 바퀴 돌았다 — 다음에 누르면 목록 (사용자 2026-08-14)
   if (S.routeIx < 0) return;                        // 직접조준 — 조준선은 그대로 둔다
   pickRoute(list[S.routeIx]);
 }
