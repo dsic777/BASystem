@@ -21,7 +21,7 @@ import os
 from typing import Any
 
 import psycopg
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
@@ -38,10 +38,18 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
+# ★ 사용자 2026-08-14: '수집에 ip를 넣어주세요. 우리집ip 59.11.155.78 입니다.
+#   추천 판정 테스트는 집에서만 하면 됩니다. 이러면 일부 지인에게 줘도 됩니다.
+#   내 ip만 프로그램에 반영을 하고, 그외 수집자료는 상황을 봐서 검증 후 반영을 결정하겠습니다.'
+#   → 판정마다 보낸 곳의 IP 를 남긴다. 사장님 것과 남의 것을 나중에 가려야 하기 때문이다.
+#   ⚠️ 열쇠에도 IP 를 넣는다. 안 넣으면 지인과 사장님이 같은 배치를 판정할 때 **서로 덮어쓴다.**
+OWNER_IP = "59.11.155.78"
+
 DDL = """
 CREATE TABLE IF NOT EXISTS verdict (
     id         BIGSERIAL PRIMARY KEY,
     at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip         TEXT NOT NULL DEFAULT '',
     who        TEXT NOT NULL DEFAULT '',
     app        INTEGER,
     place_key  TEXT NOT NULL,
@@ -49,10 +57,19 @@ CREATE TABLE IF NOT EXISTS verdict (
     verdict    TEXT NOT NULL,
     balls      JSONB,
     info       JSONB,
-    UNIQUE (who, place_key, route_key)
+    UNIQUE (ip, who, place_key, route_key)
 );
 CREATE INDEX IF NOT EXISTS verdict_at_idx ON verdict (at DESC);
+CREATE INDEX IF NOT EXISTS verdict_ip_idx ON verdict (ip);
 """
+
+
+def client_ip(req: Request) -> str:
+    """nginx 뒤에 있으므로 X-Real-IP 를 먼저 본다 (내가 넣은 헤더다)."""
+    h = req.headers
+    return (h.get("x-real-ip")
+            or (h.get("x-forwarded-for") or "").split(",")[0].strip()
+            or (req.client.host if req.client else ""))
 
 
 def db():
@@ -84,9 +101,9 @@ class Bulk(BaseModel):
 
 
 SQL_UP = """
-INSERT INTO verdict (who, app, place_key, route_key, verdict, balls, info)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (who, place_key, route_key) DO UPDATE
+INSERT INTO verdict (ip, who, app, place_key, route_key, verdict, balls, info)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (ip, who, place_key, route_key) DO UPDATE
    SET verdict = EXCLUDED.verdict,
        balls   = EXCLUDED.balls,
        info    = EXCLUDED.info,
@@ -103,18 +120,21 @@ def health() -> dict:
 
 
 @app.post("/api/verdict")
-def put_one(v: One) -> dict:
+def put_one(v: One, req: Request) -> dict:
+    ip = client_ip(req)
     with db() as c:
         c.execute(
             SQL_UP,
-            (v.who, v.app, v.place_key, v.route_key, v.verdict, Json(v.balls), Json(v.info)),
+            (ip, v.who, v.app, v.place_key, v.route_key, v.verdict,
+             Json(v.balls), Json(v.info)),
         )
         c.commit()
-    return {"ok": True}
+    return {"ok": True, "ip": ip, "mine": ip == OWNER_IP}
 
 
 @app.post("/api/verdicts")
-def put_bulk(b: Bulk) -> dict:
+def put_bulk(b: Bulk, req: Request) -> dict:
+    ip = client_ip(req)
     n = 0
     with db() as c:
         for pk, rec in (b.data or {}).items():
@@ -124,7 +144,7 @@ def put_bulk(b: Bulk) -> dict:
             for rk, val in (rec.get("v") or {}).items():
                 c.execute(
                     SQL_UP,
-                    (who, b.app, pk, rk, val, Json(balls), Json(info.get(rk))),
+                    (ip, who, b.app, pk, rk, val, Json(balls), Json(info.get(rk))),
                 )
                 n += 1
         c.commit()
@@ -132,14 +152,23 @@ def put_bulk(b: Bulk) -> dict:
 
 
 @app.get("/api/verdicts")
-def get_all(limit: int = 2000) -> dict:
+def get_all(limit: int = 2000, ip: str | None = None, mine: bool = False) -> dict:
+    """mine=1 이면 사장님 집 IP 것만. ip= 로 직접 지정할 수도 있다."""
+    want = OWNER_IP if mine else ip
     with db() as c:
-        rows = c.execute(
-            "SELECT at, who, app, place_key, route_key, verdict, balls, info"
-            " FROM verdict ORDER BY at DESC LIMIT %s",
-            (limit,),
-        ).fetchall()
-    return {"count": len(rows), "rows": rows}
+        if want:
+            rows = c.execute(
+                "SELECT at, ip, who, app, place_key, route_key, verdict, balls, info"
+                " FROM verdict WHERE ip = %s ORDER BY at DESC LIMIT %s",
+                (want, limit),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT at, ip, who, app, place_key, route_key, verdict, balls, info"
+                " FROM verdict ORDER BY at DESC LIMIT %s",
+                (limit,),
+            ).fetchall()
+    return {"count": len(rows), "owner_ip": OWNER_IP, "rows": rows}
 
 
 @app.get("/api/stat")
@@ -154,4 +183,11 @@ def stat() -> dict:
         places = c.execute(
             "SELECT count(DISTINCT place_key) AS n FROM verdict"
         ).fetchone()["n"]
-    return {"by_verdict": by, "by_who": who, "layouts": places}
+        by_ip = c.execute(
+            "SELECT ip, count(*) AS n, count(DISTINCT place_key) AS layouts"
+            " FROM verdict GROUP BY ip ORDER BY n DESC"
+        ).fetchall()
+    for r in by_ip:
+        r["mine"] = r["ip"] == OWNER_IP
+    return {"by_verdict": by, "by_who": who, "by_ip": by_ip,
+            "layouts": places, "owner_ip": OWNER_IP}
