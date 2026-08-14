@@ -37,21 +37,20 @@ SETS = [
          head=["1쿠션", "10", "20", "30", "40", "50"],
          rows=[["수구 50", "5샷", "5샷", "5샷", "5샷", "5샷"]],
          w=[280, 188, 188, 188, 188, 188]),
-    dict(title="D  쿠션 감속  —  공이 얼마나 굴러가나", shots="10샷", file="D_roll.mp4",
-         head=["", "샷 수", "무엇을 보나"],
-         rows=[["빈쿠션 · 끝까지 둔다", "10샷", "쿠션 하나에 속도가 얼마나 남나"]],
-         w=[430, 170, 620]),
-    dict(title="E  세기", shots="15샷", file="E_power.mp4",
+    dict(title="D+E  쿠션 감속 · 세기      ★ 한 번에 찍는다", shots="15샷",
+         file="DE_roll.mp4",
          head=["", "약", "중", "강"],
-         rows=[["같은 배치 · 같은 당점", "5샷", "5샷", "5샷"]],
-         w=[430, 250, 250, 270]),
+         rows=[["공 하나 · 대각으로 길게 · 끝까지 둔다", "5샷", "5샷", "5샷"]],
+         w=[560, 200, 200, 240]),
 ]
 
 LAY = [
     dict(name="A  47 / 48", cue=(394, 1000), aim=(915, 0),
-         note="좌측 위에서 하단 50 근처로 · 9시30분 3팁 · 중"),
+         note=["좌측 위에서 하단 50 근처로", "9시30분 3팁 · 중"]),
     dict(name="B  87% 두께", cue=(1900, 300), aim=(1210, 505),
-         note="거의 정면 · 살짝 비켜 · 당점만 바꾼다"),
+         note=["거의 정면 · 살짝 비켜", "두께 고정 · 당점만 바꾼다"]),
+    dict(name="D+E  감속 · 세기", cue=(320, 300), aim=(2300, 1120),
+         note=["공 하나 · 대각으로 길게", "무회전 · 끝까지 둔다"]),
 ]
 
 
@@ -77,7 +76,8 @@ def pageT1():
     for s in SETS[3:]:
         table(p, s)
         p.gap(6)
-    p.t("D 는 멈출 때까지 그냥 둔다. 실측 0.43~0.60 인데 앱은 0.80 — 앱 공이 너무 오래 간다.", DIM, 28)
+    p.t("D+E 는 배치를 안 정한다. 공 하나로 길게 돌리고 멈출 때까지 두면 셋 다 나온다 —", DIM, 28)
+    p.t("   쿠션 손실(실측 0.43~0.60 vs 앱 0.80) · 바닥 마찰 · 약중강의 실제 속도.", DIM, 28)
     p.save("촬영T1.png")
 
 
@@ -86,18 +86,20 @@ def pageT2():
 
     y = p.y + 26
     for i, L in enumerate(LAY):
-        mw = 565
-        ox = 90 + i * (mw + 130)
-        p.d.text((ox + mw / 2, y - 12), L["name"], font=f(33, True), fill=HOT, anchor="ms")
+        mw = 388
+        ox = 60 + i * (mw + 34)
+        p.d.text((ox + mw / 2, y - 12), L["name"], font=f(28, True), fill=HOT, anchor="ms")
         m = Mini(p, ox, y + 16, mw)
-        m.line([L["cue"], L["aim"]], HOT, 6)
+        m.line([L["cue"], L["aim"]], HOT, 5)
         m.ball(*L["cue"], "#f2f0e8")
-        m.label(L["cue"][0] + 190, L["cue"][1] - 40, "수구", INK, 27)
+        m.label(L["cue"][0] + 210, L["cue"][1] - 50, "수구", INK, 24)
         if i == 1:
             m.ball(1150, 560, "#d8382e")
-            m.label(1150, 700, "1적구", INK, 25)
-        p.d.text((ox + mw / 2, m.bottom + 26), L["note"], font=f(26, True), fill=INK, anchor="ma")
-    p.y = y + 430
+            m.label(1150, 730, "1적구", INK, 22)
+        for j, ln in enumerate(L["note"]):
+            p.d.text((ox + mw / 2, m.bottom + 22 + j*32), ln,
+                     font=f(23, True), fill=INK, anchor="ma")
+    p.y = y + 340
 
     p.rule()
     p.h("텍스트로 당점을 넣어 주십시오 (캡컷)", GRN)
@@ -115,7 +117,7 @@ def pageT2():
 
     p.rule()
     p.h("시간이 모자라면", RED)
-    p.t("B → A → C → D → E  순서로. B 하나만 찍어 와도 오늘 것은 건진다.", INK, 30)
+    p.t("B → A → C → D+E  순서로. B 하나만 찍어 와도 오늘 것은 건진다.", INK, 30)
     p.save("촬영T2.png")
 
 
