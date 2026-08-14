@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 279;
+const MOBILE_VER = 280;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -2225,14 +2225,49 @@ const THICK_STEPS = [2, 4, 6];
 //   **진행 방향 기준**(12시 = 가는 방향)이라 그림이 곧 실제 당점이다.
 //
 //   cx,cy 가운데 · R 반지름 · tipH 좌우(−3~3) · tipV 상하(−3~3)
-function drawTipBall(cx, cy, R, tipH, tipV){
+// ★★★ 작은 당점 공을 **가는 방향에 맞춰 돌려서** 그린다 (사용자 2026-08-14) —
+//   '수구는 위에서 아래로 치는거고 당점표는 아래에서 위를 바라보고 있고,
+//    차라리 당점공에 진행방향을 보여주고 그에 따라 시간을 표시하면 어떨까요.
+//    검정 화살표 붉은 당점, 이상할까요'
+//   ⚠️ 이것이 '당점이 반대' 로 보인 진짜 원인이다. 다이는 위에서 내려다본 그림인데
+//      당점판은 공을 정면에서 본 그림이라, 수구가 화면 아래로 갈 때 좌우가 뒤집혀 보였다.
+//      이름 다툼이 아니라 **보는 방향이 달랐던 것**이다.
+//   → 공 그림을 진행 방향으로 돌린다. 그러면
+//        좌우 회전(tipH)  = 가는 방향의 좌·우      — 다이에서 보는 그대로다
+//        상하 당점(tipV)  = 앞(밀어치기) · 뒤(끌어치기)
+//      가 되어 눈으로 바로 읽힌다. 검은 화살표가 가는 방향을 가리킨다.
+//   dir 을 안 주면 지금까지처럼 화면 위쪽을 가는 방향으로 본다.
+function drawTipBall(cx, cy, R, tipH, tipV, dir){
   const cue = S.balls.cue;
   g.beginPath(); g.arc(cx, cy, R, 0, 7);
   g.fillStyle = (cue && TONE[cue.color]) || '#f2f1ea'; g.fill();
   g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1, R*0.10); g.stroke();
+  // 가는 방향(f)과 그 오른쪽(rt). 화면은 y 가 아래로 가므로 rt = (-f.y, f.x) 다.
+  let f = [0, -1];
+  if (dir && (dir[0] || dir[1])){
+    const n = Math.hypot(dir[0], dir[1]);
+    f = [dir[0]/n, dir[1]/n];
+  }
+  const rt = [-f[1], f[0]];
+  // 검은 화살표 — 가는 방향
+  {
+    const a = R*0.92, w = R*0.26;
+    const tipP = [cx + f[0]*a, cy + f[1]*a];
+    g.beginPath();
+    g.moveTo(cx - f[0]*a*0.85, cy - f[1]*a*0.85);
+    g.lineTo(tipP[0] - f[0]*w*1.2, tipP[1] - f[1]*w*1.2);
+    g.strokeStyle = 'rgba(20,22,26,0.85)'; g.lineWidth = Math.max(1.5, R*0.10);
+    g.lineCap = 'round'; g.stroke();
+    g.beginPath();
+    g.moveTo(tipP[0], tipP[1]);
+    g.lineTo(tipP[0] - f[0]*w*1.5 + rt[0]*w*0.75, tipP[1] - f[1]*w*1.5 + rt[1]*w*0.75);
+    g.lineTo(tipP[0] - f[0]*w*1.5 - rt[0]*w*0.75, tipP[1] - f[1]*w*1.5 - rt[1]*w*0.75);
+    g.closePath(); g.fillStyle = 'rgba(20,22,26,0.85)'; g.fill();
+  }
   // 3팁이 공 가장자리 조금 안쪽에 오게 (당점판과 같은 비율 — 1팁 = 반지름의 0.195)
   const k = R * TIP_R;
-  const x = cx + (tipH || 0) * k, y = cy - (tipV || 0) * k;
+  const x = cx + rt[0]*(tipH || 0)*k + f[0]*(tipV || 0)*k;
+  const y = cy + rt[1]*(tipH || 0)*k + f[1]*(tipV || 0)*k;
   // 빨간 점 = 큐팁 12mm 지름. 반지름 6mm = 1팁 = R*TIP_R (사용자 2026-08-14)
   const rr = Math.max(2, R*TIP_R);
   g.beginPath(); g.arc(x, y, rr, 0, 7);
@@ -4978,6 +5013,22 @@ function drawClock(){
   const [x,y] = tipCenter(), R = clockR();
   g.fillStyle = '#f0f0ea'; g.beginPath(); g.arc(x,y,R,0,7); g.fill();
   g.strokeStyle = '#3c3e46'; g.lineWidth = 2; g.stroke();
+  // ★★ 가는 방향을 검은 화살표로 (사용자 2026-08-14) — 위 drawTipBall 주석 참고.
+  //   다이는 위에서 내려다본 그림이라, 화살표가 없으면 좌우가 뒤집혀 보인다.
+  const FDIR = aimScreenDir(), FRT = [-FDIR[1], FDIR[0]];
+  {
+    const a2 = R*0.92, w2 = R*0.26;
+    const tp = [x + FDIR[0]*a2, y + FDIR[1]*a2];
+    g.beginPath();
+    g.moveTo(x - FDIR[0]*a2*0.85, y - FDIR[1]*a2*0.85);
+    g.lineTo(tp[0] - FDIR[0]*w2*1.2, tp[1] - FDIR[1]*w2*1.2);
+    g.strokeStyle = 'rgba(20,22,26,0.85)'; g.lineWidth = Math.max(1.5, R*0.10);
+    g.lineCap = 'round'; g.stroke();
+    g.beginPath(); g.moveTo(tp[0], tp[1]);
+    g.lineTo(tp[0] - FDIR[0]*w2*1.5 + FRT[0]*w2*0.75, tp[1] - FDIR[1]*w2*1.5 + FRT[1]*w2*0.75);
+    g.lineTo(tp[0] - FDIR[0]*w2*1.5 - FRT[0]*w2*0.75, tp[1] - FDIR[1]*w2*1.5 - FRT[1]*w2*0.75);
+    g.closePath(); g.fillStyle = 'rgba(20,22,26,0.85)'; g.fill();
+  }
   // 누르면 커진다는 표시. 크기는 그대로 두고(사용자가 줄이라고 했다) 테두리만 두른다.
   g.strokeStyle = 'rgba(255,221,51,0.55)'; g.lineWidth = Math.max(1.5, R*0.10);
   g.beginPath(); g.arc(x, y, R*1.22, 0, 7); g.stroke();
@@ -4992,9 +5043,12 @@ function drawClock(){
   //   → 추천 당점을 따로 그리지 않는다. 횡단샷을 고르면 **당점 자체가 추천 자리로 간다**
   //     (aimForCross 가 S.tipDir·S.tipR 을 옮긴다). 그래서 빨간 점 하나로 끝난다.
   //   크기는 20% 키웠다 (0.155 → 0.186) — 폰에서 당점이 작아 안 보인다.
-  const [dx,dy] = tipOffset(R);
+  //   ★ 점도 가는 방향 기준으로 놓는다 — 좌우 회전은 '가는 방향의 좌·우' 다.
+  const k2 = R * TIP_R;
+  const px2 = x + FRT[0]*(S.tipH||0)*k2 + FDIR[0]*(S.tipV||0)*k2;
+  const py2 = y + FRT[1]*(S.tipH||0)*k2 + FDIR[1]*(S.tipV||0)*k2;
   g.fillStyle = '#de342c';
-  g.beginPath(); g.arc(x + dx, y + dy, R*TIP_R, 0, 7); g.fill();   // 큐팁 12mm (2026-08-14)
+  g.beginPath(); g.arc(px2, py2, R*TIP_R, 0, 7); g.fill();   // 큐팁 12mm (2026-08-14)
 }
 // 교본이 낸 추천 팁수. 지금은 더불횡단 식만 있다 (책 145쪽).
 // ★ 사용자 2026-08-12: '추천에서 횡단샷을 선택하던 추천경로에서 넘어오던
@@ -5089,6 +5143,16 @@ const PRESET = [
 
 // 반지름 R 인 작은 공에서 지금 당점이 중심에서 얼마나 떨어져 있나 (px)
 function tipOffset(R){ return tipXY(S.tipDir, S.tipR, R * TIP_R); }
+
+// ★ 지금 조준의 **화면상** 진행 방향 (다이가 돌아 있어도 맞다). 없으면 위쪽.
+function aimScreenDir(){
+  const c = S.balls.cue;
+  if (!c || !S.aim) return [0,-1];
+  const a = toPx(c.p[0], c.p[1]);
+  const b = toPx(S.aim[0], S.aim[1]);
+  const dx = b[0]-a[0], dy = b[1]-a[1], n = Math.hypot(dx,dy);
+  return n < 1e-6 ? [0,-1] : [dx/n, dy/n];
+}
 
 // 고를 수 있는 자리 — 가운데 하나 + 세 원. **시계 한 바퀴 전부.**
 // ★ 2026-08-12 — 전에는 12시→3시→6시 반쪽만 냈다. 나머지 반은 '역회전 실측 없음'
@@ -5747,7 +5811,7 @@ function drawButtons(){
         heavy(rr0.name || '', cx, cy + u*0.44, u*0.19,
               rr0.kiss ? '#ff5a4a' : '#f2f4f8');
         heavy('8/' + thick8(rr0.thick*8), cx - u*0.28, cy + u*0.64, u*0.17, '#cfd6e0');
-        drawTipBall(cx + u*0.40, cy + u*0.62, u*0.20, rr0.tip, rr0.tipV);
+        drawTipBall(cx + u*0.40, cy + u*0.62, u*0.20, rr0.tip, rr0.tipV, aimScreenDir());
       } else {
         heavy('추천', cx, cy + u*0.24, u*0.27, '#f2f4f8');
         heavy(rl ? (ns ? ns + '개' : '없음') : '', cx, cy + u*0.46, u*0.22,
