@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 278;
+const MOBILE_VER = 279;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -5140,20 +5140,23 @@ function reaimForTip(){
   try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; }
   const a0 = Math.atan2(d0[1], d0[0]);
   const STEP = 0.05 * Math.PI/180, R = 8 * Math.PI/180;   // ±8도까지 따라간다
-  let same = null, any = null;
+  let same = null;
   for (let dd = 0; dd <= R + 1e-12 && same === null; dd += STEP){
     for (const sgn of (dd === 0 ? [0] : [1,-1])){
       const a = a0 + sgn*dd, r = scoresAt(a, k0);
       if (!r) continue;
-      if (any === null) any = a;
       if ((r.rails || []).join('-') === S.lockRails){ same = a; break; }
     }
   }
-  const pick = same !== null ? same : any;
-  if (pick === null) return false;
-  S.aim = S.lastAim = [cue.p[0] + Math.cos(pick)*len, cue.p[1] + Math.sin(pick)*len];
-  S.snapA = pick;
-  S.rblink = nowMs();                 // 따라갔다는 것을 깜빡임으로 알린다
+  // ★★ 사용자 2026-08-14: '당점을 바꾸면 조준은 그대로 두고 두께가 변해야 합니다.
+  //   당점을 변경하면 진로가 변하니 두께가 같이 조정이 되어야 말이 됩니다.'
+  //   → 지키는 것은 **진로(회로)** 이고, 바뀌는 것은 **두께**다.
+  //     같은 회로를 못 지키면 **아무 데도 안 간다** — 전에는 any 로 엉뚱한 경로에 튀었다.
+  //     (그래서 당점만 만졌는데 다른 추천으로 넘어간 것처럼 보였다)
+  //   ⚠️ 깜빡임(3초 입력 잠금)도 걸지 않는다. 다듬는 중에 손이 묶이면 안 된다.
+  if (same === null) return false;    // 이 당점으로는 그 진로가 안 된다 — 조준을 안 건드린다
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(same)*len, cue.p[1] + Math.sin(same)*len];
+  S.snapA = same;
   return true;
 }
 
