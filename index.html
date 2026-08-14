@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 273;
+const MOBILE_VER = 274;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -1674,7 +1674,7 @@ function down(px,py){
     // ★ 내보내기는 여기서 바로 처리한다 (사용자 2026-08-14)
     if (EXPORT_HIT && px >= EXPORT_HIT.x && px <= EXPORT_HIT.x + EXPORT_HIT.w &&
         py >= EXPORT_HIT.y && py <= EXPORT_HIT.y + EXPORT_HIT.h){
-      if (verLeft()) verSync(); else verExport();   // 밀린 것이 있으면 먼저 올린다
+      verSync();                                   // 못 보낸 것을 다시 올린다
       blink(); return;
     }
     // ★ 누르는 순간에 고르지 않는다 — **손을 뗄 때** 탭인지 스와이프인지 가른다.
@@ -3213,167 +3213,68 @@ function nextRoute(){
 //   깜빡임 횟수도 같이 줄여야 한다 — 1초에 4번이면 너무 빨라 떨리는 것처럼 보인다.
 const BLINK_MS = 1000, BLINK_HZ = 2;      // 1초 · 2번
 // ★★ 추천 경로 평가 (사용자 2026-08-14) —
-//   '나는 모든 추천경로를 확인하고 필요시 시물레이션도 해 볼겁니다.
-//    버튼의 디폴트는 가능입니다. 버튼을 누를때마다 추천평가 자료를 저장하세요.'
-//   ⚠️ 앱은 정적 페이지라 서버에 못 쓴다. 폰 안(localStorage)에 쌓고,
-//      목록 화면 아래 '내보내기' 로 클립보드에 복사해 보내 주시면
-//      data/route_verdicts.json 에 넣는다.
-// ⚠️ 2026-08-14 사용자 지시로 자료를 통째로 지웠다 (서버 TRUNCATE).
-//   폰에 남은 옛 판정이 다시 올라오면 안 되므로 열쇠를 바꾼다 — v1 은 버린다.
-const VER_KEY = 'bs_verdicts_v2';
-let VERDICTS = {};
-try { VERDICTS = JSON.parse(localStorage.getItem(VER_KEY) || '{}'); } catch(e){ VERDICTS = {}; }
-// ★★ 서버로 보낸다 (사용자 2026-08-14) —
+//   '나는 모든 추천경로를 확인하고 필요시 시물레이션도 해 볼겁니다.'
 //   '자료를 DB화 하라는 겁니다. 서버에 저장을 하고 그것을 당신이 꺼내보면서
 //    프로그램 개선을 하자는 의도입니다.'
-//   창구는 /basystem/api/ (portfolio-nginx → basystem-api → portfolio-db).
-//   ⚠️ 폰에도 그대로 쌓아 둔다. 서버가 안 되거나 밖에 있어도 판정이 안 날아가야 한다.
-//     보낸 것은 rec.s 에 표시해 두고, 못 보낸 것만 나중에 다시 올린다.
+//   ⚠️⚠️ 사용자 2026-08-14: '폰에는 기록하지 마세요.'
+//      → localStorage 를 쓰지 않는다. 누르는 즉시 **서버로만** 보낸다.
+//        화면에 불을 켜 두려고 이번에 켠 것만 메모리에 들고 있는다 (앱을 닫으면 사라진다).
+//        서버 창구는 /basystem/api/ (portfolio-nginx → basystem-api → portfolio-db).
 const API = 'api/';
-let VER_SENT = 0, VER_LAST = '';
-function verPush(pk, rk){
-  const rec = VERDICTS[pk];
-  if (!rec) return;
-  fetch(API + 'verdict', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({who: rec.who || VER_WHO, app: MOBILE_VER,
-                          place_key: pk, route_key: rk, verdict: rec.v[rk],
-                          balls: rec.balls, info: (rec.info||{})[rk]})})
-    .then(r => { if (r.ok){ (rec.s = rec.s || {})[rk] = 1; VER_SENT++; verSave(); } })
-    .catch(() => {});
-}
-// 못 보낸 것을 모아 한 번에 올린다 (앱을 열 때 · 목록을 열 때)
-function verSync(){
-  const out = {};
-  for (const pk in VERDICTS){
-    const rec = VERDICTS[pk], left = {};
-    for (const rk in (rec.v || {})) if (!(rec.s && rec.s[rk])) left[rk] = rec.v[rk];
-    if (Object.keys(left).length) out[pk] = {...rec, v: left};
-  }
-  if (!Object.keys(out).length) return;
-  fetch(API + 'verdicts', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({who: VER_WHO, app: MOBILE_VER, data: out})})
-    .then(r => r.ok ? r.json() : null)
-    .then(j => {
-      if (!j) return;
-      for (const pk in out){
-        const rec = VERDICTS[pk];
-        rec.s = rec.s || {};
-        for (const rk in out[pk].v) rec.s[rk] = 1;
-      }
-      VER_SENT += j.saved || 0; verSave();
-    })
-    .catch(() => {});
-}
-// 아직 서버에 못 올린 개수
-function verLeft(){
-  let n = 0;
-  for (const pk in VERDICTS){
-    const rec = VERDICTS[pk];
-    for (const rk in (rec.v || {})) if (!(rec.s && rec.s[rk])) n++;
-  }
-  return n;
-}
+let VERDICTS = {};        // 이번에 켠 화면에서 누른 것만. 저장소가 아니라 표시용이다.
+let VER_WHO = '';         // 나중 회원등록 자리 (지금은 빈칸)
 
-
-function verSave(){
-  try { localStorage.setItem(VER_KEY, JSON.stringify(VERDICTS)); } catch(e){}
-}
-// 이 배치에서 이 경로를 뭐라고 판정했나. 안 눌렀으면 undefined (= 디폴트 가능).
 function verGet(r){
-  const k = placeKey(), rec = VERDICTS[k];
+  const rec = VERDICTS[placeKey()];
   return (rec && r && r.key) ? rec.v[r.key] : undefined;
 }
-// ★ 나중에 회원등록으로 넓힐 자리 (사용자 2026-08-14: '배포시 간단한 회원등록 절차를
-//   거치든지 할께요. 누가 어떤 배치를 어떻게 평가하는지를 봐야 할수도 있고').
-//   지금은 혼자 쓰시므로 비워 둔다 — 나중 자료와 한 표에 들어가야 하니 칸만 미리 만든다.
-let VER_WHO = '';
-try { VER_WHO = localStorage.getItem('bs_who') || ''; } catch(e){}
 function verSet(r, val){
   if (!r || !r.key) return;
   const k = placeKey();
   if (!VERDICTS[k]){
-    VERDICTS[k] = {at: new Date().toISOString(), who: VER_WHO,
-                   balls: Object.keys(S.balls).map(q =>
+    VERDICTS[k] = {balls: Object.keys(S.balls).map(q =>
                      ({role:q, color:S.balls[q].color,
                        p:[Math.round(S.balls[q].p[0]), Math.round(S.balls[q].p[1])]})),
-                   v: {}, info: {}};
+                   v: {}, info: {}, s: {}};
   }
   const rec = VERDICTS[k];
   rec.v[r.key] = val;
-  if (rec.s) delete rec.s[r.key];          // 다시 판정했으면 또 보낸다
+  delete rec.s[r.key];                     // 다시 판정했으면 또 보낸다
   rec.info[r.key] = {name:r.name, before:r.before, after:r.after,
-                           thick:r.thick === undefined ? null : Math.round(r.thick*100),
-                           tip:r.tip, tipV:r.tipV, sep:r.sep === undefined ? null : Math.round(r.sep),
-                           kiss:!!r.kiss, flips:r.flips, rev:r.rev,
-                           reach:r.reach === undefined ? null : Math.round(r.reach*100)};
-  verSave();
-  verPush(k, r.key);                       // 누르는 즉시 서버로
+                     thick:r.thick === undefined ? null : Math.round(r.thick*100),
+                     tip:r.tip, tipV:r.tipV, sep:r.sep === undefined ? null : Math.round(r.sep),
+                     kiss:!!r.kiss, flips:r.flips, rev:r.rev,
+                     reach:r.reach === undefined ? null : Math.round(r.reach*100)};
+  verPush(k, r.key);
 }
-// ★ 사용자 2026-08-14: '목록화면에서는 지금 배치된 것에 한해서 저장건수를 보여주세요.'
-//   전에는 모든 배치의 합을 셌다 — 2개 눌렀는데 10개로 보였다.
-function verCount(){
-  const rec = VERDICTS[placeKey()];
-  return rec ? Object.keys(rec.v || {}).length : 0;
+function verPush(pk, rk){
+  const rec = VERDICTS[pk];
+  if (!rec) return;
+  fetch(API + 'verdict', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({who: VER_WHO, app: MOBILE_VER,
+                          place_key: pk, route_key: rk, verdict: rec.v[rk],
+                          balls: rec.balls, info: rec.info[rk]})})
+    .then(r => { if (r.ok) rec.s[rk] = 1; })
+    .catch(() => {});
 }
-// 전체 (내보내기용)
-function verCountAll(){
-  let n = 0;
-  for (const k in VERDICTS) n += Object.keys(VERDICTS[k].v || {}).length;
-  return n;
-}
-
-// ★★ 상 · 중 · 하 (사용자 2026-08-14) —
-//   '상 좋은것 / 중 가능은 하지만 별로인것 / 하 추천하면 안되는것'
-//   '버튼위치도 테이블 안으로 이동할까요. 핸드폰은 너무 작아서'
-//   → 추천 경로를 보고 있을 때만 다이 아래쪽에 크게 띄운다.
-//     디폴트는 **중**이다. 다만 누른 것과 안 누른 것을 갈라 저장한다 —
-//     안 그러면 '안 본 것' 과 '보고 중이라 한 것' 이 섞여 자료가 흐려진다.
-const VER_LV = [['hi','상','#5ec07a'], ['mid','중','#c8a23a'], ['lo','하','#e05a52']];
-let VER_HIT = [];
-function verBar(){
-  if (!S.routeList && !previewOn() && !S.anim && !S.scatter && S.routeIx >= 0){
-    const c = L.cloth, w = Math.min(c.w*0.42, c.h*0.72), h = c.h*0.135;
-    const x0 = c.x + (c.w - w)/2, y0 = c.y + c.h - h - c.h*0.035;
-    return VER_LV.map(([v,,], i) =>
-      ({v, x: x0 + i*w/3, y: y0, w: w/3, h}));
+// 못 보낸 것만 다시 (목록 아래를 누르면)
+function verSync(){
+  for (const pk in VERDICTS){
+    const rec = VERDICTS[pk];
+    for (const rk in rec.v) if (!rec.s[rk]) verPush(pk, rk);
   }
-  return null;
 }
-function drawVerBar(){
-  VER_HIT = verBar() || [];
-  if (!VER_HIT.length) return;
-  const list = routesReady();
-  const r = (list && S.routeIx >= 0) ? list[S.routeIx] : null;
-  if (!r){ VER_HIT = []; return; }
-  const cur = verGet(r);
-  const h = VER_HIT[0].h;
-  VER_HIT.forEach((b, i) => {
-    const [v, txt, col] = VER_LV[i];
-    const on   = cur === v;
-    const soft = cur === undefined && v === 'mid';        // 디폴트 중 — 옅게
-    g.beginPath();
-    if (g.roundRect) g.roundRect(b.x+1, b.y, b.w-2, b.h, h*0.22);
-    else g.rect(b.x+1, b.y, b.w-2, b.h);
-    g.fillStyle = on ? col : soft ? 'rgba(200,162,58,0.28)' : 'rgba(16,19,24,0.80)';
-    g.fill();
-    // ★ 사용자 2026-08-14: '검은테두리 핑크' — 고른 칸에서 검정을 다 핑크로 바꾼다
-    g.strokeStyle = on ? '#ff5fa8' : 'rgba(226,232,240,0.45)';
-    g.lineWidth = Math.max(2, h*0.06); g.stroke();
-    g.save();
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.font = '900 ' + Math.round(h*0.52) + 'px system-ui, -apple-system, sans-serif';
-    g.lineJoin = 'round';
-    //   글자 테두리도 핑크 계열로. 아주 옅은 핑크면 초록·노랑 바탕에서 글자가 묻히므로
-    //   **진한 핑크**를 쓴다 — 핑크로 보이면서 획은 살아 있다.
-    g.strokeStyle = on ? '#8a0f42' : 'rgba(10,12,16,0.85)';
-    g.lineWidth = Math.max(2, h*0.10);
-    g.strokeText(txt, b.x + b.w/2, b.y + b.h/2);
-    // ★ 사용자 2026-08-14: '선택한 버튼은 좋은데 폰트컬러 핑크로 해 주세요.'
-    //   앱에서 이미 쓰는 핑크(보정 음수)와 같은 색으로 맞춘다.
-    g.fillStyle = on ? '#ff5fa8' : '#f2f4f8';
-    g.fillText(txt, b.x + b.w/2, b.y + b.h/2);
-    g.restore();
-  });
+function verCount(){                       // 이 배치에서 누른 것
+  const rec = VERDICTS[placeKey()];
+  return rec ? Object.keys(rec.v).length : 0;
+}
+function verLeft(){                        // 아직 서버가 못 받은 것
+  let n = 0;
+  for (const pk in VERDICTS){
+    const rec = VERDICTS[pk];
+    for (const rk in rec.v) if (!rec.s[rk]) n++;
+  }
+  return n;
 }
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -4913,68 +4814,26 @@ function drawRouteList(){
     g.font = '700 ' + Math.round(c.h*0.035) + 'px system-ui, sans-serif';
     g.fillText('외 ' + (list.length - ROUTE_SHOW) + '개', c.x + c.w - pad, c.y + c.h - pad*0.4);
   }
-  // ★ 평가 내보내기 (사용자 2026-08-14) — 앱은 서버에 못 쓴다.
-  //   폰에 쌓인 판정을 클립보드로 복사해 카톡으로 보내 주시면 data/ 에 넣는다.
-  const nv = verCount();
+  // ★ 서버 저장 상태 (사용자 2026-08-14: '폰에는 기록하지 마세요')
+  const nv = verCount(), left = verLeft();
   EXPORT_HIT = null;
-  if (nv > 0 || verCountAll() > 0){
+  if (nv > 0 || left > 0){
     const tw = c.w*0.40, th = c.h*0.075;
     const ex = c.x + pad, ey = c.y + c.h - th - pad*0.4;
     EXPORT_HIT = {x:ex, y:ey, w:tw, h:th};
-    g.fillStyle = verLeft() ? 'rgba(224,90,82,0.90)' : 'rgba(94,192,122,0.90)';
+    g.fillStyle = left ? 'rgba(224,90,82,0.90)' : 'rgba(94,192,122,0.90)';
     round(ex, ey, tw, th, th*0.28); g.fill();
     g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, th*0.10); g.stroke();
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.font = '900 ' + Math.round(th*0.46) + 'px system-ui, sans-serif';
     g.fillStyle = '#0f1114';
-    const left = verLeft(), all = verCountAll();
     g.fillText(left ? ('이 배치 ' + nv + '개 · 못보낸 ' + left + '개 (눌러 다시)')
-                    : ('이 배치 ' + nv + '개 · 모두 ' + all + '개 저장됨'),
-               ex + tw/2, ey + th/2);
+                    : ('이 배치 ' + nv + '개 · 서버 저장됨'), ex + tw/2, ey + th/2);
   }
 }
 let EXPORT_HIT = null;
 
-// 쌓인 판정을 클립보드로 (사용자 2026-08-14)
-function verExport(){
-  const txt = JSON.stringify({_desc:'추천 경로 평가 (앱에서 내보냄)',
-                              _app: MOBILE_VER, at: new Date().toISOString(),
-                              data: VERDICTS}, null, 1);
-  const say = t => {
-    msg.style.display = 'block'; msg.textContent = t;
-    setTimeout(() => { msg.textContent=''; msg.style.display='none'; }, 3500);
-  };
-  const okMsg = () => say('평가 ' + verCountAll() + '개를 복사했습니다 — 붙여넣기로 보내주세요');
-  // ⚠️ 복사는 실패할 수 있다 (브라우저가 막거나 권한이 없을 때).
-  //   실패했는데 '복사했습니다' 라고 하면 자료가 안 넘어갔는데 넘어간 줄 아신다.
-  //   그래서 실패하면 **글자를 화면에 띄워** 직접 복사하게 한다.
-  const showBox = () => {
-    if (document.getElementById('verbox')) return;
-    const wrap = document.createElement('div');
-    wrap.id = 'verbox';
-    wrap.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;'
-      + 'background:rgba(8,10,14,0.94);z-index:99999;display:flex;'
-      + 'flex-direction:column;padding:12px;box-sizing:border-box;gap:8px';
-    const t = document.createElement('textarea');
-    t.value = txt;
-    t.style.cssText = 'flex:1;width:100%;font:12px ui-monospace,monospace;'
-      + 'background:#11151b;color:#e8ecf2;border:1px solid #3a4450;border-radius:8px;padding:8px';
-    const b2 = document.createElement('button');
-    b2.textContent = '닫기';
-    b2.style.cssText = 'height:44px;font:800 17px system-ui;background:#c8a23a;'
-      + 'color:#1a1508;border:0;border-radius:10px';
-    b2.onclick = () => wrap.remove();
-    const h = document.createElement('div');
-    h.textContent = '자동 복사가 막혔습니다 — 아래 글을 길게 눌러 전체 선택 후 복사하세요';
-    h.style.cssText = 'color:#ffd400;font:700 15px system-ui';
-    wrap.appendChild(h); wrap.appendChild(t); wrap.appendChild(b2);
-    document.body.appendChild(wrap);
-    t.focus(); t.select();
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText)
-    navigator.clipboard.writeText(txt).then(okMsg, showBox);
-  else showBox();
-}
+
 
 function drawClock(){
   if (previewOn()) return;                        // 촬영 중에는 다이 안을 비운다
@@ -6058,9 +5917,6 @@ addEventListener('pointercancel', cancelTouch);
     POST_CUSHIONS = spd['★_몇_쿠션까지_구르나']['★_충돌_후_그리는_쿠션'].table;
     msg.textContent = ''; msg.style.display = 'none';
     log('데이터 OK — 당구대 ' + T.width + 'x' + T.height);
-    // ★ 앱을 열 때 못 보낸 판정을 서버에 올린다 (사용자 2026-08-14)
-    //   밖에서 판정하고 왔거나 서버가 잠깐 안 됐을 때를 위한 것이다.
-    try { verSync(); } catch(e){}
     const mA = location.search.match(/[?&]a=(\d{2})/);
     if (mA && LAYOUTS[mA[1]]){
       ANSWER = mA[1];
