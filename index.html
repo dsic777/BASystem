@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 275;
+const MOBILE_VER = 276;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3285,12 +3285,25 @@ function verLeft(){                        // 아직 서버가 못 받은 것
 //   ⚠️⚠️ v274 에서 저장 부분을 갈아 끼우다가 이 덩어리를 통째로 지웠다.
 //      앱이 VER_HIT is not defined 로 죽었다 (사용자 8.jpg). 함수를 지울 때는
 //      **부르는 곳을 먼저 세어 보고** 지운다.
-const VER_LV = [['hi','상','#5ec07a'], ['mid','중','#c8a23a'], ['lo','하','#e05a52']];
+// ★★ 5단계로 바꿨다 (사용자 2026-08-14) —
+//   '점수를 100 70 50 20 0 이렇게 5단계로 나눌까요. 지금의 배치는 20 이거든요.'
+//   숫자로 둔다 (A~E 가 아니라) — 그 값으로 순위 점수를 바로 맞출 수 있다.
+//   ★ 기준을 못박아 둔다. 안 그러면 같은 배치를 다음에 볼 때 다르게 찍힌다.
+//       100  1순위로 내놔도 된다. 실제로 이걸 친다
+//        70  좋다. 이것도 친다
+//        50  칠 수는 있다. 반반이다
+//        20  프로나 가능 · 억지로 가능      → 보여는 주되 맨 뒤   (9.jpg 가 여기)
+//         0  절대 안 된다                   → 목록에서 지운다
+//   ⚠️ 디폴트를 두지 않는다. 5단계에는 자연스러운 디폴트가 없고,
+//      사용자가 모든 경로를 다 보시므로 미판정은 그냥 회색으로 둔다.
+const VER_LV = [['100','100','#3aa76d'], ['70','70','#5ec07a'], ['50','50','#c8a23a'],
+                ['20','20','#e08a3a'], ['0','0','#e05a52']];
 function verBar(){
   if (!S.routeList && !previewOn() && !S.anim && !S.scatter && S.routeIx >= 0){
-    const c = L.cloth, w = Math.min(c.w*0.42, c.h*0.72), h = c.h*0.135;
+    const n = VER_LV.length;
+    const c = L.cloth, w = Math.min(c.w*0.62, c.h*1.15), h = c.h*0.135;
     const x0 = c.x + (c.w - w)/2, y0 = c.y + c.h - h - c.h*0.035;
-    return VER_LV.map(([v,,], i) => ({v, x: x0 + i*w/3, y: y0, w: w/3, h}));
+    return VER_LV.map(([v,,], i) => ({v, x: x0 + i*w/n, y: y0, w: w/n, h}));
   }
   return null;
 }
@@ -3305,7 +3318,7 @@ function drawVerBar(){
   VER_HIT.forEach((b, i) => {
     const [v, txt, col] = VER_LV[i];
     const on   = cur === v;
-    const soft = cur === undefined && v === 'mid';        // 디폴트 중 — 옅게
+    const soft = false;                                   // 디폴트 없음 (위 주석 참고)
     g.beginPath();
     if (g.roundRect) g.roundRect(b.x+1, b.y, b.w-2, b.h, h*0.22);
     else g.rect(b.x+1, b.y, b.w-2, b.h);
@@ -3316,7 +3329,7 @@ function drawVerBar(){
     g.lineWidth = Math.max(2, h*0.06); g.stroke();
     g.save();
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.font = '900 ' + Math.round(h*0.52) + 'px system-ui, -apple-system, sans-serif';
+    g.font = '900 ' + Math.round(h*0.44) + 'px system-ui, -apple-system, sans-serif';
     g.lineJoin = 'round';
     //   글자 테두리도 핑크 계열로. 옅으면 초록·노랑 바탕에서 묻히므로 진한 핑크를 쓴다.
     g.strokeStyle = on ? '#8a0f42' : 'rgba(10,12,16,0.85)';
