@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 276;
+const MOBILE_VER = 277;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3008,7 +3008,9 @@ function findRoutes(){
     }
   }
   SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
-  S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave; TIP_NOW = tipSave; TIPV_NOW = vSave;
+  // ⚠️ TIP_NOW 는 **좌우** 팁이다. 여기에 tipSave(=반지름) 를 넣고 있었다 (2026-08-14 발견).
+  //    훑기가 끝난 뒤 TIP_NOW 를 보는 곳에서 엉뚱한 값을 읽게 된다.
+  S.tipR = tipSave; S.tipH = hSave; S.tipV = vSave; TIP_NOW = hSave; TIPV_NOW = vSave;
   // 가장자리를 이분법으로 다듬는다. 굵게 훑은 폭은 걸음 단위로 뭉뚱그려져 있어서
   // 그대로 쓰면 허용오차가 0.2 · 0.4 · 0.6 처럼 계단으로만 나온다 (파이썬에서 확인).
   const edge = (aIn, aOut, key) => {
