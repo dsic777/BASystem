@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 280;
+const MOBILE_VER = 281;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -4854,22 +4854,10 @@ function drawRouteList(){
     round(gx, gy, cw, chh, chh*0.10); g.fill();
     // ★ 판정 (사용자 2026-08-14) — 불가면 테두리와 딱지로 바로 보인다
     const vv = r ? verGet(r) : undefined;
-    g.strokeStyle = vv === 'lo' ? '#e05a52'
+    g.strokeStyle = vv === '0' ? '#e05a52'
                   : (r && r.kiss) ? '#ff3b30' : on ? '#ffd400' : '#3a4450';
-    g.lineWidth = Math.max(2, chh*(on || vv === 'lo' || (r&&r.kiss) ? 0.035 : 0.018));
+    g.lineWidth = Math.max(2, chh*(on || vv === '0' || (r&&r.kiss) ? 0.035 : 0.018));
     g.stroke();
-    if (vv){                                          // 판정한 칸에만 딱지를 붙인다
-      const LV = {hi:['상','#5ec07a'], mid:['중','#c8a23a'], lo:['하','#e05a52']}[vv] || ['?','#888'];
-      const tw2 = chh*0.22, th2 = chh*0.17;
-      g.fillStyle = LV[1];
-      round(gx + cw - tw2 - chh*0.05, gy + chh*0.05, tw2, th2, th2*0.34); g.fill();
-      g.save();
-      g.font = '900 ' + Math.round(th2*0.68) + 'px system-ui, sans-serif';
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillStyle = '#0f1114';
-      g.fillText(LV[0], gx + cw - tw2/2 - chh*0.05, gy + chh*0.05 + th2/2);
-      g.restore();
-    }
     // ★ 사용자 2026-08-12: '3쿠션이 성공할 수 있는 두께와 당점을 제공해 주세요.'
     // 글자는 진로와 두께까지. **당점은 글자가 아니라 공 그림으로** 낸다 (아래).
     const label = last ? '직접 조준'
@@ -4915,6 +4903,26 @@ function drawRouteList(){
       fs *= 0.9;
     }
     g.fillText(label, (tx0+tx1)/2, gy + chh*(last ? 0.5 : 0.86));
+    // ★★ 판정 딱지는 **맨 마지막에** 얹는다 (사용자 2026-08-14: '11개 저장되었다는데
+    //   여기서는 안보이네요'). 전에는 칸 테두리 직후에 그려 미니 궤적 그림에 덮였다.
+    //   ⚠️ 값도 옛 3단계(상·중·하)를 보고 있었다. 지금은 100/70/50/20/0 이다 (v276).
+    if (vv){
+      const LV = {'100':['100','#3aa76d'], '70':['70','#5ec07a'], '50':['50','#c8a23a'],
+                  '20':['20','#e08a3a'], '0':['0','#e05a52'],
+                  hi:['상','#5ec07a'], mid:['중','#c8a23a'], lo:['하','#e05a52']}[vv]
+                 || [String(vv), '#8b93a0'];
+      const th2 = chh*0.20, tw2 = Math.max(chh*0.26, th2*(0.55 + LV[0].length*0.42));
+      const bx2 = gx + cw - tw2 - chh*0.05, by2 = gy + chh*0.05;
+      g.fillStyle = LV[1];
+      round(bx2, by2, tw2, th2, th2*0.30); g.fill();
+      g.strokeStyle = 'rgba(10,12,16,0.75)'; g.lineWidth = Math.max(1.5, th2*0.09); g.stroke();
+      g.save();
+      g.font = '900 ' + Math.round(th2*0.66) + 'px system-ui, sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#0f1114';
+      g.fillText(LV[0], bx2 + tw2/2, by2 + th2/2);
+      g.restore();
+    }
   }
   // ★ 쪽 표시 — 지금 몇 쪽인지 점으로. 밀 수 있다는 것도 이걸로 알린다
   const dr = Math.max(4, c.h*0.011), dy = c.y + c.h - pad*0.9;
