@@ -101,8 +101,95 @@ def table_from_quad(cap: cv2.VideoCapture, quad: np.ndarray, cfg: dict) -> TopVi
     return warp(frame, np.asarray(quad, dtype=np.float32), cfg, find_nose=False)
 
 
-def detect_table(cap: cv2.VideoCapture, cfg: dict, samples: int = 9) -> TopView:
-    """여러 프레임에서 당구대를 잡아 중앙값 코너를 쓴다 (사람·큐대 가림에 강하게)."""
+def _quad_dist(a, b) -> float:
+    """코너 네 개 중 가장 많이 벌어진 거리 (px)."""
+    return float(np.max(np.linalg.norm(np.asarray(a, float) - np.asarray(b, float), axis=1)))
+
+
+def _cluster_pick(quads: list, tol: float) -> tuple[np.ndarray, int]:
+    """가장 큰 **무리**의 중앙값을 고른다.
+
+    ⚠️⚠️ 2026-08-15 — 여기가 조용한 지뢰였다. 예전에는 표본 전체의 중앙값을 썼는데,
+       당구장에는 당구대가 두세 개 보여서 표본마다 **다른 대**가 잡힌다.
+       서로 다른 대가 섞인 중앙값은 **어느 당구대도 아닌 허공**이 된다.
+       (원쿠션걸어치기 영상: 표본이 3px 무리와 1420px 무리로 갈렸다.)
+       무리를 지어 큰 쪽만 쓴다.
+    """
+    best: list = []
+    for q in quads:
+        grp = [r for r in quads if _quad_dist(q, r) <= tol]
+        if len(grp) > len(best):
+            best = grp
+    return np.median(np.stack(best), axis=0).astype(np.float32), len(best)
+
+
+class TableLock:
+    """★ 당구대 자리를 **영상 내내 다시 잡는다** (사용자 2026-08-15).
+
+    사용자 설명 —
+      '카메라가 움직이는 이유는, 가이드를 핸드폰으로 확인하고 다시 삼각대에 거는데,
+       가이드를 볼 때마다 핸드폰을 삼각대에서 분리하고 다시 걸 때 위치를 조정하니
+       그때 움직인 겁니다. 그러니 매번 위치를 찾는 것이 맞습니다.'
+      '카메라로 매번 서서 움직이면서 찍을 때도 공 위치 거의 맞아요. 왜 그것을 안 쓰죠?'
+
+    맞는 지적이다. 앱의 촬영 기능은 **사진 한 장마다** 당구대를 다시 잡고 잘 된다.
+    영상만 파일당 한 번 잡고 끝까지 썼다. 그래서 삼각대에 다시 걸 때마다 어긋났다.
+    코너 검출은 15ms 라 15프레임마다 다시 잡아도 비용이 없다시피 하다.
+
+    두 가지를 가른다 —
+      가까운 후보로 옮겨간다        삼각대에 다시 건 것. 그대로 따라간다
+      먼 후보뿐이다                 옆 당구대일 수 있다. 연속으로 확인돼야 옮긴다
+    """
+
+    def __init__(self, frame, cfg, quad, jump_ratio: float = 0.30, keep: int = 7,
+                 move_px: float = 6.0):
+        self.cfg = cfg
+        self.quad = np.asarray(quad, np.float32)
+        self.top = table_detect.warp(frame, self.quad, cfg)
+        self.far = jump_ratio * frame.shape[1]      # 이보다 멀면 **다른 당구대**다
+        self.keep = keep                            # 최근 몇 번을 모아 중앙값을 낼까
+        self.move_px = move_px                      # 이만큼 움직여야 지도를 다시 만든다
+        self._buf: list = []
+        self.moves = 0                              # 지도를 다시 만든 횟수
+        self.far_skip = 0                           # 옆 대로 보고 **버린** 횟수
+        self.miss = 0                               # 검출 실패 횟수
+
+    def update(self, frame) -> None:
+        """★ 흔들림은 버리고 진짜 이동만 따라간다.
+
+        ⚠️ 처음에는 가까운 후보가 나올 때마다 곧바로 따라갔다. 458번 따라갔고
+           **유효 샷이 0개**가 됐다 — 검출이 프레임마다 몇 px 씩 떨리는데
+           그 떨림을 전부 좌표에 실어 궤적이 조각났다.
+           최근 몇 번을 모아 **중앙값**을 쓰고, 그 중앙값이 뚜렷하게 움직였을 때만
+           지도를 다시 만든다.
+
+        ⚠️ 멀리 있는 후보(옆 당구대)로는 **아예 갈아타지 않는다.** 처음에 잡은 대가
+           공이 놓인 대이고, 삼각대에 다시 거는 정도로는 화면 폭의 30% 를 넘지 않는다.
+           갈아타면 그 뒤 좌표가 통째로 못 쓰게 되므로, 의심스러우면 그냥 버린다.
+        """
+        cands = table_detect.find_corners_all(frame, self.cfg)
+        if not cands:
+            self.miss += 1
+            return
+        near = min(cands, key=lambda q: _quad_dist(q, self.quad))
+        if _quad_dist(near, self.quad) > self.far:
+            self.far_skip += 1
+            return
+        self._buf.append(np.asarray(near, np.float32))
+        if len(self._buf) > self.keep:
+            self._buf.pop(0)
+        if len(self._buf) < self.keep:
+            return
+        med = np.median(np.stack(self._buf), axis=0).astype(np.float32)
+        if _quad_dist(med, self.quad) < self.move_px:
+            return
+        self.quad = med
+        self.top = table_detect.warp(frame, self.quad, self.cfg)
+        self.moves += 1
+
+
+def detect_table(cap: cv2.VideoCapture, cfg: dict, samples: int = 15) -> TopView:
+    """여러 프레임에서 당구대를 잡아 **가장 큰 무리**의 코너를 쓴다."""
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
     quads, frame0 = [], None
     for k in range(samples):
@@ -112,14 +199,24 @@ def detect_table(cap: cv2.VideoCapture, cfg: dict, samples: int = 9) -> TopView:
             continue
         if frame0 is None:
             frame0 = frame
-        try:
-            quads.append(table_detect.find_corners(frame, cfg))
-        except table_detect.TableNotFound:
-            continue
+        quads.extend(table_detect.find_corners_all(frame, cfg))
     if not quads:
         raise table_detect.TableNotFound("영상 어느 프레임에서도 당구대를 못 찾았다")
 
-    quad = np.median(np.stack(quads), axis=0).astype(np.float32)
+    # ★ 무리가 둘 이상이면 **가장 넓은** 대를 고른다.
+    #   ⚠️ 표본이 많은 무리로 고르면 안 된다 — 배경의 옆 당구대는 사람·큐대에
+    #      안 가려서 **더 꾸준히** 잡힌다. 실제로 화면 위쪽 891x181px 짜리
+    #      얇은 조각(뒷줄 당구대)이 뽑혀 유효 샷이 0개가 됐다 (2026-08-15).
+    #   우리가 치는 대는 카메라 바로 앞이라 화면에서 압도적으로 넓다. 넓이로 고른다.
+    tol = 0.05 * frame0.shape[1]
+    groups, left = [], list(quads)
+    while left:
+        seed = left[0]
+        grp = [q for q in left if _quad_dist(seed, q) <= tol]
+        left = [q for q in left if _quad_dist(seed, q) > tol]
+        groups.append((np.median(np.stack(grp), axis=0).astype(np.float32), len(grp)))
+    groups = [g for g in groups if g[1] >= 2] or groups
+    quad = max(groups, key=lambda g: cv2.contourArea(g[0].astype(np.float32)))[0]
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     return table_detect.warp(frame0, quad, cfg)
 
@@ -146,6 +243,7 @@ def track_video(path: str, table_width: float, table_height: float,
                 last_frame: int | None = None,
                 only: tuple[str, ...] | None = None,
                 keep_tail: bool = False,
+                recheck: int = 15,
                 max_traces: int = 6,
                 max_detections: int | None = None) -> tuple[TopView, list[Track]]:
     """영상 → (상단뷰, 샷 목록).
@@ -163,6 +261,14 @@ def track_video(path: str, table_width: float, table_height: float,
         raise FileNotFoundError(f"영상을 못 열었다: {path}")
 
     top = table_from_quad(cap, quad, cfg) if quad is not None else detect_table(cap, cfg)
+    # ★ 자리를 계속 다시 잡는다 (위 TableLock 주석 참고). recheck=0 이면 옛날처럼 고정.
+    lock = None
+    if recheck:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ok0, frame0 = cap.read()
+        if ok0:
+            lock = TableLock(frame0, cfg, top.quad)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     # ⚠️ 첫 프레임에 공이 없을 수 있다 (촬영 시작 후 공을 놓는 경우).
     #    공이 나올 때까지 넘어가고, 중간에 새로 나타난 공도 새 궤적으로 잡는다.
@@ -206,9 +312,12 @@ def track_video(path: str, table_width: float, table_height: float,
         # ⚠️ 여기서 '공 중심은 쿠션 안쪽에 있을 수 없다'는 물리 제약을 걸면 안 된다.
         #    보정 전 좌표라 쿠션 근처가 몇십 mm 어긋나 있어서, 공이 쿠션에 닿는
         #    바로 그 순간을 통째로 버리게 된다. 제약은 보정 뒤에나 뜻이 있다.
+        if lock is not None and idx % recheck == 0:
+            lock.update(frame)                       # ★ 당구대 자리를 다시 잡는다
+        cur = lock.top if lock is not None else top
         want = only or KNOWN
-        det = [(top.to_mm(b.nx, b.ny, table_width, table_height), b.name)
-               for b in ball_detect.detect(_warp_frame(frame, top), cfg, ball_px)
+        det = [(cur.to_mm(b.nx, b.ny, table_width, table_height), b.name)
+               for b in ball_detect.detect(_warp_frame(frame, cur), cfg, ball_px)
                if b.name in want]
         found = [q for q, _ in det]
         fname = [n for _, n in det]
@@ -270,6 +379,10 @@ def track_video(path: str, table_width: float, table_height: float,
         sys.stdout.write(f"\r  추적 완료 {total:,}프레임  {(time.time()-t0)/60:.1f}분"
                          f"  궤적 {len(traces)}개{' ' * 20}\n")
 
+    if verbose and lock is not None:
+        print("  당구대 자리 다시잡기 — 지도 갱신 %d회 · 옆 대로 보고 버림 %d · 검출실패 %d"
+              % (lock.moves, lock.far_skip, lock.miss))
+
     if ball_diameter_mm:
         calibrate(traces, table_width, table_height, ball_diameter_mm, verbose)
 
@@ -281,7 +394,7 @@ def track_video(path: str, table_width: float, table_height: float,
             s.ball = ball
             shots.append(s)
     shots.sort(key=lambda s: s.start_frame)
-    return top, shots
+    return (lock.top if lock is not None else top), shots
 
 
 def calibrate(traces, w: float, h: float, ball_d: float, verbose: bool = True) -> bool:

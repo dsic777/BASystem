@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 284;
+const MOBILE_VER = 285;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -5801,11 +5801,18 @@ function drawReadout(){
   });
 }
 
+// ★ 보정 바는 다이 **안**에 있어서 경로를 가린다 (사용자 2026-08-15:
+//   '보정 안내 반투명처리(경로가 많이 가립니다.)').
+//   → 뒤판·칸·숫자를 통째로 반투명으로 그린다. 손가락으로 누르는 자리는 그대로다.
+//   ⚠️ 너무 옅으면 숫자를 못 읽는다. 0.45 는 궤적이 비쳐 보이면서 숫자가 읽히는 값.
+const CORR_ALPHA = 0.45;
+
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   // 보정(- 0 +) 은 한 덩어리 금속 바로 보이게 뒤판을 먼저 깐다 (design.png 방향)
   const cb = BTN.filter(b => ['-','0','+'].includes(b.lb));
   if (cb.length === 3){
+    g.save(); g.globalAlpha = CORR_ALPHA;
     const x0 = Math.min(...cb.map(b => b.x)), x1 = Math.max(...cb.map(b => b.x+b.w));
     const y0 = cb[0].y, hh = cb[0].h, pad = hh*0.14;
     const bar = g.createLinearGradient(0, y0-pad, 0, y0+hh+pad);
@@ -5814,6 +5821,7 @@ function drawButtons(){
     g.fillStyle = bar;
     round(x0-pad, y0-pad, x1-x0+pad*2, hh+pad*2, hh*0.30); g.fill();
     g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, hh*0.07); g.stroke();
+    g.restore();
   }
   // ⚠️ 글자에 검은 테두리를 덧그려 굵게 보이게 한다. 캔버스 폰트 굵기는 900 이 최대라
   //    '1100' 같은 값을 쓰면 폰트 지정이 통째로 무효가 된다 (사용자 요청 반영 방식).
@@ -5828,6 +5836,7 @@ function drawButtons(){
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
     const armed = S.place === b.lb;
     const onBar = ['-','0','+'].includes(b.lb);
+    if (onBar){ g.save(); g.globalAlpha = CORR_ALPHA; }   // ★ 위 CORR_ALPHA 주석 참고
     const rnd = b.lb === 'cam' ? Math.max(b.w,b.h)*0.5 : u*0.22;   // 카메라는 원형
     if (onBar){                                    // 바 위 칸 — 살짝 눌린 느낌만
       g.fillStyle = 'rgba(255,255,255,0.55)';
@@ -5943,7 +5952,28 @@ function drawButtons(){
     } else {
       heavy(b.lb, cx, cy, u*0.62, '#f2f4f8');
     }
+    if (onBar) g.restore();
   }
+  drawBrand();
+}
+
+// ★ 회사명 — 촬영 버튼 아래 (사용자 2026-08-15: 'DSLINE 이탤릭체로 넣기 우리회사명입니다').
+//   ⚠️ 버튼이 아니다. 누르는 자리를 만들지 않는다 — 그리기만 한다.
+//   자리가 모자라면 아예 안 그린다. 오른쪽 칸 밖으로 넘치면 로고와 겹친다.
+function drawBrand(){
+  const cam = BTN.find(b => b.lb === 'cam');
+  if (!cam || !PANEL) return;
+  const fs = Math.max(10, cam.w * 0.20);
+  const cy = cam.y + cam.h + fs * 0.90;
+  if (cy + fs*0.6 > PANEL.y + PANEL.h) return;
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = 'italic 900 ' + Math.round(fs) + 'px Georgia, "Times New Roman", serif';
+  g.lineJoin = 'round';
+  g.strokeStyle = 'rgba(10,12,16,0.90)'; g.lineWidth = Math.max(2, fs*0.24);
+  g.strokeText('DSLINE', cam.x + cam.w/2, cy);
+  g.fillStyle = '#c9d2e0'; g.fillText('DSLINE', cam.x + cam.w/2, cy);
+  g.restore();
 }
 function bwLine(){ return Math.round(BW * 0.05); }
 function round(x,y,w,h,r){

@@ -355,7 +355,30 @@ def find_corners(img: np.ndarray, cfg: dict) -> np.ndarray:
     if not cnts:
         raise TableNotFound("천 색 영역을 못 찾았다 (data/vision.json 의 cloth_hsv 확인)")
 
-    reasons = []
+    quads, reasons = _corner_candidates(img, mask, cnts, cfg)
+    if quads:
+        return quads[0]
+    raise TableNotFound("쓸 만한 당구대를 못 찾았다 — " + " / ".join(reasons or ["후보 없음"]))
+
+
+def find_corners_all(img: np.ndarray, cfg: dict) -> list[np.ndarray]:
+    """★ 후보를 **전부** 돌려준다 (큰 천 덩어리 순서).
+
+    ⚠️ 2026-08-15 사용자 지적으로 넣었다 — 당구장에는 당구대가 두세 개 보이고,
+       find_corners 는 큰 것부터 **하나만** 골라 준다. 영상 한 편 안에서도
+       프레임마다 다른 대를 고르는 일이 있었다 (같은 영상에서 코너가 1400px 튐).
+       고르는 일은 부르는 쪽이 해야 한다 — 영상이면 '지금까지 보던 대' 가 기준이고,
+       사진이면 '공이 놓인 대' 가 기준이다. 여기서는 후보만 늘어놓는다.
+    """
+    mask = _cloth_mask(img, cfg)
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return []
+    return _corner_candidates(img, mask, cnts, cfg)[0]
+
+
+def _corner_candidates(img, mask, cnts, cfg) -> tuple[list[np.ndarray], list[str]]:
+    quads, reasons = [], []
     for cnt in sorted(cnts, key=cv2.contourArea, reverse=True)[:3]:
         if cv2.contourArea(cnt) < mask.size * 0.02:
             break                                   # 너무 작으면 당구대가 아니다
@@ -364,8 +387,8 @@ def find_corners(img: np.ndarray, cfg: dict) -> np.ndarray:
         except TableNotFound as e:
             reasons.append(str(e))
             continue
-        return _pick_orientation(img, quad, cfg)
-    raise TableNotFound("쓸 만한 당구대를 못 찾았다 — " + " / ".join(reasons or ["후보 없음"]))
+        quads.append(_pick_orientation(img, quad, cfg))
+    return quads, reasons
 
 
 def _pick_orientation(img: np.ndarray, quad: np.ndarray, cfg: dict) -> np.ndarray:
