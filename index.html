@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 283;
+const MOBILE_VER = 284;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3526,6 +3526,14 @@ function scoresAt(a, k){
 //   3.jpg 는 손으로 그린 길인데 앱이 **이전 팁을 그대로 들고 있어서** 틀렸다.
 //   '이런것도 진행경로를 보고 팁을 자동으로 조정해야 합니다.'
 //
+//   ⚠️⚠️ 2026-08-15 사용자 7.jpg — **1쿠션만 보고 강제하면 안 된다.**
+//     '이것도 많이 사용하는 길인데 공의 시작(1쿠션)은 역각입니다.
+//      그런데 순각(2쿠션)으로 바뀝니다.'
+//     역각으로 시작하는 길도 실전에서 많이 쓴다. 1쿠션을 순방향으로 못박으면
+//     그 길을 손으로 그려도 앱이 팁을 뒤집어 버린다 (v283 이 그랬다).
+//   → **한 방향으로만 도는 길일 때만** 건다. 쿠션마다 흐른 쪽이 다르면 손대지 않는다.
+//     3.jpg(한 방향)는 고쳐지고, 7.jpg(지그재그)는 사용자가 준 팁 그대로 둔다.
+//
 //   ★ 앱은 이미 쿠션마다 '흐른 쪽'(sIn)을 센다. 한 방향으로 도는 길이면 sIn 이 늘 같다.
 //     순방향 = 회전이 미는 쪽(e = tipH 부호)이 그 sIn 과 같은 것.
 //     그래서 **tipH 의 부호를 첫 쿠션의 sIn 에 맞추면** 저절로 순방향이 된다.
@@ -3546,10 +3554,18 @@ function autoTipSide(){
     if (!q.length) return false;
     from = P; first = q[0];
   }
-  const n = RAILS[first.rail], tg = [-n[1], n[0]];
-  const d = [first.p[0]-from[0], first.p[1]-from[1]];
-  const sIn = (d[0]*tg[0] + d[1]*tg[1]) >= 0 ? 1 : -1;
-  const want = sIn;                       // 순방향 = e 가 sIn 과 같은 쪽
+  // 쿠션마다 흐른 쪽을 다 센다 — 하나라도 다르면 한 방향으로 도는 길이 아니다.
+  const seq = (cut.hit && cut.pts.length === 2) ? [first] : hits;
+  let prev = from, want = 0;
+  for (const h of seq){
+    const nh = RAILS[h.rail], tgh = [-nh[1], nh[0]];
+    const dh = [h.p[0]-prev[0], h.p[1]-prev[1]];
+    const si = (dh[0]*tgh[0] + dh[1]*tgh[1]) >= 0 ? 1 : -1;
+    prev = h.p;
+    if (want === 0) want = si;
+    else if (want !== si) return false;   // ★ 7.jpg 처럼 도는 쪽이 바뀌는 길 — 손대지 않는다
+  }
+  if (want === 0) return false;           // 순방향 = e 가 흐른 쪽과 같은 것
   if (Math.sign(S.tipH) === want) return false;
   S.tipH = Math.abs(S.tipH) * want;       // 세기는 그대로, 쪽만 바꾼다
   S.tipR = Math.min(3, Math.hypot(S.tipH, S.tipV));
