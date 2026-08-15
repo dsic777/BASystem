@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 281;
+const MOBILE_VER = 283;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -259,6 +259,42 @@ function revStrength(v, ain){
   const hi = REV_TAB[i1][j0] + (REV_TAB[i1][j1] - REV_TAB[i1][j0]) * fv;
   return lo + (hi - lo) * fa;
 }
+// ★★★ 다이 계수 — 이 다이는 표준표보다 **덜 벌어진다** (실측 2026-08-15)
+//   사용자: '나는 9시30분 3팁을 친건데 다이가 짧게 떨어지는 겁니다.
+//            일단 지금 우리앱은 이것을 기준을 잡아 주세요.
+//            다음버전에서는 정상적인 국제식대대 기준으로 개선할 생각입니다.'
+//
+//   원쿠션걸어치기 보정용.mp4 · 24샷 59접점 · 9시30분 3팁 (좌우 2.9팁)
+//     입사    실측 넓힘   앱 넓힘   계수    개수   속도
+//      9.3도   +19.6도   +23.8도   0.82     4   1.54m/s
+//     15.6     +19.2     +28.6     0.67    12   1.39
+//     20.6     +18.5     +29.2     0.63    14   0.99
+//     51.1      -3.4     +13.6    -0.25    12   0.91
+//     59.5      -8.4     +10.5    -0.80    13   1.07
+//     70.0      +3.8      +8.9     0.42     4   1.87
+//
+//   계수 = 실측이 거울에서 벗어난 각 ÷ 앱이 내는 각.
+//   1 이면 앱이 맞고, 작을수록 앱이 과하다. 음수면 거울보다 **좁게** 나간다.
+//
+//   ⚠️ CLAUDE.md 구조 그대로다 — 표준표(0808)는 그대로 두고 **이 다이의 편차만** 곱한다.
+//      다이가 바뀌면 이 표 하나만 갈아 끼우면 된다.
+//   ⚠️ 25~45도 구간은 이 영상에 **자료가 없다.** 양옆을 이어 두었다.
+//   ⚠️ 70도(계수 0.42)는 표본 4개뿐이고 60도(-0.80)와 어긋난다. 속도도 1.87m/s 로 빠르다.
+//      더 찍기 전까지는 60~90도를 이어서 완만하게 둔다.
+//   ⚠️ 무회전 자료는 이 다이에서 아직 없다. 지금은 자연회전에도 같은 계수를 건다.
+// ⚠️ 2026-08-15 — 한때 이 다이가 덜 벌어진다고 보고 계수를 넣었다가 되돌렸다.
+//    원인은 계수가 아니라 **순·역 판정**이었다 (아래 autoTipSide 주석 참고).
+//    다이 계수가 정말 필요하면 여기에 넣는다. 지금은 1 (그대로 통과).
+const RAIL_G = [[0, 1], [90, 1]];
+function railGain(ain){
+  const t = RAIL_G, x = Math.abs(ain);
+  if (x <= t[0][0]) return t[0][1];
+  for (let i = 0; i < t.length-1; i++)
+    if (x <= t[i+1][0])
+      return t[i][1] + (t[i+1][1]-t[i][1]) * (x-t[i][0]) / (t[i+1][0]-t[i][0]);
+  return t[t.length-1][1];
+}
+
 function bend(d, rail, k, E, vIn){
   const n = RAILS[rail], tg = [-n[1], n[0]];
   const dn = d[0]*n[0] + d[1]*n[1], dt = d[0]*tg[0] + d[1]*tg[1];
@@ -327,7 +363,12 @@ function bend(d, rail, k, E, vIn){
     const w    = Math.min(1, ain / AIN_HEADON);          // 정면이면 0
     signed = sIn * ain * keep * w + signed * (1 - w);
   }
-  const mag = Math.min(Math.abs(signed), 89.9), sOut = signed >= 0 ? 1 : -1;
+  // ★ 다이 계수 — 거울에서 벗어난 몫에 곱한다 (위 RAIL_G 주석 참고).
+  //   실측 = 거울 + (앱이 낸 벗어남) × 계수.  그래서 이 한 줄로 실측을 그대로 낸다.
+  const sOut0 = signed >= 0 ? 1 : -1;
+  const mag0 = Math.min(Math.abs(signed), 89.9);
+  const mag = Math.max(0, Math.min(89.9, ain + (mag0 - ain) * railGain(ain)));
+  const sOut = sOut0;
   const r = mag * Math.PI/180;
   return [[n[0]*Math.cos(r) + tg[0]*sOut*Math.sin(r),
            n[1]*Math.cos(r) + tg[1]*sOut*Math.sin(r)], ain, mag];
@@ -3475,6 +3516,47 @@ function scoresAt(a, k){
           thick: af.thick, kiss: !!kissAt(P, af, cut2.pts, cut1.obj)};
 }
 
+// ★★★ 좌우 팁은 **도는 방향**이 정한다 (사용자 2026-08-15) —
+//   '시계방향으로 순 역을 판단하면 안 되요. 수구와 쿠션 또는 1적구를 기준으로
+//    좌든 우든 **돌아가는 방향으로 회전을 주면 그것이 순방향**입니다.'
+//   사용자 그림 —
+//     2.jpg  반시계로 도는 길 + 9시30분(좌)  →  순방향  맞다
+//     3.jpg  시계로 도는 길   + 9시30분(좌)  →  역방향  **틀렸다**
+//     4.jpg  시계로 도는 길   + 2시30분(우)  →  순방향  맞다
+//   3.jpg 는 손으로 그린 길인데 앱이 **이전 팁을 그대로 들고 있어서** 틀렸다.
+//   '이런것도 진행경로를 보고 팁을 자동으로 조정해야 합니다.'
+//
+//   ★ 앱은 이미 쿠션마다 '흐른 쪽'(sIn)을 센다. 한 방향으로 도는 길이면 sIn 이 늘 같다.
+//     순방향 = 회전이 미는 쪽(e = tipH 부호)이 그 sIn 과 같은 것.
+//     그래서 **tipH 의 부호를 첫 쿠션의 sIn 에 맞추면** 저절로 순방향이 된다.
+//     세기(팁수)는 건드리지 않는다 — 사용자가 정한 값 그대로 둔다.
+function autoTipSide(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim || !Math.abs(S.tipH)) return false;
+  let hits = null;
+  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ return false; }
+  if (!hits || !hits.length) return false;
+  const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
+  // 공을 먼저 맞히는 길이면 충돌 뒤 첫 쿠션으로 본다
+  let from = cue.p, first = hits[0];
+  if (cut.hit && cut.pts.length === 2){
+    const P = cut.pts[1], af = afterHit(cut.from, P, cut.obj);
+    if (!af) return false;
+    const q = roll(P, af.dir, 1, 0);
+    if (!q.length) return false;
+    from = P; first = q[0];
+  }
+  const n = RAILS[first.rail], tg = [-n[1], n[0]];
+  const d = [first.p[0]-from[0], first.p[1]-from[1]];
+  const sIn = (d[0]*tg[0] + d[1]*tg[1]) >= 0 ? 1 : -1;
+  const want = sIn;                       // 순방향 = e 가 sIn 과 같은 쪽
+  if (Math.sign(S.tipH) === want) return false;
+  S.tipH = Math.abs(S.tipH) * want;       // 세기는 그대로, 쪽만 바꾼다
+  S.tipR = Math.min(3, Math.hypot(S.tipH, S.tipV));
+  S.tipDir = ((Math.round(Math.atan2(S.tipH, S.tipV) / (Math.PI/12)) % 24) + 24) % 24;
+  return true;
+}
+
 function snapAim(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return false;
@@ -3520,6 +3602,7 @@ function snapAim(){
   const a = (lo + hi)/2;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
   S.snapA = a;                       // 이 각에서 벗어나야 다시 붙는다
+  autoTipSide();                     // ★ 도는 방향에 맞춰 좌우 팁을 잡는다 (위 주석)
   S.lockRails = (got.rails || []).join('-');   // 당점을 바꿔도 이 회로를 지킨다
   S.rblink = nowMs();                // ★ 3초 깜빡임
   S.routeIx = -1;
