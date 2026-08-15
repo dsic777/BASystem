@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 286;
+const MOBILE_VER = 287;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3388,6 +3388,9 @@ function verBar(){
   }
   return null;
 }
+// ★ 점수판 칸의 **채움** 투명도 (사용자 2026-08-15). 선과 글자는 100% 다.
+const VER_ALPHA = 0.22;
+
 function drawVerBar(){
   VER_HIT = verBar() || [];
   if (!VER_HIT.length) return;
@@ -3403,8 +3406,14 @@ function drawVerBar(){
     g.beginPath();
     if (g.roundRect) g.roundRect(b.x+1, b.y, b.w-2, b.h, h*0.22);
     else g.rect(b.x+1, b.y, b.w-2, b.h);
-    g.fillStyle = on ? col : soft ? 'rgba(200,162,58,0.28)' : 'rgba(16,19,24,0.80)';
+    // ★ 사용자 2026-08-15: '점수판 박스 배경만 투명하게 해 주세요. 궤적이 보이게.'
+    //   채움만 옅게 하고 테두리·글자는 그대로 둔다. 고른 칸은 눈에 띄어야 하므로
+    //   덜 투명하게 (0.55) — 안 고른 칸이 배경이고, 고른 칸은 표시다.
+    g.save();
+    g.globalAlpha = on ? 0.55 : VER_ALPHA;
+    g.fillStyle = on ? col : 'rgba(16,19,24,1)';
     g.fill();
+    g.restore();
     // ★ 사용자 2026-08-14: '검은테두리 핑크' — 고른 칸에서 검정을 다 핑크로
     g.strokeStyle = on ? '#ff5fa8' : 'rgba(226,232,240,0.45)';
     g.lineWidth = Math.max(2, h*0.06); g.stroke();
@@ -5803,25 +5812,28 @@ function drawReadout(){
 
 // ★ 보정 바는 다이 **안**에 있어서 경로를 가린다 (사용자 2026-08-15:
 //   '보정 안내 반투명처리(경로가 많이 가립니다.)').
-//   ★ 사용자 정정 2026-08-15: '글자와 - + 는 그대로 두세요. 배경 버튼만 반투명,
-//     조금 더 투명하게 하세요.'
-//   → **뒤판과 칸(배경)만** 옅게 하고 숫자·부호는 100% 로 그린다.
-//     그래야 궤적이 훨씬 잘 보이면서 값은 또렷하게 읽힌다.
-const CORR_ALPHA = 0.28;
+//   ★ 사용자 정정 2026-08-15 (두 번째): '외곽박스 내부박스 선은 선명하게,
+//     내부 배경만 투명하게. 점수판과 같이. 그러면 숫자 부호 등도 검은 테두리에
+//     흰 글씨라야 겠네요 — 궤적이 아래로 깔릴 경우 글씨와 중복이 될 테니.'
+//   → **채움(배경)만** 옅게. 테두리 선과 글자는 100% 다.
+//     글자는 heavy() 가 이미 검은 테두리 + 흰 글씨로 그린다 (궤적 위에서도 읽힌다).
+const CORR_ALPHA = 0.22;
 
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   // 보정(- 0 +) 은 한 덩어리 금속 바로 보이게 뒤판을 먼저 깐다 (design.png 방향)
   const cb = BTN.filter(b => ['-','0','+'].includes(b.lb));
   if (cb.length === 3){
-    g.save(); g.globalAlpha = CORR_ALPHA;
+    g.save();
     const x0 = Math.min(...cb.map(b => b.x)), x1 = Math.max(...cb.map(b => b.x+b.w));
     const y0 = cb[0].y, hh = cb[0].h, pad = hh*0.14;
     const bar = g.createLinearGradient(0, y0-pad, 0, y0+hh+pad);
     bar.addColorStop(0, '#e9edf3'); bar.addColorStop(0.5, '#b9c0cb');
     bar.addColorStop(1, '#8f97a4');
+    round(x0-pad, y0-pad, x1-x0+pad*2, hh+pad*2, hh*0.30);
     g.fillStyle = bar;
-    round(x0-pad, y0-pad, x1-x0+pad*2, hh+pad*2, hh*0.30); g.fill();
+    g.globalAlpha = CORR_ALPHA; g.fill();        // ★ 채움만 옅게
+    g.globalAlpha = 1;                           // ★ 외곽 선은 선명하게
     g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(2, hh*0.07); g.stroke();
     g.restore();
   }
@@ -5838,13 +5850,13 @@ function drawButtons(){
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
     const armed = S.place === b.lb;
     const onBar = ['-','0','+'].includes(b.lb);
-    if (onBar){ g.save(); g.globalAlpha = CORR_ALPHA; }   // ★ 위 CORR_ALPHA 주석 참고
     const rnd = b.lb === 'cam' ? Math.max(b.w,b.h)*0.5 : u*0.22;   // 카메라는 원형
-    if (onBar){                                    // 바 위 칸 — 살짝 눌린 느낌만
-      g.fillStyle = 'rgba(255,255,255,0.55)';
-      round(b.x,b.y,b.w,b.h,u*0.26); g.fill();
-      g.strokeStyle = 'rgba(15,17,20,0.55)'; g.lineWidth = Math.max(1.5, u*0.035); g.stroke();
-      g.restore();                                 // ★ 여기서 되돌린다 — 숫자는 100% 로
+    if (onBar){                                    // 바 위 칸 — 채움만 옅게, 선은 선명
+      round(b.x,b.y,b.w,b.h,u*0.26);
+      g.save();
+      g.fillStyle = '#ffffff'; g.globalAlpha = CORR_ALPHA; g.fill();
+      g.restore();
+      g.strokeStyle = '#0f1114'; g.lineWidth = Math.max(1.8, u*0.05); g.stroke();
     } else {
       const face = g.createLinearGradient(0, b.y, 0, b.y+b.h);
       if (b.lb === 'cam'){ face.addColorStop(0,'#f2f5f9'); face.addColorStop(0.5,'#c6cdd8');

@@ -87,7 +87,8 @@ def fit_dir(pts, i0, i1):
     return d / (np.linalg.norm(d) or 1)
 
 
-def pair_shots(shots, fps, ball_d, gap: int = GAP):
+def pair_shots(shots, fps, ball_d, gap: int = GAP,
+               cue_color: str = "white", obj_color: str = "red"):
     """시간이 겹치는 (흰공, 빨간공) 궤적을 묶는다.
 
     ★ 사용자 확정 2026-08-10: **흰공 = 수구, 빨간공 = 1적구.**
@@ -99,10 +100,16 @@ def pair_shots(shots, fps, ball_d, gap: int = GAP):
     """
     ok = [s for s in shots
           if len(s.points) >= MIN_POINTS and s.peak_speed / 1000.0 >= MIN_SPEED]
-    cue_all = sorted((s for s in ok if s.ball == "white"), key=lambda s: s.start_frame)
-    obj_all = sorted((s for s in ok if s.ball == "red"), key=lambda s: s.start_frame)
+    # ★ 수구 색은 촬영마다 다르다 (사용자 2026-08-15 B 촬영은 **노란공이 수구**였다).
+    #   --cue / --obj 로 못 박는다. 안 주면 예전대로 흰공·빨간공.
+    cue_all = sorted((s for s in ok if s.ball == cue_color), key=lambda s: s.start_frame)
+    obj_all = sorted((s for s in ok if s.ball == obj_color), key=lambda s: s.start_frame)
     if not cue_all or not obj_all:
-        print(f"  ⚠️ 색이 안 붙었다 — 흰공 궤적 {len(cue_all)}개, 빨간공 궤적 {len(obj_all)}개")
+        seen = {}
+        for x in ok:
+            seen[x.ball] = seen.get(x.ball, 0) + 1
+        print(f"  ⚠️ 색이 안 붙었다 — 수구({cue_color}) {len(cue_all)}개, "
+              f"1적구({obj_color}) {len(obj_all)}개.  잡힌 색: {seen}")
         return []
     used, out = set(), []
     for a in cue_all:                       # 흰공 = 수구
@@ -294,7 +301,12 @@ def main(argv):
     gap = int(argv[argv.index("--gap") + 1]) if "--gap" in argv else GAP
     t_from = float(argv[argv.index("--from") + 1]) if "--from" in argv else 0.0
     t_to = float(argv[argv.index("--to") + 1]) if "--to" in argv else None
-    ball_kr = {"노란공": "yellow", "노랑": "yellow", "흰공": "white", "빨간공": "red"}
+    ball_kr = {"노란공": "yellow", "노랑": "yellow", "흰공": "white", "빨간공": "red",
+               "빨강": "red", "흰": "white"}
+    cue_color = ball_kr.get(argv[argv.index("--cue") + 1].strip(),
+                            argv[argv.index("--cue") + 1].strip().lower())         if "--cue" in argv else "white"
+    obj_color = ball_kr.get(argv[argv.index("--obj") + 1].strip(),
+                            argv[argv.index("--obj") + 1].strip().lower())         if "--obj" in argv else "red"
     only = None
     if "--ball" in argv:
         only = tuple(ball_kr.get(n.strip(), n.strip().lower())
@@ -330,7 +342,7 @@ def main(argv):
                                     max_traces=2)
     print(f"궤적 {len(shots)}개 검출")
 
-    pairs = pair_shots(shots, fps, table.ball_diameter, gap)
+    pairs = pair_shots(shots, fps, table.ball_diameter, gap, cue_color, obj_color)
     print(f"두 공이 같이 움직인 쌍 {len(pairs)}개")
 
     rows = []

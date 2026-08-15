@@ -123,63 +123,219 @@ def _cluster_pick(quads: list, tol: float) -> tuple[np.ndarray, int]:
     return np.median(np.stack(best), axis=0).astype(np.float32), len(best)
 
 
-class TableLock:
-    """★ 당구대 자리를 **영상 내내 다시 잡는다** (사용자 2026-08-15).
+def quad_aspect(quad, shape) -> float | None:
+    """★ 네 코너만으로 **실제 가로세로비**를 구한다 (초점거리를 몰라도 된다).
 
-    사용자 설명 —
+    Zhang 의 화이트보드 복원 공식이다. table_detect._camera_pos 가 쓰는 것과 같은
+    수식이고, 거기서 f 를 구한 뒤 한 걸음 더 가면 비율이 나온다.
+
+    ⚠️ 2026-08-15 — 이것 때문에 넣었다. 장쿠션과 단쿠션이 뒤바뀐 코너를
+       모양으로도 색으로도 못 걸렀다 (눌린 그림 안의 다이아몬드·반사광이
+       '동그랗고 제 크기' 로 보인다). 그런데 **비율은 못 속인다** —
+       당구대는 2:1 이고, 한 칸 돌아간 코너는 0.5:1 로 나온다.
+    """
+    p = np.asarray(quad, float)
+    if p.shape != (4, 2):
+        return None
+    h, w = shape[:2]
+    u0, v0 = w / 2.0, h / 2.0
+    m1 = np.array([p[0][0], p[0][1], 1.0])
+    m2 = np.array([p[1][0], p[1][1], 1.0])
+    m3 = np.array([p[3][0], p[3][1], 1.0])
+    m4 = np.array([p[2][0], p[2][1], 1.0])
+    d2 = float(np.dot(np.cross(m2, m4), m3))
+    d3 = float(np.dot(np.cross(m3, m4), m2))
+    if abs(d2) < 1e-9 or abs(d3) < 1e-9:
+        return None
+    n2 = np.dot(np.cross(m1, m4), m3) / d2 * m2 - m1
+    n3 = np.dot(np.cross(m1, m4), m2) / d3 * m3 - m1
+    den = n2[2] * n3[2]
+    if abs(den) < 1e-12:
+        return None
+    f2 = -((n2[0] - n2[2]*u0) * (n3[0] - n3[2]*u0)
+           + (n2[1] - n2[2]*v0) * (n3[1] - n3[2]*v0)) / den
+    if not np.isfinite(f2) or f2 <= 1.0:
+        return None
+    def sq(n):
+        return ((n[0] - n[2]*u0)**2 + (n[1] - n[2]*v0)**2) / f2 + n[2]**2
+    b = sq(n3)
+    if b <= 1e-12:
+        return None
+    r = float(np.sqrt(sq(n2) / b))
+    return r if np.isfinite(r) and r > 0 else None
+
+
+def _ref_score(frame, quad, cfg) -> float:
+    """이 코너로 펴면 공이 **동그랗고 제 크기로** 나오나. 작을수록 좋다 (못 쓰면 9.9).
+
+    ⚠️ 2026-08-15 — 동그람만 보면 속는다. 쿠션의 **다이아몬드(흰 점)** 도 동그랗다.
+       B 영상에서 다이의 1/3 만 덮는 코너가 뽑혔는데, 확대된 다이아몬드가
+       공 크기로 보여 점수 0.000 이 나왔다 (완벽하다는 뜻이라 그게 뽑혔다).
+       → 크기도 같이 본다. 상단뷰에서 공은 지름이 정해져 있다.
+         제 크기가 아니면 다이를 통째로 못 편 것이다.
+    """
+    # ★ 먼저 비율로 가른다 — 당구대는 2:1 이다 (위 quad_aspect 주석 참고).
+    ar = quad_aspect(quad, frame.shape)
+    if ar is None or not (1.45 <= ar <= 2.75):
+        return 9.9
+    try:
+        top = table_detect.warp(frame, np.asarray(quad, np.float32), cfg)
+    except Exception:
+        return 9.9
+    im = _warp_frame(frame, top)
+    h, w = im.shape[:2]
+    hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
+    cloth = cv2.inRange(hsv, tuple(cfg["cloth_hsv"]["lower"]),
+                        tuple(cfg["cloth_hsv"]["upper"]))
+    cnts, _ = cv2.findContours(cloth, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return 9.9
+    inside = np.zeros_like(cloth)
+    cv2.drawContours(inside, [max(cnts, key=cv2.contourArea)], -1, 255, -1)
+    blobs = cv2.bitwise_and(cv2.bitwise_not(cloth), inside)
+    blobs = cv2.morphologyEx(blobs, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    n, _l, st, _c = cv2.connectedComponentsWithStats(blobs, 8)
+    ball = w / 2448.0 * 61.5                       # 상단뷰에서 공 지름 (px)
+    got = []
+    for i in range(1, n):
+        bw = int(st[i, cv2.CC_STAT_WIDTH]); bh = int(st[i, cv2.CC_STAT_HEIGHT])
+        if not (ball * 0.45 <= bw <= ball * 2.2 and ball * 0.45 <= bh <= ball * 2.2):
+            continue
+        if int(st[i, cv2.CC_STAT_AREA]) < ball * ball * 0.2:
+            continue
+        d = (bw + bh) / 2.0
+        got.append(abs(np.log(bw / max(bh, 1))) + abs(np.log(d / ball)))
+    if len(got) < 2:                               # 공이 둘은 보여야 다이를 다 편 것이다
+        return 9.9
+    # ★★ 마지막 관문 — **색으로** 공을 확인한다 (2026-08-15).
+    #   ⚠️ 모양·크기만 보면 계속 속는다. 장쿠션과 단쿠션이 뒤바뀐 코너가
+    #      점수 0.217 로 뽑혔다 (제대로 편 것은 0.685 였다). 눌린 그림 안에서
+    #      쿠션 다이아몬드와 반사광이 '동그랗고 제 크기' 로 보였기 때문이다.
+    #   공은 흰·노랑·빨강이다. 다이아몬드도 반사광도 그 색이 아니다.
+    #   ball_detect 는 색으로 가리므로 여기서 한 번 더 거른다.
+    try:
+        found = ball_detect.detect(im, cfg, ball)
+    except Exception:
+        return 9.9
+    named = [b for b in found if b.name in ("white", "yellow", "red")]
+    if not named:                                  # 공이 하나도 색으로 안 잡히면 못 쓴다
+        return 9.9
+    return float(np.median(sorted(got)[:3]))
+
+
+def best_reference(cap: cv2.VideoCapture, cfg: dict, samples: int = 24,
+                   min_area: float = 0.10):
+    """★ 기준 프레임 하나를 고른다 — **공이 동그랗게 펴지는** 코너가 맞는 코너다.
+
+    ⚠️ 2026-08-15 — 자동 검출은 프레임마다 엉뚱한 것을 짚는다. 옆 당구대를 잡기도 하고,
+       코너를 잘못 짚어 편 그림이 기울기도 한다 (공이 타원이 된다).
+       '가장 큰 것' · '가장 넓은 것' 으로 골랐더니 둘 다 틀렸다.
+       _roundness 가 이미 답을 갖고 있었다 — 잘못 편 그림에서는 공이 타원이 된다.
+       프레임 여러 장 × 후보 여러 개를 전부 점수 매겨 **가장 동그란 하나**를 고른다.
+    """
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+    best = None
+    for k in range(samples):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (k + 0.5) / samples))
+        ok, fr = cap.read()
+        if not ok:
+            continue
+        area = fr.shape[0] * fr.shape[1]
+        for q0 in table_detect.find_corners_all(fr, cfg):
+            if cv2.contourArea(q0.astype(np.float32)) < area * min_area:
+                continue                       # 너무 작으면 배경의 옆 당구대다
+            # ★ 장쿠션/단쿠션이 뒤바뀐 채로 올 수 있다 — **두 방향 다** 시험한다.
+            #   ⚠️ find_corners 안의 _pick_orientation 이 이미 한 번 고르지만
+            #      속는다. B 영상(87% 두께)에서 한 칸 돌아간 코너가 나와
+            #      단쿠션이 긴 변으로 펴졌다 (공이 하나도 안 잡혔다).
+            #      여기서는 공 크기까지 보므로 더 잘 가린다.
+            q1 = np.asarray([q0[1], q0[2], q0[3], q0[0]], np.float32)
+            for q in (np.asarray(q0, np.float32), q1):
+                r = _ref_score(fr, q, cfg)
+                if r >= 9.8:
+                    continue
+                if best is None or r < best[0]:
+                    best = (r, fr.copy(), q)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    if best is None:
+        raise table_detect.TableNotFound("기준 프레임을 못 골랐다")
+    return best[1], best[2], best[0]
+
+
+class CameraLock:
+    """★ 당구대를 매번 새로 찾지 않는다 — **카메라가 얼마나 움직였는지**를 잰다.
+
+    사용자 2026-08-15 —
       '카메라가 움직이는 이유는, 가이드를 핸드폰으로 확인하고 다시 삼각대에 거는데,
-       가이드를 볼 때마다 핸드폰을 삼각대에서 분리하고 다시 걸 때 위치를 조정하니
-       그때 움직인 겁니다. 그러니 매번 위치를 찾는 것이 맞습니다.'
-      '카메라로 매번 서서 움직이면서 찍을 때도 공 위치 거의 맞아요. 왜 그것을 안 쓰죠?'
+       걸 때 위치를 다시 조정하니 그때 움직인 겁니다. 매번 위치를 찾는 것이 맞습니다.'
 
-    맞는 지적이다. 앱의 촬영 기능은 **사진 한 장마다** 당구대를 다시 잡고 잘 된다.
-    영상만 파일당 한 번 잡고 끝까지 썼다. 그래서 삼각대에 다시 걸 때마다 어긋났다.
-    코너 검출은 15ms 라 15프레임마다 다시 잡아도 비용이 없다시피 하다.
+    당구대는 안 움직인다. 움직이는 것은 카메라 하나다. 그러니 프레임마다 당구대를
+    새로 **찾을** 것이 아니라, 기준 화면과 지금 화면을 맞춰 카메라가 얼마나 움직였는지
+    재고 그만큼 코너를 옮기면 된다. 바닥 체크무늬·쿠션 다이아몬드가 그대로 있어서
+    맞추기 쉽다.
 
-    두 가지를 가른다 —
-      가까운 후보로 옮겨간다        삼각대에 다시 건 것. 그대로 따라간다
-      먼 후보뿐이다                 옆 당구대일 수 있다. 연속으로 확인돼야 옮긴다
+    ⚠️ 앞서 두 번 틀렸다 —
+       ① 프레임마다 당구대를 다시 **찾게** 했더니 검출 떨림까지 좌표에 실려
+          궤적이 조각나고 유효 샷이 0개가 됐다 (458번 따라감).
+       ② '가장 넓은 무리' 로 골랐더니 코너를 잘못 짚어 편 그림이 통째로 기울었다.
+       찾는 것이 아니라 **따라가는** 것이 맞다. 기준은 한 번만 정한다.
     """
 
-    def __init__(self, frame, cfg, quad, jump_ratio: float = 0.30, keep: int = 7,
-                 move_px: float = 6.0):
+    def __init__(self, ref_frame, ref_quad, cfg, scale: float = 0.5,
+                 min_inliers: int = 30, keep: int = 5, move_px: float = 4.0):
         self.cfg = cfg
-        self.quad = np.asarray(quad, np.float32)
-        self.top = table_detect.warp(frame, self.quad, cfg)
-        self.far = jump_ratio * frame.shape[1]      # 이보다 멀면 **다른 당구대**다
-        self.keep = keep                            # 최근 몇 번을 모아 중앙값을 낼까
-        self.move_px = move_px                      # 이만큼 움직여야 지도를 다시 만든다
+        self.scale = scale
+        self.min_inliers = min_inliers
+        self.keep, self.move_px = keep, move_px
+        self.ref_quad = np.asarray(ref_quad, np.float32)
+        self.quad = self.ref_quad.copy()
+        self.top = table_detect.warp(ref_frame, self.quad, cfg)
+        self.ref_area = abs(cv2.contourArea(self.ref_quad))
+        self.limit = 0.35 * ref_frame.shape[1]      # 이보다 멀리 옮겨지면 못 믿는다
+        self._orb = cv2.ORB_create(3000)
+        self._bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        self._kp0, self._des0 = self._orb.detectAndCompute(self._gray(ref_frame), None)
         self._buf: list = []
-        self.moves = 0                              # 지도를 다시 만든 횟수
-        self.far_skip = 0                           # 옆 대로 보고 **버린** 횟수
-        self.miss = 0                               # 검출 실패 횟수
+        self.moves = 0          # 지도를 다시 만든 횟수
+        self.weak = 0           # 짝이 모자라 건너뛴 횟수
+        self.wild = 0           # 말이 안 되는 결과라 버린 횟수
+
+    def _gray(self, frame):
+        g0 = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if self.scale != 1.0:
+            g0 = cv2.resize(g0, None, fx=self.scale, fy=self.scale)
+        return g0
 
     def update(self, frame) -> None:
-        """★ 흔들림은 버리고 진짜 이동만 따라간다.
-
-        ⚠️ 처음에는 가까운 후보가 나올 때마다 곧바로 따라갔다. 458번 따라갔고
-           **유효 샷이 0개**가 됐다 — 검출이 프레임마다 몇 px 씩 떨리는데
-           그 떨림을 전부 좌표에 실어 궤적이 조각났다.
-           최근 몇 번을 모아 **중앙값**을 쓰고, 그 중앙값이 뚜렷하게 움직였을 때만
-           지도를 다시 만든다.
-
-        ⚠️ 멀리 있는 후보(옆 당구대)로는 **아예 갈아타지 않는다.** 처음에 잡은 대가
-           공이 놓인 대이고, 삼각대에 다시 거는 정도로는 화면 폭의 30% 를 넘지 않는다.
-           갈아타면 그 뒤 좌표가 통째로 못 쓰게 되므로, 의심스러우면 그냥 버린다.
-        """
-        cands = table_detect.find_corners_all(frame, self.cfg)
-        if not cands:
-            self.miss += 1
+        if self._des0 is None:
             return
-        near = min(cands, key=lambda q: _quad_dist(q, self.quad))
-        if _quad_dist(near, self.quad) > self.far:
-            self.far_skip += 1
+        kp, des = self._orb.detectAndCompute(self._gray(frame), None)
+        if des is None or len(des) < self.min_inliers:
+            self.weak += 1
             return
-        self._buf.append(np.asarray(near, np.float32))
+        m = self._bf.match(self._des0, des)
+        if len(m) < self.min_inliers:
+            self.weak += 1
+            return
+        m = sorted(m, key=lambda x: x.distance)[:400]
+        src = np.float32([self._kp0[x.queryIdx].pt for x in m]).reshape(-1, 1, 2)
+        dst = np.float32([kp[x.trainIdx].pt for x in m]).reshape(-1, 1, 2)
+        H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 3.0)
+        if H is None or int(mask.sum()) < self.min_inliers:
+            self.weak += 1
+            return
+        # 반쪽 크기에서 구한 변환이라 원래 크기로 되돌린다
+        S = np.diag([self.scale, self.scale, 1.0])
+        Hf = np.linalg.inv(S) @ H @ S
+        q = cv2.perspectiveTransform(self.ref_quad.reshape(-1, 1, 2), Hf).reshape(-1, 2)
+        # 말이 되는 결과인가 — 넓이가 절반~두 배 안, 기준에서 너무 멀지 않게
+        a = abs(cv2.contourArea(q.astype(np.float32)))
+        if not (0.5 * self.ref_area < a < 2.0 * self.ref_area)            or _quad_dist(q, self.ref_quad) > self.limit:
+            self.wild += 1
+            return
+        self._buf.append(q.astype(np.float32))
         if len(self._buf) > self.keep:
             self._buf.pop(0)
-        if len(self._buf) < self.keep:
-            return
         med = np.median(np.stack(self._buf), axis=0).astype(np.float32)
         if _quad_dist(med, self.quad) < self.move_px:
             return
@@ -260,15 +416,23 @@ def track_video(path: str, table_width: float, table_height: float,
     if not cap.isOpened():
         raise FileNotFoundError(f"영상을 못 열었다: {path}")
 
-    top = table_from_quad(cap, quad, cfg) if quad is not None else detect_table(cap, cfg)
-    # ★ 자리를 계속 다시 잡는다 (위 TableLock 주석 참고). recheck=0 이면 옛날처럼 고정.
+    # ★ 기준을 한 번만 정하고, 그 뒤로는 **카메라 움직임**을 따라간다
+    #   (위 CameraLock 주석 참고). recheck=0 이면 옛날처럼 고정.
     lock = None
-    if recheck:
+    if quad is not None:
+        top = table_from_quad(cap, quad, cfg)
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        ok0, frame0 = cap.read()
-        if ok0:
-            lock = TableLock(frame0, cfg, top.quad)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ok0, ref = cap.read()
+        ref_q = np.asarray(quad, np.float32)
+    else:
+        ref, ref_q, rnd = best_reference(cap, cfg)
+        ok0 = True
+        top = table_detect.warp(ref, ref_q, cfg)
+        if verbose:
+            print(f"  기준 프레임 — 공 동그람 {rnd:.3f} (작을수록 좋다)")
+    if recheck and ok0:
+        lock = CameraLock(ref, ref_q, cfg)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     # ⚠️ 첫 프레임에 공이 없을 수 있다 (촬영 시작 후 공을 놓는 경우).
     #    공이 나올 때까지 넘어가고, 중간에 새로 나타난 공도 새 궤적으로 잡는다.
@@ -380,8 +544,8 @@ def track_video(path: str, table_width: float, table_height: float,
                          f"  궤적 {len(traces)}개{' ' * 20}\n")
 
     if verbose and lock is not None:
-        print("  당구대 자리 다시잡기 — 지도 갱신 %d회 · 옆 대로 보고 버림 %d · 검출실패 %d"
-              % (lock.moves, lock.far_skip, lock.miss))
+        print("  카메라 따라가기 — 지도 갱신 %d회 · 짝 모자람 %d · 이상값 버림 %d"
+              % (lock.moves, lock.weak, lock.wild))
 
     if ball_diameter_mm:
         calibrate(traces, table_width, table_height, ball_diameter_mm, verbose)
