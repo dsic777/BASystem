@@ -100,11 +100,17 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 291;
+const MOBILE_VER = 292;
+var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
-    .then(v => { if (v.mobile > MOBILE_VER) location.reload(true); })
+    // ★ 사용자 요청 #3 (2026-08-16): '1분 버전확인시에는 이부분 관여하지 말것'
+    //   글을 쓰는 중에 새로고침이 걸리면 쓰던 글이 통째로 날아간다.
+    //   창이 닫히면 다음 확인(60초)에서 알아서 새로고침된다.
+    //   ⚠️ NOTE 는 let 이라 window 에 안 올라간다. var 로 따로 든다 (호이스팅돼서
+    //      checkVersion 이 먼저 돌아도 안전하다).
+    .then(v => { if (v.mobile > MOBILE_VER && !NOTE_OPEN) location.reload(true); })
     .catch(() => {});
 }
 checkVersion();
@@ -3515,7 +3521,10 @@ let VER_HIT = [];
 //       서버에 AI 를 두지 않는다 (별도 요금이 들고, 저장소를 못 봐서 일반론만 나온다).
 //
 //   ⚠️ 입력은 캔버스로 못 한다. 진짜 <textarea> 라야 폰 자판이 뜬다.
-let NOTE = {kind: '요청', rows: [], seen: 0, open: false};
+let NOTE = {kind: '요청', rows: [], seen: 0, open: false,
+            wait: 0,      // 답을 기다리는 글 번호 (0 이면 쓰는 상태)
+            show: [],     // 지금 창에 보여줄 글 번호들 — '이 화면 것만'
+            tick: 0};     // 기다리는 동안 도는 확인 타이머
 let NOTE_HIT = null;
 // 화면 위 알림 한 줄. #msg 는 데이터 읽는 중에도 쓰는 자리다.
 // ⚠️ 반드시 **조건 없이** 지운다. 다른 상태를 보고 지우면 그 상태가 먼저 바뀌었을 때
@@ -3568,28 +3577,54 @@ function noteUnread(){
 }
 
 // 서버에서 내 것만 가져온다 (IP 로 갈린다 — 앱이 IP 를 몰라도 된다)
-function noteSync(){
+function noteSync(after){
   fetch(API + 'mynotes?limit=30', {cache: 'no-store'})
     .then(r => r.ok ? r.json() : null)
-    .then(j => { if (j && j.rows) NOTE.rows = j.rows; })
+    .then(j => { if (j && j.rows) NOTE.rows = j.rows; if (after) after(); })
     .catch(() => {});
 }
 
+// ★★ 저장해도 창을 닫지 않는다 — 답이 올 때까지 **대기 상태**로 둔다.
+//   사용자 요청 #3 (2026-08-16) —
+//     '내가 요청사항을 쓰고 저장을 누르면 화면은 대기상태.
+//      취소를 누르면 전화면으로 복귀.
+//      1분 버전확인시에는 이부분 관여하지 말것.
+//      내가 저장버튼을 누르고 프롬프트에서 x 를 치면
+//      답변을 이 화면에 대한 내용만 보면 좋겠어요.'
+//   → 저장하면 그 글 하나만 남기고 기다린다. 8초마다 답을 확인한다.
+//     다른 글은 안 보여준다. 취소(닫기)를 눌러야 돌아간다.
 function noteOpen(){
   const el = document.getElementById('note');
   if (!el) return;
-  NOTE.open = true;
-  document.getElementById('noteTxt').value = '';
-  noteKind(NOTE.kind);
-  noteDraw();
-  el.style.display = 'block';
+  NOTE.open = NOTE_OPEN = true;
+  const unread = NOTE.rows.filter(n => n.reply && n.id > NOTE.seen).map(n => n.id);
+  NOTE.show = NOTE.wait ? [NOTE.wait] : unread;      // 새 답이 있으면 그것만 보여준다
   NOTE.seen = NOTE.rows.reduce((m, n) => Math.max(m, n.id), NOTE.seen);
-  setTimeout(() => { const t = document.getElementById('noteTxt'); if (t) t.focus(); }, 60);
+  noteKind(NOTE.kind);
+  noteMode();
+  el.style.display = 'block';
+  if (!NOTE.wait)
+    setTimeout(() => { const t = document.getElementById('noteTxt'); if (t) t.focus(); }, 60);
 }
 function noteClose(){
-  NOTE.open = false;
+  NOTE.open = NOTE_OPEN = false;
+  NOTE.wait = 0; NOTE.show = [];
+  clearInterval(NOTE.tick); NOTE.tick = 0;
   const el = document.getElementById('note');
   if (el) el.style.display = 'none';
+  const t = document.getElementById('noteTxt'); if (t) t.value = '';
+  noteMode();
+}
+// 쓰는 상태 / 기다리는 상태를 오간다
+function noteMode(){
+  const w = !!NOTE.wait;
+  const hide = (id, off) => { const e = document.getElementById(id);
+                              if (e) e.style.display = off ? 'none' : ''; };
+  hide('noteKindA', w); hide('noteKindB', w);
+  hide('noteTxt', w);   hide('noteSave', w);
+  const c = document.getElementById('noteCancel');
+  if (c) c.textContent = w ? '닫기' : '취소';
+  noteDraw();
 }
 function noteKind(k){
   NOTE.kind = k;
@@ -3601,11 +3636,17 @@ function noteDraw(){
   const el = document.getElementById('noteList');
   if (!el) return;
   const esc = t => String(t || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  el.innerHTML = NOTE.rows.slice(0, 8).map(n =>
+  // ★ **이 화면 것만** 보여준다 (사용자 요청 #3). 지난 글 목록은 안 띄운다.
+  const ids = NOTE.show || [];
+  const rows = NOTE.rows.filter(n => ids.indexOf(n.id) >= 0);
+  if (!rows.length){ el.innerHTML = ''; return; }
+  el.innerHTML = rows.map(n =>
     '<div class="n"><div class="t">#' + n.id + '  ' + esc(n.kind) + '  ' +
     esc(String(n.at || '').slice(5, 16).replace('T', ' ')) + '</div>' +
     '<div class="q">' + esc(n.text) + '</div>' +
-    (n.reply ? '<div class="a">' + esc(n.reply) + '</div>' : '') + '</div>').join('');
+    (n.reply ? '<div class="a">' + esc(n.reply) + '</div>'
+             : '<div class="t" style="margin-top:6px">답을 기다리는 중…  '
+               + '프롬프트에 x 를 쳐 주세요</div>') + '</div>').join('');
 }
 function noteSave(){
   const t = document.getElementById('noteTxt');
@@ -3628,11 +3669,23 @@ function noteSave(){
                        body: JSON.stringify(body)})
     .then(x => x.ok ? x.json() : null)
     .then(j => {
-      say(j && j.id ? (NOTE.kind + ' #' + j.id + ' 저장했습니다') : '저장 실패 — 다시 눌러 주세요');
-      noteSync();
+      if (!(j && j.id)){ say('저장 실패 — 다시 눌러 주세요'); return; }
+      NOTE.wait = j.id; NOTE.show = [j.id];
+      NOTE.rows = [{id: j.id, at: new Date().toISOString(), kind: NOTE.kind,
+                    text: txt, reply: null}].concat(NOTE.rows);
+      noteMode();
+      // 답이 올 때까지 8초마다 본다 (60초 주기와 따로 돈다)
+      clearInterval(NOTE.tick);
+      NOTE.tick = setInterval(() => {
+        if (!NOTE.open || !NOTE.wait){ clearInterval(NOTE.tick); NOTE.tick = 0; return; }
+        noteSync(() => {
+          const n = NOTE.rows.find(x => x.id === NOTE.wait);
+          noteDraw();
+          if (n && n.reply){ clearInterval(NOTE.tick); NOTE.tick = 0; }
+        });
+      }, 8000);
     })
     .catch(() => say('저장 실패 — 인터넷을 확인해 주세요'));
-  noteClose();
 }
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
