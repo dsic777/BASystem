@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 292;
+const MOBILE_VER = 293;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3514,6 +3514,8 @@ let VER_HIT = [];
 //    화면을 보고 수정사항 등을 캡처해서 프롬프트에서 치려니 불편해서 그런겁니다.
 //    요청은 내 ip만 답변하면 됩니다.'
 //
+//   ★ 칸 이름은 **의견** 이다 (사용자 2026-08-16: '버튼명 말을 의견으로 고처주세요').
+//
 //   ★ 답이 오는 길 (사용자가 정한 방식) —
 //     '내가 요청을 등록을 하고, 지금 프롬프트에서 x 한자만 치면 당신은 요청사항이 들어왔다고
 //      판단을 하고 즉시 서버를 확인해서 답변을 하면 되겠네요.'
@@ -3544,8 +3546,9 @@ function say(t, ms){
 function noteBtn(){
   const b = verBar();
   if (!b) return null;
-  const last = b[b.length - 1], w = last.w * 0.6;
-  return {x: last.x + last.w + last.w * 0.10, y: last.y, w, h: last.h};
+  // ★ 사용자 2026-08-16: '버튼명 말을 의견으로 고처주세요' → 두 글자라 칸을 넓힌다
+  const last = b[b.length - 1], w = last.w * 0.92;
+  return {x: last.x + last.w + last.w * 0.08, y: last.y, w, h: last.h};
 }
 
 function drawNoteBtn(){
@@ -3558,11 +3561,18 @@ function drawNoteBtn(){
   g.strokeStyle = 'rgba(226,232,240,0.45)'; g.lineWidth = Math.max(2, b.h * 0.06); g.stroke();
   g.save();
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '900 ' + Math.round(b.h * 0.46) + 'px system-ui, -apple-system, sans-serif';
+  // 두 글자라 칸 폭에 맞춰 줄인다 (칸이 좁은 폰에서도 안 넘치게)
+  const NM = '의견';
+  let fs = b.h * 0.44;
+  const fit = () => { g.font = '900 ' + Math.round(fs) + 'px system-ui, -apple-system, sans-serif';
+                      return g.measureText(NM).width; };
+  const room = b.w * 0.80;
+  if (fit() > room) fs = Math.max(9, fs * room / fit());
+  fit();
   g.lineJoin = 'round';
-  g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(2, b.h * 0.10);
-  g.strokeText('말', b.x + b.w/2, b.y + b.h/2);
-  g.fillStyle = '#f2f4f8'; g.fillText('말', b.x + b.w/2, b.y + b.h/2);
+  g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(2, fs * 0.22);
+  g.strokeText(NM, b.x + b.w/2, b.y + b.h/2);
+  g.fillStyle = '#f2f4f8'; g.fillText(NM, b.x + b.w/2, b.y + b.h/2);
   g.restore();
   // 새 답이 와 있으면 빨간 점
   if (noteUnread() > 0){
