@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 285;
+const MOBILE_VER = 286;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -5803,9 +5803,11 @@ function drawReadout(){
 
 // ★ 보정 바는 다이 **안**에 있어서 경로를 가린다 (사용자 2026-08-15:
 //   '보정 안내 반투명처리(경로가 많이 가립니다.)').
-//   → 뒤판·칸·숫자를 통째로 반투명으로 그린다. 손가락으로 누르는 자리는 그대로다.
-//   ⚠️ 너무 옅으면 숫자를 못 읽는다. 0.45 는 궤적이 비쳐 보이면서 숫자가 읽히는 값.
-const CORR_ALPHA = 0.45;
+//   ★ 사용자 정정 2026-08-15: '글자와 - + 는 그대로 두세요. 배경 버튼만 반투명,
+//     조금 더 투명하게 하세요.'
+//   → **뒤판과 칸(배경)만** 옅게 하고 숫자·부호는 100% 로 그린다.
+//     그래야 궤적이 훨씬 잘 보이면서 값은 또렷하게 읽힌다.
+const CORR_ALPHA = 0.28;
 
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -5842,6 +5844,7 @@ function drawButtons(){
       g.fillStyle = 'rgba(255,255,255,0.55)';
       round(b.x,b.y,b.w,b.h,u*0.26); g.fill();
       g.strokeStyle = 'rgba(15,17,20,0.55)'; g.lineWidth = Math.max(1.5, u*0.035); g.stroke();
+      g.restore();                                 // ★ 여기서 되돌린다 — 숫자는 100% 로
     } else {
       const face = g.createLinearGradient(0, b.y, 0, b.y+b.h);
       if (b.lb === 'cam'){ face.addColorStop(0,'#f2f5f9'); face.addColorStop(0.5,'#c6cdd8');
@@ -5952,7 +5955,6 @@ function drawButtons(){
     } else {
       heavy(b.lb, cx, cy, u*0.62, '#f2f4f8');
     }
-    if (onBar) g.restore();
   }
   drawBrand();
 }
