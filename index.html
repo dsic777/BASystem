@@ -65,7 +65,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 288;
+const MOBILE_VER = 289;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -3545,36 +3545,41 @@ function scoresAt(a, k){
           thick: af.thick, kiss: !!kissAt(P, af, cut2.pts, cut1.obj)};
 }
 
-// ★★★ 좌우 팁은 **도는 방향**이 정한다 (사용자 2026-08-15) —
-//   '시계방향으로 순 역을 판단하면 안 되요. 수구와 쿠션 또는 1적구를 기준으로
-//    좌든 우든 **돌아가는 방향으로 회전을 주면 그것이 순방향**입니다.'
-//   사용자 그림 —
-//     2.jpg  반시계로 도는 길 + 9시30분(좌)  →  순방향  맞다
-//     3.jpg  시계로 도는 길   + 9시30분(좌)  →  역방향  **틀렸다**
-//     4.jpg  시계로 도는 길   + 2시30분(우)  →  순방향  맞다
-//   3.jpg 는 손으로 그린 길인데 앱이 **이전 팁을 그대로 들고 있어서** 틀렸다.
-//   '이런것도 진행경로를 보고 팁을 자동으로 조정해야 합니다.'
+// ★★★ 경로를 **직접 지정**하면 항상 순회전 2시30분 / 9시30분 (사용자 2026-08-15)
 //
-//   ⚠️⚠️ 2026-08-15 사용자 7.jpg — **1쿠션만 보고 강제하면 안 된다.**
-//     '이것도 많이 사용하는 길인데 공의 시작(1쿠션)은 역각입니다.
-//      그런데 순각(2쿠션)으로 바뀝니다.'
-//     역각으로 시작하는 길도 실전에서 많이 쓴다. 1쿠션을 순방향으로 못박으면
-//     그 길을 손으로 그려도 앱이 팁을 뒤집어 버린다 (v283 이 그랬다).
-//   → **한 방향으로만 도는 길일 때만** 건다. 쿠션마다 흐른 쪽이 다르면 손대지 않는다.
-//     3.jpg(한 방향)는 고쳐지고, 7.jpg(지그재그)는 사용자가 준 팁 그대로 둔다.
+//   '경로 직접지정으로 경로를 설정하면 자동으로 순회전으로 되었어야 하는데
+//    역회전으로 설정이 되어 있었고, 팁을 조정하니 정상으로 되었습니다.
+//    경로설정시 항상 순회전 2시30분이나 9시30분으로 가야 합니다.
+//    도는 방향에 따라 자동으로 설정을 하고, 직접 팁수를 조정하면 그것도 반영을 하면 됩니다.'
+//   (13.jpg — 앱이 '2시 3팁' 을 물고 있었다. 2시30분도 아니었고 방향도 역이었다)
+//   ⚠️ **추천과는 무관하다** (사용자 확인: '직접지정이었으니 추천과 관계 없습니다').
+//      훑기(sweep)의 42가지 당점 조합은 그대로 둔다. 순위에 안 닿는다.
 //
-//   ★ 앱은 이미 쿠션마다 '흐른 쪽'(sIn)을 센다. 한 방향으로 도는 길이면 sIn 이 늘 같다.
-//     순방향 = 회전이 미는 쪽(e = tipH 부호)이 그 sIn 과 같은 것.
-//     그래서 **tipH 의 부호를 첫 쿠션의 sIn 에 맞추면** 저절로 순방향이 된다.
-//     세기(팁수)는 건드리지 않는다 — 사용자가 정한 값 그대로 둔다.
+//   ★ 자리는 둘뿐이다. 도는 쪽만 보고 고른다 —
+//        첫 쿠션을 **왼쪽**으로 흐르면  →  9시30분 (tipDir 19)  좌회전
+//        첫 쿠션을 **오른쪽**으로 흐르면 →  2시30분 (tipDir  5)  우회전
+//      (앱 좌표의 접선 부호로 말하면 sIn>0 이 2시30분이다)
+//      팁수는 3. 파이브앤하프의 기준 당점이다.
+//
+//   ★ 왜 그것이 순회전인가 — 순방향 = 회전이 미는 쪽(e = tipH 부호)이 공이 흐른 쪽과 같은 것.
+//     물리로도 그렇다: 상단 쿠션을 오른쪽으로 흐르는 공은 3시가 순이다.
+//     파이브앤하프가 2시30분을 쓰는 자리가 바로 그 자리다.
+//     2026-08-15 에 실측 영상 셋으로 확인했다 —
+//       0808 · 2순위   반시계로 돈다 · 9시30분 → 순
+//       원쿠션걸어치기  시계로 돈다  · 2시30분 → 순
+//
+//   ⚠️ v284 는 '쿠션마다 흐른 쪽이 다르면 손대지 않는다' 로 좁혀 두었다 (7.jpg 때문).
+//      사용자가 '경로설정시 **항상**' 으로 정리해 주셨으므로 그 제한을 뺀다.
+//      지그재그 길에 다른 팁을 쓰고 싶으면 **직접 팁을 돌리면 된다** — 그건 그대로 남는다.
+//      이 함수는 조준을 새로 잡을 때(snapAim)만 걸리고, 팁을 돌릴 때는 안 걸린다.
 function autoTipSide(){
   const cue = S.balls.cue;
-  if (!cue || !S.aim || !Math.abs(S.tipH)) return false;
+  if (!cue || !S.aim) return false;
   let hits = null;
   try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ return false; }
   if (!hits || !hits.length) return false;
   const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
-  // 공을 먼저 맞히는 길이면 충돌 뒤 첫 쿠션으로 본다
+  // 공을 먼저 맞히는 길이면 **충돌 뒤 첫 쿠션**으로 본다 — 거기서부터 도는 것이다
   let from = cue.p, first = hits[0];
   if (cut.hit && cut.pts.length === 2){
     const P = cut.pts[1], af = afterHit(cut.from, P, cut.obj);
@@ -3583,22 +3588,14 @@ function autoTipSide(){
     if (!q.length) return false;
     from = P; first = q[0];
   }
-  // 쿠션마다 흐른 쪽을 다 센다 — 하나라도 다르면 한 방향으로 도는 길이 아니다.
-  const seq = (cut.hit && cut.pts.length === 2) ? [first] : hits;
-  let prev = from, want = 0;
-  for (const h of seq){
-    const nh = RAILS[h.rail], tgh = [-nh[1], nh[0]];
-    const dh = [h.p[0]-prev[0], h.p[1]-prev[1]];
-    const si = (dh[0]*tgh[0] + dh[1]*tgh[1]) >= 0 ? 1 : -1;
-    prev = h.p;
-    if (want === 0) want = si;
-    else if (want !== si) return false;   // ★ 7.jpg 처럼 도는 쪽이 바뀌는 길 — 손대지 않는다
-  }
-  if (want === 0) return false;           // 순방향 = e 가 흐른 쪽과 같은 것
-  if (Math.sign(S.tipH) === want) return false;
-  S.tipH = Math.abs(S.tipH) * want;       // 세기는 그대로, 쪽만 바꾼다
-  S.tipR = Math.min(3, Math.hypot(S.tipH, S.tipV));
-  S.tipDir = ((Math.round(Math.atan2(S.tipH, S.tipV) / (Math.PI/12)) % 24) + 24) % 24;
+  const n = RAILS[first.rail], tg = [-n[1], n[0]];
+  const d = [first.p[0]-from[0], first.p[1]-from[1]];
+  const want = (d[0]*tg[0] + d[1]*tg[1]) >= 0 ? 1 : -1;   // 첫 쿠션에서 흐른 쪽
+  const dir = want > 0 ? 5 : 19;                          // 2시30분 · 9시30분
+  if (S.tipDir === dir && S.tipR === 3) return false;
+  S.tipDir = dir; S.tipR = 3;
+  S.tipV = S.tipR * Math.cos(S.tipDir * Math.PI/12);
+  S.tipH = S.tipR * Math.sin(S.tipDir * Math.PI/12);
   return true;
 }
 
