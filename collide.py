@@ -100,6 +100,64 @@ def pair_shots(shots, fps, ball_d, gap: int = GAP,
     """
     ok = [s for s in shots
           if len(s.points) >= MIN_POINTS and s.peak_speed / 1000.0 >= MIN_SPEED]
+    # ★★★ --cue auto — 색을 못 믿을 때는 **먼저 출발한 쪽**을 수구로 본다.
+    #   ⚠️ 2026-08-10 에 이 방식을 버리고 색으로 바꿨다. 검출 잡음으로 시작 프레임이
+    #      ±3 흔들려 수구가 뒤집히곤 했기 때문이다. 그런데 B 촬영(2026-08-15)은
+    #      **색이 아예 안 붙는다** — 노란 수구가 절반쯤 red 로 잡힌다.
+    #      다행히 여기서는 두 공의 출발이 7~9프레임 벌어져 잡음(±3)보다 훨씬 크다.
+    #      그래서 색을 못 믿을 때만 쓰는 길을 따로 둔다. 기본은 그대로 색이다.
+    if cue_color == "auto":
+        # ★★ 먼저 **끊긴 수구 궤적을 이어 붙인다** (2026-08-15).
+        #   ⚠️ 두껍게 맞으면 수구가 확 느려져 split_shots 가 궤적을 둘로 자른다.
+        #      앞 조각은 충돌에서 끝나고 뒤 조각은 충돌에서 시작한다. 그대로 두면
+        #      앞 조각으로는 충돌 **뒤** 속도를 못 재고, 뒤 조각으로는 **앞** 을 못 잰다
+        #      (B 촬영에서 14쌍 중 12쌍이 이것 때문에 버려졌다).
+        #   시간이 이어지고 자리도 이어지면 같은 공이다. 색은 안 본다 — 못 믿는다.
+        cand = sorted(ok, key=lambda x: x.start_frame)
+        merged, skip = [], set()
+        for i, a in enumerate(cand):
+            if i in skip:
+                continue
+            pts = list(a.points)
+            end = a.end_frame
+            for j in range(i + 1, len(cand)):
+                if j in skip:
+                    continue
+                b = cand[j]
+                if not (-5 <= b.start_frame - end <= 15):
+                    continue
+                if math.dist(pts[-1][1:], b.points[0][1:]) > 150.0:
+                    continue
+                pts += [q for q in b.points if q[0] > pts[-1][0]]
+                end = b.end_frame
+                skip.add(j)
+            t = type(a)(points=pts, start_frame=a.start_frame, end_frame=end)
+            t.ball = a.ball
+            merged.append(t)
+        cand = sorted(merged, key=lambda x: x.start_frame)
+        taken, out = set(), []
+        for i, a in enumerate(cand):
+            if i in taken:
+                continue
+            best, bd = None, 10 ** 9
+            for j in range(i + 1, len(cand)):
+                if j in taken:
+                    continue
+                b = cand[j]
+                dt = b.start_frame - a.start_frame
+                if dt < 2:
+                    continue
+                if dt > 30:                     # 1초 넘게 늦으면 같은 충돌이 아니다
+                    break
+                if min(a.end_frame, b.end_frame) - b.start_frame < gap:
+                    continue
+                if dt < bd:
+                    best, bd = j, dt
+            if best is not None:
+                taken.add(i); taken.add(best)
+                out.append((a, cand[best]))     # 먼저 출발한 a 가 수구
+        return out
+
     # ★ 수구 색은 촬영마다 다르다 (사용자 2026-08-15 B 촬영은 **노란공이 수구**였다).
     #   --cue / --obj 로 못 박는다. 안 주면 예전대로 흰공·빨간공.
     cue_all = sorted((s for s in ok if s.ball == cue_color), key=lambda s: s.start_frame)
@@ -112,14 +170,27 @@ def pair_shots(shots, fps, ball_d, gap: int = GAP,
               f"1적구({obj_color}) {len(obj_all)}개.  잡힌 색: {seen}")
         return []
     used, out = set(), []
-    for a in cue_all:                       # 흰공 = 수구
+    # ★★ 수구는 **1적구보다 먼저** 움직이기 시작한다 (2026-08-15).
+    #   ⚠️ B 촬영(87% 두께)에서 14쌍 중 13쌍이 버려졌다. 원인은 여기였다 —
+    #      충돌에서 수구가 확 느려지면 split_shots 가 수구 궤적을 **둘로 자른다.**
+    #      그러면 '충돌 뒤' 조각이 1적구와 더 오래 겹쳐서 그쪽이 짝으로 뽑히고,
+    #      충돌 앞 구간이 0~1점밖에 없어 두께도 속도도 못 잰다.
+    #   → 1적구보다 최소 LEAD 프레임 먼저 출발한 수구 조각을 **먼저** 본다.
+    #     그런 조각이 없을 때만 예전처럼 겹침이 가장 큰 것을 쓴다.
+    LEAD = 4
+    for a in cue_all:                       # 수구
         best, best_ov = None, 0
-        for j, b in enumerate(obj_all):     # 빨간공 = 1적구
-            if j in used:
-                continue
-            ov = min(a.end_frame, b.end_frame) - max(a.start_frame, b.start_frame)
-            if ov > best_ov:
-                best, best_ov = j, ov
+        for want_lead in (True, False):
+            for j, b in enumerate(obj_all):     # 1적구
+                if j in used:
+                    continue
+                if want_lead and b.start_frame < a.start_frame + LEAD:
+                    continue                    # 이 조각은 충돌 **뒤** 조각이다
+                ov = min(a.end_frame, b.end_frame) - max(a.start_frame, b.start_frame)
+                if ov > best_ov:
+                    best, best_ov = j, ov
+            if best is not None:
+                break
         if best is not None and best_ov >= gap:
             used.add(best)
             out.append((a, obj_all[best]))
@@ -302,7 +373,7 @@ def main(argv):
     t_from = float(argv[argv.index("--from") + 1]) if "--from" in argv else 0.0
     t_to = float(argv[argv.index("--to") + 1]) if "--to" in argv else None
     ball_kr = {"노란공": "yellow", "노랑": "yellow", "흰공": "white", "빨간공": "red",
-               "빨강": "red", "흰": "white"}
+               "빨강": "red", "흰": "white", "자동": "auto", "auto": "auto"}
     cue_color = ball_kr.get(argv[argv.index("--cue") + 1].strip(),
                             argv[argv.index("--cue") + 1].strip().lower())         if "--cue" in argv else "white"
     obj_color = ball_kr.get(argv[argv.index("--obj") + 1].strip(),
