@@ -199,6 +199,10 @@ def pair_shots(shots, fps, ball_d, gap: int = GAP,
 
 MAX_MISS_MM = 400.0     # 두 궤적이 이보다 가까워진 적이 없으면 충돌이 아니다
 
+# ★ 수구가 큐대·손에 가려 충돌 직전이 안 보일 때의 **추정** 경로를 켤까.
+#   기본은 꺼 둔다 — 실측으로 검증했는데 두께가 안 맞았다 (measure() 안 주석 참고).
+ALLOW_HIDDEN = False
+
 
 def contact_frame(cue, obj, ball_d, fps):
     """충돌 순간과, 그때 두 공이 얼마나 가까웠나.
@@ -228,7 +232,9 @@ def measure(cue, obj, fps, ball_d):
         return None
     cp = cue.points
     k = next((n for n, p in enumerate(cp) if p[0] >= fc), None)
-    if k is None or k < 2 or k > len(cp) - 3:
+    # ⚠️ 예전에는 k < 2 도 여기서 버렸다. 그런데 큐대에 가려 충돌 직전이 안 보이는
+    #    촬영에서는 k 가 늘 0~1 이다 (B 87% 두께). 그런 샷은 아래 가림 보정으로 보낸다.
+    if k is None or k > len(cp) - 3:
         return None
 
     # 확실히 충돌 앞쪽으로.
@@ -238,18 +244,48 @@ def measure(cue, obj, fps, ball_d):
     #    수구가 남기는 비율도 두께 순서를 잃었다 (0.686/0.658/0.643/0.774/0.842).
     #    개수보다 정확도다. 앞 구간이 모자란 샷은 버린다.
     kb = k - BACKOFF
-    if kb < 2:
-        return None
-    d = fit_dir(cp, kb - PRE, kb)              # 충돌 직전 진행 방향
+    d = fit_dir(cp, kb - PRE, kb) if kb >= 2 else None   # 충돌 직전 진행 방향
+    hidden = False
     if d is None:
-        return None
+        # ★★ 수구가 **큐대와 손에 가려** 충돌 직전이 안 보이는 촬영이 있다 (2026-08-15).
+        #   B 87% 두께 영상이 그렇다 — 수구가 출발하고 7~12프레임 통째로 안 잡힌다.
+        #   (카메라가 치는 사람과 같은 쪽에 낮게 있어서 스트로크가 공을 덮는다.)
+        #   그래도 두 가지는 남아 있다 —
+        #     ① 수구가 **서 있던 자리** (궤적의 첫 점)
+        #     ② 1적구가 **떠난 방향** — 이것이 곧 충돌 순간의 **중심선**이다
+        #   중심선을 알면 충돌 순간 수구 중심은 1적구 중심에서 지름만큼 뒤다.
+        #   서 있던 자리에서 그 점으로 그은 선이 수구의 진행선이다. 두께가 나온다.
+        #   ⚠️ 이것은 **추정**이다. 결과에 est=True 로 표시한다. 앞 구간이 보이는
+        #      촬영에서는 절대 이 길로 오지 않는다 (위 fit_dir 가 먼저 성공한다).
+        do = fit_dir(obj.points, 0, POST)
+        if do is None or len(cp) < 3:
+            return None
+        c_start = np.array(cp[0][1:], float)
+        o_rest = np.array(obj.points[0][1:], float)
+        hit_c = o_rest - np.asarray(do, float) * ball_d      # 충돌 순간 수구 중심
+        v = hit_c - c_start
+        n_ = float(np.hypot(v[0], v[1]))
+        if n_ < ball_d:                                      # 너무 가까우면 못 믿는다
+            return None
+        d = (v / n_).tolist()
+        hidden = True
+        kb = max(0, k - BACKOFF)
+        # ⚠️⚠️ 2026-08-15 검증 실패 — **켜지 마라.**
+        #   B 영상은 15샷 전부 87% 두께로 친 것인데 이 보정이 낸 두께는
+        #   1.8 / 3.8 / 10.4 / 11.4 / 21.9 / 39.4 / 70.2 / 77.9 / 89.5 / 95.4 / 99.0 / 99.4 %
+        #   였다. 1적구가 떠난 방향(중심선) 을 몇 프레임으로 재는데, 두껍게 맞으면
+        #   1적구가 거의 곧게 나가 방향이 안 갈린다. 그래서 못 쓴다.
+        #   답은 촬영이다 — 수구가 1적구까지 1미터 이상 굴러오게 하고,
+        #   카메라를 치는 사람 반대쪽에 두어 스트로크가 공을 안 덮게 한다.
+        if not ALLOW_HIDDEN:
+            return None
     # 두께 — 1적구 중심이 수구 진행선에서 얼마나 비켜 있나
     #        thick = (지름 − 수선거리) / 지름   (정면 1.0 · 반두께 0.5 · 스침 0)
     # 1적구가 멈춰 있던 자리 = 그 궤적의 첫 점
     oi = 0
     if len(obj.points) < 3:
         return None
-    c0 = np.array(cp[kb][1:], float)
+    c0 = np.array(cp[0][1:], float) if hidden else np.array(cp[kb][1:], float)
     ob = np.array(obj.points[oi][1:], float)
     # ⚠️ np.cross 는 numpy 2 에서 2차원 벡터를 안 받는다. 직접 쓴다.
     perp = abs(d[0] * (ob[1] - c0[1]) - d[1] * (ob[0] - c0[0]))
@@ -261,11 +297,11 @@ def measure(cue, obj, fps, ball_d):
     #     뭉개면 '멈춘 구간' 과 '되살아난 구간' 이 섞여 두께와 무관하게 평평해진다
     #     (실제로 그랬다 — 두께 1/8~5/8 이 전부 0.49~0.59).
     #   두 번 잰다. 이번 촬영은 12시 2팁이라 되살아나는 쪽이다.
-    v_in = seg_speed(cp, kb - PRE, kb, fps)
+    v_in = None if hidden else seg_speed(cp, kb - PRE, kb, fps)
     v_now = seg_speed(cp, k + 1, k + NOW, fps)          # 충돌 직후 (거의 멈추는 구간)
     v_roll = seg_speed(cp, k + ROLL0, k + ROLL1, fps)   # 전진회전이 되살린 뒤
     v_obj = seg_speed(obj.points, oi, oi + POST, fps)
-    if not (v_in and v_obj):
+    if not v_obj or (not hidden and not v_in):
         return None
     v_out = v_roll or v_now
     if not v_out:
@@ -283,20 +319,22 @@ def measure(cue, obj, fps, ball_d):
     d_now  = fit_dir(cp, k + 1, k + NOW)
     d_roll = fit_dir(cp, k + ROLL0, k + ROLL1)
     d_obj  = fit_dir(obj.points, oi, oi + POST)
-    return {"frame": fc, "minute": fc / fps / 60,
+    return {"est": hidden, "frame": fc, "minute": fc / fps / 60,
             "thick": round(thick, 3),
             "sep_now": _ang(d, d_now),        # 분리각 (충돌 직후)
             "sep_roll": _ang(d, d_roll),      # 분리각 (되살아난 뒤)
             "obj_deg": _ang(d, d_obj),        # 1적구가 나간 각
-            "cue_in": round(v_in, 3),
+            "cue_in": (round(v_in, 3) if v_in else None),
             "cue_now": round(v_now, 3) if v_now else None,    # 직후
             "cue_roll": round(v_roll, 3) if v_roll else None,  # 되살아난 뒤
             "cue_out": round(v_out, 3),
             "obj_out": round(v_obj, 3),
-            "keep_now": round(v_now / v_in, 3) if v_now else None,
-            "keep_roll": round(v_roll / v_in, 3) if v_roll else None,
-            "cue_keep": round(v_out / v_in, 3),      # 수구가 남긴 비율
-            "obj_take": round(v_obj / v_in, 3),      # 1적구가 받아간 비율
+            # ⚠️ 수구가 큐대에 가려 충돌 직전을 못 잰 촬영(est=True)에서는 v_in 이 없다.
+            #    속도 비율은 전부 None 이 된다 — 두께와 분리각만 쓴다.
+            "keep_now": round(v_now / v_in, 3) if (v_now and v_in) else None,
+            "keep_roll": round(v_roll / v_in, 3) if (v_roll and v_in) else None,
+            "cue_keep": round(v_out / v_in, 3) if v_in else None,
+            "obj_take": round(v_obj / v_in, 3) if v_in else None,
             # ★ 충돌 뒤 **실제로 굴러간 거리** — '몇 쿠션 더 가나' 의 직접 재료
             "cue_after_mm": round(run_after(cp, k), 0),
             "obj_after_mm": round(run_after(obj.points, oi), 0)}
