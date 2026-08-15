@@ -61,6 +61,30 @@ CREATE TABLE IF NOT EXISTS verdict (
 );
 CREATE INDEX IF NOT EXISTS verdict_at_idx ON verdict (at DESC);
 CREATE INDEX IF NOT EXISTS verdict_ip_idx ON verdict (ip);
+
+-- ★ 요청·평가 메모 (사용자 2026-08-16)
+--   '화면을 보고 수정사항 등을 캡처해서 프롬프트에서 치려니 불편해서 그런겁니다.'
+--   앱에서 바로 쓰고, 앱에서 답을 받는다. 지금 보고 있는 배치·경로가 통째로 붙어 오므로
+--   Claude 가 그 화면을 그대로 재현할 수 있다.
+--   ⚠️ 답(reply)은 API 로 안 쓴다. 인증 구멍을 안 만들려고 일부러 뺐다 —
+--      psql 로 직접 쓴다 (notes.py 참고).
+CREATE TABLE IF NOT EXISTS note (
+    id         BIGSERIAL PRIMARY KEY,
+    at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip         TEXT NOT NULL DEFAULT '',
+    who        TEXT NOT NULL DEFAULT '',
+    app        INTEGER,
+    kind       TEXT NOT NULL DEFAULT '요청',
+    text       TEXT NOT NULL,
+    place_key  TEXT,
+    route_key  TEXT,
+    balls      JSONB,
+    info       JSONB,
+    reply      TEXT,
+    replied_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS note_at_idx ON note (at DESC);
+CREATE INDEX IF NOT EXISTS note_ip_idx ON note (ip);
 """
 
 
@@ -169,6 +193,67 @@ def get_all(limit: int = 2000, ip: str | None = None, mine: bool = False) -> dic
                 (limit,),
             ).fetchall()
     return {"count": len(rows), "owner_ip": OWNER_IP, "rows": rows}
+
+
+class Note(BaseModel):
+    who: str = ""
+    app: int | None = None
+    kind: str = "요청"
+    text: str
+    place_key: str | None = None
+    route_key: str | None = None
+    balls: Any = None
+    info: Any = None
+
+
+@app.post("/api/note")
+def put_note(v: Note, req: Request) -> dict:
+    """앱에서 쓴 요청·평가를 받는다. 지금 화면(배치·경로)이 통째로 같이 온다."""
+    ip = client_ip(req)
+    txt = (v.text or "").strip()
+    if not txt:
+        return {"ok": False, "why": "빈 글"}
+    with db() as c:
+        row = c.execute(
+            "INSERT INTO note (ip, who, app, kind, text, place_key, route_key, balls, info)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (ip, v.who, v.app, v.kind, txt[:4000], v.place_key, v.route_key,
+             Json(v.balls), Json(v.info)),
+        ).fetchone()
+        c.commit()
+    return {"ok": True, "id": row["id"], "ip": ip, "mine": ip == OWNER_IP}
+
+
+@app.get("/api/notes")
+def get_notes(limit: int = 50, mine: bool = False, ip: str | None = None) -> dict:
+    """내가 쓴 것과 그 답. 앱은 **자기 IP 것만** 본다 (인자를 안 주면 그렇게 된다).
+
+    ⚠️ 사용자 2026-08-16: '요청은 내 ip만 답변하면 됩니다.'
+       남의 IP 것은 쌓이기만 하고 답이 안 붙는다. 여기서 막는 것이 아니라
+       답을 안 쓰는 것으로 그렇게 된다.
+    """
+    want = OWNER_IP if mine else ip
+    with db() as c:
+        if want:
+            rows = c.execute(
+                "SELECT id, at, kind, text, reply, replied_at, place_key, route_key, app"
+                " FROM note WHERE ip = %s ORDER BY id DESC LIMIT %s", (want, limit)).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT id, at, kind, text, reply, replied_at, place_key, route_key, app, ip"
+                " FROM note ORDER BY id DESC LIMIT %s", (limit,)).fetchall()
+    return {"count": len(rows), "rows": rows}
+
+
+@app.get("/api/mynotes")
+def my_notes(req: Request, limit: int = 50) -> dict:
+    """부르는 폰의 IP 것만. 앱이 이걸 쓴다 — IP 를 앱이 몰라도 된다."""
+    ip = client_ip(req)
+    with db() as c:
+        rows = c.execute(
+            "SELECT id, at, kind, text, reply, replied_at, place_key, route_key"
+            " FROM note WHERE ip = %s ORDER BY id DESC LIMIT %s", (ip, limit)).fetchall()
+    return {"count": len(rows), "ip": ip, "mine": ip == OWNER_IP, "rows": rows}
 
 
 @app.get("/api/stat")

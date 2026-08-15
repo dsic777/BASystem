@@ -18,9 +18,44 @@
        background:#3a4049dd;padding:6px 10px;border-radius:8px;max-width:70vw}
   /* ⚠️ 글자만 지우면 배경과 여백이 남아 검은 알약처럼 보인다 (사용자 지적) */
   #msg:empty{display:none;padding:0}
+  /* ★ 요청·평가 쓰는 창 (사용자 2026-08-16) — 캔버스로는 자판을 못 띄운다.
+     진짜 textarea 라야 폰 자판이 뜨고 한글이 써진다. */
+  #note{position:fixed;inset:0;background:#000000cc;display:none;z-index:9000;
+        font:16px/1.5 system-ui,-apple-system,sans-serif}
+  #noteBox{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+           width:min(92vw,560px);max-height:86dvh;overflow:auto;background:#20242b;
+           border:2px solid #0f1114;border-radius:14px;padding:14px;
+           box-shadow:0 10px 40px #000a}
+  #note .row{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+  #note button{flex:1;padding:12px 8px;border-radius:10px;border:2px solid #0f1114;
+               background:linear-gradient(#f4f6fa,#cfd5df);color:#14161a;
+               font:700 17px system-ui,sans-serif}
+  #note button.on{background:linear-gradient(#ffeeb4,#e8c46a);border-color:#c8931a}
+  #note button.go{background:linear-gradient(#5ec07a,#3aa76d);color:#0d1a12}
+  #noteTxt{width:100%;box-sizing:border-box;min-height:120px;resize:vertical;
+           background:#14161a;color:#f2f4f8;border:2px solid #3c4049;border-radius:10px;
+           padding:10px;font:16px/1.5 system-ui,sans-serif}
+  #noteList{margin-top:12px;border-top:1px solid #3c4049;padding-top:10px}
+  #noteList .n{margin-bottom:12px}
+  #noteList .q{color:#cfd6e2;white-space:pre-wrap}
+  #noteList .a{color:#8fe3a8;white-space:pre-wrap;margin-top:4px;
+               border-left:3px solid #3aa76d;padding-left:8px}
+  #noteList .t{color:#7c848f;font-size:13px}
 </style>
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
+<div id="note"><div id="noteBox">
+  <div class="row">
+    <button id="noteKindA">평가</button>
+    <button id="noteKindB">요청</button>
+  </div>
+  <textarea id="noteTxt" placeholder="지금 화면을 보고 느낀 것을 그대로 쓰세요.&#10;배치·경로·당점·점수는 자동으로 같이 저장됩니다."></textarea>
+  <div class="row" style="margin-top:10px">
+    <button id="noteCancel">취소</button>
+    <button id="noteSave" class="go">저장</button>
+  </div>
+  <div id="noteList"></div>
+</div></div>
 <!-- 진단 패널 — 평소엔 숨긴다. 주소 뒤에 ?debug 를 붙이면 나온다.
      ⚠️ 폰에는 개발자도구가 없다. 화면이 안 뜨면 이걸로만 원인을 볼 수 있으므로
         지우지 말고 남겨둔다 (실제로 이것 덕에 캐시 문제를 찾았다). -->
@@ -65,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 289;
+const MOBILE_VER = 290;
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
     .then(r => r.json())
@@ -74,6 +109,16 @@ function checkVersion(){
 }
 checkVersion();
 setInterval(checkVersion, 60000);
+// ★ 답이 왔는지 60초마다 본다 (위 NOTE 주석). 창이 열려 있으면 화면도 새로 그린다.
+setInterval(() => { noteSync(); if (NOTE.open) noteDraw(); }, 60000);
+window.addEventListener('load', () => {
+  const on = (id, fn) => { const e = document.getElementById(id); if (e) e.onclick = fn; };
+  on('noteKindA', () => noteKind('평가'));
+  on('noteKindB', () => noteKind('요청'));
+  on('noteCancel', noteClose);
+  on('noteSave', noteSave);
+  noteSync();
+});
 // 파이브앤하프 모바일 — 윈도우판(ui/app.py)과 같은 두뇌를 쓴다.
 // 값(규격·번호표·실측 반사표)은 data/ 를 그대로 읽는다. 두 벌로 나누지 않는다.
 // ⚠️ 저장소 뿌리에 둔다. 서버가 /basystem/ 을 이 폴더로 바로 서비스하므로
@@ -1723,6 +1768,11 @@ function down(px,py){
   if (S.tipPanel){ tapTipPanel(px,py); return; }
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
   // ★ 상·중·하 — 다이 안 막대 (사용자 2026-08-14)
+  // ★ 점수판 오른쪽 '말' 칸 — 요청·평가를 쓴다 (위 NOTE 주석 참고)
+  if (NOTE_HIT && px >= NOTE_HIT.x && px <= NOTE_HIT.x + NOTE_HIT.w &&
+      py >= NOTE_HIT.y && py <= NOTE_HIT.y + NOTE_HIT.h){
+    noteOpen(); return;
+  }
   for (const b of VER_HIT){
     if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h){
       const list0 = routesReady();
@@ -1978,7 +2028,7 @@ function draw(){
   //    두면 지금 사진의 공과 헷갈린다 (사용자 지적, 4.jpg).
   if (!PREVIEW){
     drawAnswer(); drawSysName();
-    if (!drawScatter()){ drawPath(); drawBalls(); drawVerBar(); }   // 뿌리는 중엔 궤적·공을 안 그린다
+    if (!drawScatter()){ drawPath(); drawBalls(); drawVerBar(); drawNoteBtn(); }   // 뿌리는 중엔 궤적·공을 안 그린다
     drawClock();
   }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList(); drawTipPanel();
@@ -3451,6 +3501,133 @@ function drawVerBar(){
   });
 }
 let VER_HIT = [];
+
+// ★★★ 요청·평가 메모 (사용자 2026-08-16)
+//   '점수판 0 우측에 평가버튼. 누르면 평가이유와 요청사항을 설명하는 텍스트 창을 만들어 주세요.
+//    구분에는 평가와 요청. 요청으로 저장을 하면 즉시 답변을 주세요. 저장 취소 버튼도 필요하네요.
+//    화면을 보고 수정사항 등을 캡처해서 프롬프트에서 치려니 불편해서 그런겁니다.
+//    요청은 내 ip만 답변하면 됩니다.'
+//
+//   ★ 답이 오는 길 (사용자가 정한 방식) —
+//     '내가 요청을 등록을 하고, 지금 프롬프트에서 x 한자만 치면 당신은 요청사항이 들어왔다고
+//      판단을 하고 즉시 서버를 확인해서 답변을 하면 되겠네요.'
+//     → 앱은 서버에 쌓기만 한다. Claude 가 psql 로 답을 써 넣고, 앱이 받아 보여준다.
+//       서버에 AI 를 두지 않는다 (별도 요금이 들고, 저장소를 못 봐서 일반론만 나온다).
+//
+//   ⚠️ 입력은 캔버스로 못 한다. 진짜 <textarea> 라야 폰 자판이 뜬다.
+let NOTE = {kind: '요청', rows: [], seen: 0, open: false};
+let NOTE_HIT = null;
+// 화면 위 알림 한 줄 (3초). #msg 는 데이터 읽는 중에도 쓰는 자리다.
+function say(t){
+  if (!msg) return;
+  msg.textContent = t;
+  clearTimeout(say._t);
+  say._t = setTimeout(() => { if (msg.textContent === t) msg.textContent = ''; }, 3000);
+}
+
+// ✎ 칸 — 점수판 오른쪽에 붙인다. 점수 칸 크기는 안 건드린다 (폭의 60%).
+function noteBtn(){
+  const b = verBar();
+  if (!b) return null;
+  const last = b[b.length - 1], w = last.w * 0.6;
+  return {x: last.x + last.w + last.w * 0.10, y: last.y, w, h: last.h};
+}
+
+function drawNoteBtn(){
+  const b = noteBtn();
+  NOTE_HIT = b;
+  if (!b) return;
+  const u = Math.min(b.w, b.h);
+  round(b.x, b.y, b.w, b.h, u * 0.26);
+  g.save(); g.globalAlpha = VER_ALPHA; g.fillStyle = '#101318'; g.fill(); g.restore();
+  g.strokeStyle = 'rgba(226,232,240,0.45)'; g.lineWidth = Math.max(2, b.h * 0.06); g.stroke();
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '900 ' + Math.round(b.h * 0.46) + 'px system-ui, -apple-system, sans-serif';
+  g.lineJoin = 'round';
+  g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(2, b.h * 0.10);
+  g.strokeText('말', b.x + b.w/2, b.y + b.h/2);
+  g.fillStyle = '#f2f4f8'; g.fillText('말', b.x + b.w/2, b.y + b.h/2);
+  g.restore();
+  // 새 답이 와 있으면 빨간 점
+  if (noteUnread() > 0){
+    const r = b.h * 0.13;
+    g.beginPath(); g.arc(b.x + b.w - r*1.2, b.y + r*1.2, r, 0, 7);
+    g.fillStyle = '#e05a52'; g.fill();
+    g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1.5, r*0.35); g.stroke();
+  }
+}
+function noteUnread(){
+  return NOTE.rows.filter(n => n.reply && n.id > NOTE.seen).length;
+}
+
+// 서버에서 내 것만 가져온다 (IP 로 갈린다 — 앱이 IP 를 몰라도 된다)
+function noteSync(){
+  fetch(API + 'mynotes?limit=30', {cache: 'no-store'})
+    .then(r => r.ok ? r.json() : null)
+    .then(j => { if (j && j.rows) NOTE.rows = j.rows; })
+    .catch(() => {});
+}
+
+function noteOpen(){
+  const el = document.getElementById('note');
+  if (!el) return;
+  NOTE.open = true;
+  document.getElementById('noteTxt').value = '';
+  noteKind(NOTE.kind);
+  noteDraw();
+  el.style.display = 'block';
+  NOTE.seen = NOTE.rows.reduce((m, n) => Math.max(m, n.id), NOTE.seen);
+  setTimeout(() => { const t = document.getElementById('noteTxt'); if (t) t.focus(); }, 60);
+}
+function noteClose(){
+  NOTE.open = false;
+  const el = document.getElementById('note');
+  if (el) el.style.display = 'none';
+}
+function noteKind(k){
+  NOTE.kind = k;
+  const a = document.getElementById('noteKindA'), b = document.getElementById('noteKindB');
+  if (a) a.className = (k === '평가' ? 'on' : '');
+  if (b) b.className = (k === '요청' ? 'on' : '');
+}
+function noteDraw(){
+  const el = document.getElementById('noteList');
+  if (!el) return;
+  const esc = t => String(t || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  el.innerHTML = NOTE.rows.slice(0, 8).map(n =>
+    '<div class="n"><div class="t">#' + n.id + '  ' + esc(n.kind) + '  ' +
+    esc(String(n.at || '').slice(5, 16).replace('T', ' ')) + '</div>' +
+    '<div class="q">' + esc(n.text) + '</div>' +
+    (n.reply ? '<div class="a">' + esc(n.reply) + '</div>' : '') + '</div>').join('');
+}
+function noteSave(){
+  const t = document.getElementById('noteTxt');
+  const txt = (t && t.value || '').trim();
+  if (!txt){ noteClose(); return; }
+  const list = routesReady();
+  const r = (list && S.routeIx >= 0) ? list[S.routeIx] : null;
+  const body = {who: VER_WHO, app: MOBILE_VER, kind: NOTE.kind, text: txt,
+                place_key: placeKey(),
+                route_key: r ? r.key : null,          // 경로 하나를 가리키는 열쇠
+                balls: Object.keys(S.balls).map(q =>
+                         ({c: q, x: Math.round(S.balls[q].p[0]), y: Math.round(S.balls[q].p[1]),
+                           color: S.balls[q].color})),
+                info: r ? {name: r.name, tip: r.tip, tipV: r.tipV, corr: S.corr,
+                           thick: r.thick === undefined ? null : Math.round(r.thick*100),
+                           sep: r.sep === undefined ? null : Math.round(r.sep),
+                           kiss: !!r.kiss, ix: S.routeIx,
+                           verdict: verGet(r) || null} : {corr: S.corr, ix: S.routeIx}};
+  fetch(API + 'note', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                       body: JSON.stringify(body)})
+    .then(x => x.ok ? x.json() : null)
+    .then(j => {
+      say(j && j.id ? (NOTE.kind + ' #' + j.id + ' 저장했습니다') : '저장 실패 — 다시 눌러 주세요');
+      noteSync();
+    })
+    .catch(() => say('저장 실패 — 인터넷을 확인해 주세요'));
+  noteClose();
+}
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 // 깜빡이는 동안은 경로가 **잠긴다** — 손가락을 움직여도 안 바뀐다.
