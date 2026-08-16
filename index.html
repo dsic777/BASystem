@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 361;
+const MOBILE_VER = 362;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -455,13 +455,21 @@ function bend(d, rail, k, E, vIn){
   //      입사각 2도에 걸쳐 부드럽게 넘긴다.
   const AIN_HEADON = 2.0, REV_KEEP = 0.25;
   if (e !== 0 && e * sIn < 0 && ain > 1e-9){   // 역회전 — 회전이 흐른 쪽과 반대다
-    const tp   = Math.min(3, Math.abs(S.tipH));
+    // ★★ 여기도 **실측 상한(TIP_CAP)** 을 지킨다 (사용자 2026-08-17, 22.jpg:
+    //   '3쿠션 반사각이 과도합니다').
+    //   반사표는 2팁에서 잘리는데(reflect) 이 줄만 3까지 써서, 같은 배치에서
+    //   3팁이 2팁보다 더 꺾였다 — 45도 입사에서 2팁 55도 · 3팁 60도.
+    //   실측이 '3팁은 2팁보다 더 안 벌어진다' 이므로 여기서도 2에서 자른다.
+    const tp   = Math.min(TIP_CAP, Math.abs(S.tipH));
     // ★ 남은 힘만큼만 건다 (위 revStrength 주석 참고).
     //     역각 100% 일 때의 keep 을 먼저 구하고, 거기에 r(0~0.5) 만큼만 다가간다.
     //     r=0   → keep 1     → 입사각 = 반사각 (1포인트)
     //     r=0.5 → 3팁이면 keep 0.625 (3포인트 이상)
     //   r > 0 이면 좁아지고(역각), r < 0 이면 벌어진다(순각으로 넘어간다).
     const r    = revStrength(vIn, ain);
+        //   ⚠️ 나누는 값은 **3 그대로** 둔다. TIP_CAP 으로 바꿨더니 2팁이 '완전 역회전'
+    //      자리가 되어 오히려 더 꺾였다 (45도 입사 55 → 60). 여기서 고칠 것은
+    //      '3팁이 2팁을 넘는 것' 하나뿐이다 — 위에서 tp 를 자른 것으로 끝난다.
     const full = Math.max(0, 1 - (1 - REV_KEEP) * tp / 3);
     const keep = 1 - (1 - full) * r;
     const w    = Math.min(1, ain / AIN_HEADON);          // 정면이면 0
@@ -4174,10 +4182,15 @@ function noteBtn(){
   try { box = clusterBox(tipCenter()); } catch(e){ box = null; }
   const hit = q => box && q.x < box[2] && q.x + q.w > box[0] &&
                           q.y < box[3] && q.y + q.h > box[1];
-  if (hit(R) && !hit(L2)) return L2;      // 오른쪽이 막히면 왼쪽
-  if (hit(R) && hit(L2)){                 // 양쪽 다 막히면 점수판 **위**로 띄운다
-    return {x: R.x, y: last.y - last.h * 1.15, w, h: last.h};
-  }
+  // ★★ 다이 밖으로 나가면 안 된다 (사용자 2026-08-17, 22.jpg: '의견은 다이 밖으로
+  //   나갔네요'). v335 에서 점수판을 **왼쪽 끝**에 붙였더니, 왼쪽 자리(L2)가
+  //   천 바깥이 되어 버튼이 반쯤 잘려 나갔다. 자리마다 천 안에 들어가는지 먼저 본다.
+  const cl = L.cloth;
+  const inside = q => q.x >= cl.x && q.x + q.w <= cl.x + cl.w;
+  const up = {x: R.x, y: last.y - last.h * 1.15, w, h: last.h};
+  if (!hit(R) && inside(R)) return R;               // 오른쪽이 제일 낫다
+  if (!hit(L2) && inside(L2)) return L2;            // 막히면 왼쪽 (천 안일 때만)
+  if (inside(up)) return up;                        // 둘 다 안 되면 점수판 위
   return R;
 }
 
