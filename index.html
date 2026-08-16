@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 360;
+const MOBILE_VER = 361;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5016,8 +5016,42 @@ function firstOnShortRail(){
   const rp = railParam(fold(orientation(), b.hits[0].p));
   return !!rp && rp.rail === 'left';
 }
+// ★★★ 횡단&더블시스템의 눈금 — **레일 칸수** (사용자 2026-08-17, 20.jpg '포인트 그대로네요')
+//   '상단과 하단의 포인트는 0~8 까지로 하고 좌측 단다이는 0~4. 방향이 반대면 반대로.'
+//   파이브앤하프 눈금(프레임 0~110)과 전혀 다른 자라, 이 시스템일 때는 통째로 갈아입는다.
+//   ⚠️ 방향은 fold() 가 접는다 — 번호표는 언제나 수구가 향하는 쪽 기준이다.
+//   ⚠️ 색은 한 가지로 둔다. 파이브앤하프처럼 쿠션마다 역할(수구수·1쿠션·3쿠션)이
+//      정해진 눈금이 아니라 **자리를 세는 자** 하나이기 때문이다.
+function drawNumbersCross(){
+  const o = orientation();
+  const fs = Math.round(L.cloth.h * 0.062);
+  g.save();
+  g.font = 'bold ' + fs + 'px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#e8eef7'; g.strokeStyle = '#101014';
+  g.lineWidth = Math.max(3, fs * 0.28);
+  const put = (rail, i, n) => {
+    const lg = (rail === 'top' || rail === 'bottom');
+    const t = i / (lg ? 8 : 4);
+    let mm = lg ? [T.width*t, rail === 'top' ? T.height : 0]
+                : [rail === 'right' ? T.width : 0, T.height*t];
+    mm = fold(o, mm);
+    let [x, y] = toPx(...mm);
+    const r2 = foldRail(o, rail);
+    if (r2 === 'top')    y += fs * 0.20;
+    if (r2 === 'bottom') y -= fs * 0.06;
+    if (r2 === 'left' || r2 === 'right')
+      x = r2 === 'right' ? (L.cloth.x + L.cloth.w + L.rail.x + L.rail.w) / 2
+                         : (L.rail.x + L.cloth.x) / 2;
+    g.strokeText(String(n), x, y); g.fillText(String(n), x, y);
+  };
+  for (let i = 0; i <= 8; i++){ put('top', i, i); put('bottom', i, i); }
+  for (let i = 0; i <= 4; i++){ put('left', i, i); put('right', i, i); }
+  g.restore();
+}
 function drawNumbers(){
   if (curSystem() === 1){ drawNumbers2Bank(); return; }
+  if (curShotName() === '횡단&더블시스템'){ drawNumbersCross(); return; }
   const o = orientation();
   for (const sc of SCALES){
     // 단쿠션 1쿠션 눈금은 **거기가 1쿠션일 때만** 나온다 (위 firstOnShortRail)
