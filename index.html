@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 329;
+const MOBILE_VER = 330;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4729,10 +4729,24 @@ function drawZoneGrid(){
   g.restore();
 }
 
+// ★★★ 1쿠션이 **우측 단쿠션**인가 (사용자 자문 2026-08-17)
+//   '1쿠션이 우측 단쿠션일 때만' 그 쿠션에 눈금을 그린다.
+//   ⚠️ 화면 방향의 기준은 언제나 **수구가 향하는 쪽**이다 — 1적구든 1쿠션이든.
+//      사용자: '항상 강조를 하지만 … 이 기준 한번도 바뀐적이 없어요.'
+//      번호표는 다이 좌표로 두고 fold() 가 화면에 맞춘다. 그 접힌 자리에서
+//      화면 우측 단쿠션은 데이터의 **left** 레일이다.
+function firstOnShortRail(){
+  const b = systemBase();
+  if (!b || !b.hits || !b.hits.length) return false;
+  const rp = railParam(fold(orientation(), b.hits[0].p));
+  return !!rp && rp.rail === 'left';
+}
 function drawNumbers(){
   if (curSystem() === 1){ drawNumbers2Bank(); return; }
   const o = orientation();
   for (const sc of SCALES){
+    // 단쿠션 1쿠션 눈금은 **거기가 1쿠션일 때만** 나온다 (위 firstOnShortRail)
+    if (sc.name === 'first_cushion_short' && !firstOnShortRail()) continue;
     const third = sc.name === 'third_cushion';
     // 숫자도 화면에 비례시킨다. 17/20px 고정이면 폰에서 안 보인다.
     const fs = Math.round(L.cloth.h * (third ? 0.055 : 0.065));   // 천 높이 기준
@@ -6772,7 +6786,14 @@ function systemNumbers(){
   // 1쿠션수 — 기준선을 앞으로 늘려 프레임과 만나는 자리
   const fw = frameHit(from, dir);
   const fa = fw ? frameParam(fold(o, fw)) : null;
-  const first = fa ? readScale('first_cushion', fa.rail, fa.t) : null;
+  let first = fa ? readScale('first_cushion', fa.rail, fa.t) : null;
+  // ★ 1쿠션이 우측 단쿠션이면 장쿠션 눈금에는 없다 — 그 쿠션의 **레일 눈금**에서 읽는다
+  //   (사용자 자문 2026-08-17). 1.jpg·2.jpg 에서 '1쿠션' 칸이 비어 있던 이유가 이것이다.
+  if (first === null && b.hits && b.hits.length){
+    const rp = railParam(fold(o, b.hits[0].p));
+    if (rp && rp.rail === 'left')
+      first = readScale('first_cushion_short', rp.rail, rp.t);
+  }
 
   // 수구수 — **반대쪽으로** 늘려 프레임과 만나는 자리 (코너 = 50)
   const bw = frameHit(from, [-dir[0], -dir[1]]);
