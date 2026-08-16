@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 309;
+const MOBILE_VER = 310;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3291,9 +3291,13 @@ function findRoutes(){
   //   ⚠️ 훑기는 자기 기준(쿠션 수 한도 등)으로 '득점' 을 재고, 그리기는 또 제 기준으로
   //      다시 푼다. 그 둘이 어긋나는 자리가 드물게 있다 —
   //      Node 로 무작위 40배치 1152경로를 재 보니 **6개(0.5%)** 가 그리면 2적구를 못 맞혔다.
-  //   → 목록에 넣기 전에 **그리는 것과 똑같은 방법으로** 한 번 더 푼다. 못 맞히면 뺀다.
+  //   → 목록에 넣기 전에 **그리는 것과 똑같은 방법으로** 한 번 더 푼다.
+  //     못 맞히면 **지우지 말고**, 그 경로의 각 구간을 훑어 득점하는 각으로 옮긴다
+  //     (사용자 정정: '13 인 경우는 100점짜리 좋은 경로입니다.
+  //      성공하는 경로를 찾아 추천에 넣어줘야 합니다').
+  //     그래도 안 되면 그때 뺀다.
   //   ★ 키스는 안 뺀다. 키스는 당점으로 피할 수 있고, 사용자가 그렇게 정했다.
-  const drawn = list.filter(routeScores);
+  const drawn = list.filter(routeFix);    // 못 맞히면 각을 옮겨 살린다. 안 되면 뺀다
   if (drawn.length) list = drawn;          // 다 빠지면 원래대로 둔다 (빈 목록보다 낫다)
   for (const r of list){
     r.reach = routeReach(r);
@@ -3306,11 +3310,10 @@ function findRoutes(){
   ROUTES = {key, list};
   return list;
 }
-// ★ 이 경로를 **화면에 그리는 그대로** 다시 풀어, 2적구에 닿는지 본다.
-//   (위 filter 주석 참고). 못 재면 참으로 둔다 — 억지로 지우지 않는다.
-function routeScores(r){
+// ★ 이 각으로 **화면에 그리면** 2적구에 닿나. 그리는 것과 똑같이 푼다.
+function drawnScores(r, ang){
   const cue = S.balls.cue;
-  if (!cue || !r || typeof r.a !== 'number') return true;
+  if (!cue) return true;
   const hS = S.tipH, vS = S.tipV, rS = S.tipR, aS = S.aim;
   let ok = true;
   try {
@@ -3319,7 +3322,7 @@ function routeScores(r){
       if (r.tipV !== undefined) S.tipV = r.tipV;
       S.tipR = Math.min(3, Math.hypot(S.tipH, S.tipV));
     }
-    S.aim = [cue.p[0] + Math.cos(r.a)*2000, cue.p[1] + Math.sin(r.a)*2000];
+    S.aim = [cue.p[0] + Math.cos(ang)*2000, cue.p[1] + Math.sin(ang)*2000];
     const hits = pathFromAim(cue.p, S.aim, S.corr), kk = LAST_K;
     const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
     if (!cut.hit) ok = false;
@@ -3329,12 +3332,31 @@ function routeScores(r){
       if (!af) ok = false;
       else {
         const later = roll(P, af.dir, 8, kk);
-        ok = cutAtBall([P, ...later.map(h => h.p)], cut.obj).hit;
+        const post = cutAtBall([P, ...later.map(h => h.p)], cut.obj);
+        // ⚠️ 회로(쿠션 차례)까지 같아야 '그 경로' 다. 다른 길로 득점하면 딴 경로다.
+        ok = post.hit && (cut.pts.length - 2) === r.before;
       }
     }
   } catch(e){ ok = true; }
   S.tipH = hS; S.tipV = vS; S.tipR = rS; S.aim = aS;
   return ok;
+}
+// ★★★ 못 맞히면 **지우지 말고 고친다** (사용자 2026-08-16 정정) —
+//   '13 인 경우는 100점짜리 좋은 경로입니다. 성공하는 경로를 찾아 추천에 넣어줘야 합니다.'
+//   그 경로의 각 구간 안팎을 훑어 **득점하는 각**을 찾아 그리로 옮긴다.
+//   가운데에서 가까운 각부터 본다 — 원래 자리에서 최대한 안 벗어나게.
+//   그래도 없으면 그때는 뺀다 (진짜로 안 되는 길이다).
+function routeFix(r){
+  if (typeof r.a !== 'number') return true;
+  if (drawnScores(r, r.a)) return true;
+  const W = Math.max(0.20, r.w || 0.5) * Math.PI/180;   // 그 경로의 각 폭
+  const STEP = W/12;
+  for (let d = STEP; d <= W*1.5 + 1e-12; d += STEP)
+    for (const sg of [1, -1]){
+      const a = r.a + sg*d;
+      if (drawnScores(r, a)){ r.a = a; r.fixed = 1; return true; }
+    }
+  return false;
 }
 
 // ★★★ 한 조준의 '칠 계획' — 그리기·추천·키스가 **다 이걸 쓴다.**
