@@ -250,8 +250,11 @@ def my_notes(req: Request, limit: int = 50) -> dict:
     """부르는 폰의 IP 것만. 앱이 이걸 쓴다 — IP 를 앱이 몰라도 된다."""
     ip = client_ip(req)
     with db() as c:
+        # ⚠️ balls · info 를 빼먹으면 앱 목록에 **공도 경로선도 안 그려진다**
+        #    (2026-08-16 사용자 5.jpg — 칸은 뜨는데 안이 비어 있었다).
         rows = c.execute(
-            "SELECT id, at, kind, text, reply, replied_at, place_key, route_key"
+            "SELECT id, at, kind, text, reply, replied_at, place_key, route_key,"
+            " balls, info"
             " FROM note WHERE ip = %s ORDER BY id DESC LIMIT %s", (ip, limit)).fetchall()
     return {"count": len(rows), "ip": ip, "mine": ip == OWNER_IP, "rows": rows}
 
