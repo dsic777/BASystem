@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 348;
+const MOBILE_VER = 349;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2793,7 +2793,14 @@ function shotName(c1, rails, cueP, objP){
   if (c1 > 0) return DROP_BANK ? null : (c1 <= 3 ? BANK_KR[c1] : null);
   const r0 = rails[0], r1 = rails[1];
   if (!r0 || !r1) return null;
-  if (isLong(r0) === isLong(r1)) return null;        // ① 2쿠션이 같은 종류 = 도는 것이 아니다
+  // ★★★★ 장-장 은 **횡단**, 단-단 은 **종단** 이다 (data/shot_types.json 규칙 그대로).
+  //   전에는 null 을 줘서 이름이 '3쿠션' 으로 뭉뚱그려졌다. 사용자 2026-08-17:
+  //   '더블이던 횡단이던 위치에 따라 어떤 경로로 성공을 시킬 수 있는지만 알면 됩니다.
+  //    해당 경로가 나오면 시스템명과 경로 시뮬레이션만 나오면 됩니다.'
+  //   ⚠️ **순위는 안 건드린다.** 이름만 준다 (아래 loose 를 그대로 둔다) —
+  //      순위 변경은 사장님 승인이 필요하다.
+  //   ★ 횡단과 종단은 **시스템명을 구분하지 않는다** (사용자 2026-08-17). 한 이름으로.
+  if (isLong(r0) === isLong(r1)) return '횡단';
   if (!isLong(r0)) return '앞돌리기';                 // ③ 1쿠션이 단
   if (!cueP || !objP) return '옆·뒤돌리기';
   // 단쿠션은 세로(y축)로 서 있다. 두 공을 잇는 선이 세로면 단쿠션과 평행하다.
@@ -3022,6 +3029,8 @@ function simulate(dir, k){
     if (c1 > 0) return null;              // 뱅크는 이름이 있어야 한다 (억지 경로가 돌아온다)
     name = '3쿠션'; loose = true;
   }
+  // ★ 횡단·종단은 **이름만** 새로 준 것이다. 순위는 전과 같게 둔다 (위 shotName 주석)
+  if (name === '횡단') loose = true;
   if (ONLY_NAME && name !== ONLY_NAME) return null;      // 진단용 (위 ONLY_NAME 참고)
   // ★★ 진로마다 **분리각 대역**이 있다 — 사용자 확인 2026-08-12 (기본진로.png 에서 뽑고
   //   '일단 해 봅시다' 로 승인).  기하가 그렇게 만든다 — 수구를 세로로 세울수록 커진다.
