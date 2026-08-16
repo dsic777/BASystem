@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 350;
+const MOBILE_VER = 351;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -473,6 +473,7 @@ function bend(d, rail, k, E, vIn){
 //        회전은 공에 붙어 있고 충돌로 바뀌지 않는다.
 // v0 를 주면 쿠션마다 **남은 힘**을 계산해 역각 세기에 쓴다 (위 revStrength 주석).
 //   안 주면 지금까지처럼 최대(50%)로 본다.
+const DDONG_DEG = 1;                     // 똥창에서 비트는 각 (사용자 2026-08-17)
 // 코너에서 옆 쿠션까지 반사시킨다 (위 roll 의 ★★★ 주석). 코너가 아니면 그대로 둔다
 function cornerBend(q, nd, rail, k, E, v){
   const EPS = 1.0;                       // mm — 이 안이면 코너에 닿은 것으로 본다
@@ -483,7 +484,19 @@ function cornerBend(q, nd, rail, k, E, v){
   if (!other) return nd;
   const n2 = RAILS[other];               // 안쪽 법선
   if (nd[0]*n2[0] + nd[1]*n2[1] >= 0) return nd;   // 이미 안쪽으로 나간다
-  return bend(nd, other, k, E, v)[0];
+  const out = bend(nd, other, k, E, v)[0];
+  // ★★★ 똥창 — 두 쿠션을 **동시에** 맞은 자리다 (사용자 2026-08-17:
+  //   '동시에 맞으면 당구 비속어로 똥창이라고 합니다.
+  //    랜덤으로 좌던 우던 한쪽에 1도를 더해서 튕겨내세요').
+  //   두 번 반사시키면 들어온 길로 곧장 되돌아 나간다. 실제로는 어느 쪽으로 튈지
+  //   모르는 자리라 그렇게 딱 떨어지지 않는다. 좌우 한쪽으로 1도 비틀어 내보낸다.
+  //   ⚠️ 진짜 난수(Math.random)를 쓰면 **같은 배치가 프레임마다 다르게 그려진다.**
+  //      자리와 방향으로 부호를 정한다 — 배치가 같으면 늘 같은 쪽, 배치가 달라지면
+  //      반대쪽도 나온다. 보기에는 무작위이고 화면은 안 흔들린다.
+  const h = Math.abs(Math.round(q[0]*7 + q[1]*13 + out[0]*1009 + out[1]*2003));
+  const sg = (h % 2) ? 1 : -1;
+  const a = sg * DDONG_DEG * Math.PI/180, ca = Math.cos(a), sa = Math.sin(a);
+  return [out[0]*ca - out[1]*sa, out[0]*sa + out[1]*ca];
 }
 function roll(start, d, cushions, k, E, v0){
   const n = Math.hypot(d[0], d[1]);
