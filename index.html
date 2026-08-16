@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 301;
+const MOBILE_VER = 302;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3875,10 +3875,10 @@ function noteSave(){
       .then(x => x.ok ? x.json() : null)
       .then(j => {
         say(j && j.ok ? ('#' + id + ' 고쳤습니다') : '수정 실패 — 다시 눌러 주세요');
-        NOTE.edit = 0;
-        const b = document.getElementById('noteSave'); if (b) b.textContent = '저장';
-        const t2 = document.getElementById('noteTxt'); if (t2) t2.value = '';
-        noteSync(() => noteDraw());
+        // ★ 사용자 2026-08-16: '수정 클릭시 수정후 즉시 전화면 복귀. 다시 저장 물어보지 마세요.'
+        //   고치고 나면 볼 것이 없다. 그 자리에서 닫고 화면으로 돌려보낸다.
+        noteSync();                       // 다음에 열 때 바뀐 글이 보이게만 해 둔다
+        noteClose();
       })
       .catch(() => say('수정 실패 — 인터넷을 확인해 주세요'));
     return;
