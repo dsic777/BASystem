@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 317;
+const MOBILE_VER = 319;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5301,12 +5301,13 @@ function simStep(sim, dt){
 //   ★ 속도만 마찰 모델로 준다 — 쿠션마다 CUSHION_KEEP, 1적구에서 두께만큼 잃는다.
 //     ⚠️ 초구 뿌리기(scatter)는 그대로 물리 엔진을 쓴다. 거기는 길이 없다.
 function playInit(cuePoly, objPoly, hitAt, keepC, share, rest, v0Poly){
-  // ⚠️ 세기는 **그려 둔 길**로 정하고, 굴러가는 길은 **그보다 길게** 준다.
-  //    그리는 선은 보기 좋게 잘라 놓은 것(DRAW_UPTO)이라, 그 끝에서 공을 세우면
-  //    아직 힘이 남았는데 뚝 끊긴다 (사용자 2026-08-16:
-  //    '지난번은 공이 굴러갔는데 지금은 끊어지고 있어요').
-  //    → 힘이 다할 때까지 스스로 구르다 선다. 그려 둔 구간은 여전히 100% 그대로 간다.
-  const V0 = needV0exact(v0Poly || cuePoly, keepC);
+  // ⚠️⚠️ 세기는 **실제로 굴러갈 길** 전체로 잰다.
+  //    v315 에서 '세기는 그려 둔(짧은) 길로, 길은 길게' 로 했더니 수구가 한가운데서
+  //    섰다 (사용자 2026-08-16 16.jpg: '수구가 가다가 멈춥니다').
+  //    당연하다 — 짧은 길을 완주할 만큼만 줬는데 긴 길을 가라고 한 것이다.
+  //    → 갈 길 전체를 완주할 세기를 준다. 그러면 끝까지 가서 자연스럽게 선다.
+  //      그려 둔 구간은 여전히 100% 그대로 지난다 (선이 같으니까).
+  const V0 = needV0exact(cuePoly, keepC);
   return {cue: {poly: cuePoly, i: 0, s: 0, v: V0},
           obj: (objPoly && objPoly.length > 1)
                ? {poly: objPoly, i: 0, s: 0, v: 0} : null,
@@ -5378,7 +5379,9 @@ function playStep(pl, dt){
       const L = dd || 1;
       h.dir = [(h.p[0]-q[0])/L, (h.p[1]-q[1])/L];   // 중심선 방향으로 밀려난다
       h.v = Math.max(250, mv.v * 0.85);
-      mv.v *= 0.35;                                 // 민 만큼 잃는다
+      // ⚠️ 0.35 로 깎았더니 민 뒤에 곧 서 버려 어색했다. 스치는 경우가 더 많으므로
+      //    적게 잃는 쪽으로 둔다 (사용자 2026-08-16: '너무 차이가 납니다').
+      mv.v *= 0.70;
       break;
     }
   }
@@ -5587,15 +5590,21 @@ function drawPath(){
         const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
         // ★ 그려 둔 선 그대로 굴린다 (위 playInit 주석)
         //   수구 = 충돌 전 선 + 충돌 후 선.  hitAt = 충돌한 꼭짓점 번호.
+        // ★ 1적구도 **그린 것보다 길게** 굴린다 (사용자 2026-08-16:
+        //   '1적구는 충돌 후 거기까지 빨리 나가다가 쿠션에 붙어버렸어요').
+        //   그리는 1적구 선은 3쿠션까지다 (사용자 기준). 재생을 거기에 묶으면
+        //   아직 빠른데 그 끝에서 딱 서고, 그 끝이 쿠션이면 붙은 것처럼 보인다.
+        //   → 6쿠션까지 길을 주고 힘이 다할 때까지 굴린다. 그린 3쿠션은 그대로 지난다.
+        let oqLong = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 6).map(h => h.p)], cut.obj);
+        const opPlay = (oqLong.pts && oqLong.pts.length > 1) ? oqLong.pts : op;
         // 서 있는 공들 — 수구와 1적구 말고 나머지. 닿으면 밀려난다
         const hitList = [];
         for (const key in S.balls)
           if (key !== 'cue' && key !== cut.obj)
             hitList.push({key, p: S.balls[key].p.slice(), dir: [0,0], v: 0, on: 0});
-        // 굴러가는 길은 자르지 않은 것(post.pts), 세기는 그려 둔 것(pts2) 기준
-        S.sim = playInit([...before, ...post.pts.slice(1)], op,
-                         before.length - 1, keepC, share, hitList,
-                         [...before, ...pts2.slice(1)]);
+        // 굴러가는 길은 자르지 않은 것(post.pts). 세기도 그 길 전체로 잰다
+        S.sim = playInit([...before, ...post.pts.slice(1)], opPlay,
+                         before.length - 1, keepC, share, hitList);
         S.simLast = performance.now();
         S.simRest = S.simLast;
         S.simAcc  = 0;
