@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 299;
+const MOBILE_VER = 300;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4807,6 +4807,15 @@ const CUSHION_KEEP = 0.80;
 //   500→150mm/s 만 6.8초가 걸린다 (그 사이 2m 를 간다). v223 에서 사용자가
 //   '기어가는 꼬리를 끊는다' 고 한 그 자리다. 150 을 그대로 쓴다.
 const SIM_STOP = 150;       // mm/s — 엔진에서 '섰다'고 보는 속도
+// ★ 보여주는 시뮬레이션만 더 낮게 잡는다 (사용자 2026-08-16:
+//   '경로 시물레이션시 수구가 마지막에 2적구를 맞힌 다음 정지를 하는데
+//    조금 더 굴르면 좋겠어요. 현실감 있게.')
+//   ⚠️ 경로 **계산**은 150 그대로 둔다 — 거기서 낮추면 v223 에서 없앤
+//      '기어가는 꼬리' 가 되살아나 경로가 길어진다. 재생만 낮춘다.
+//   2적구를 맞고 수구에 남는 것은 스치는 쪽 몫뿐이라 150 아래로 떨어져 바로 섰다.
+const SIM_PLAY_STOP = 45;
+// 그 마지막 구름이 보이려면 도착 속도에 조금 여유가 있어야 한다.
+const SIM_PLAY_BOOST = 1.15;
 
 // 이 길을 끝까지 갈 만큼의 세기 — **엔진과 똑같은 모델로** 굴려 보고 이분법으로 찾는다.
 // ⚠️ needV0/trackOf 는 등감속 · 쿠션 무손실이라 엔진과 값이 안 맞는다. 그쪽은 kissAt 용이다.
@@ -5167,8 +5176,10 @@ function drawPath(){
         // 수구가 1적구에 두께만큼 넘겨주고 남기는 몫 = √(1 − 두께²)
         const share = Math.max(0.10, Math.min(0.95, a.thick));
         const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
-        const V0 = simNeedV0([...before, ...pts2.slice(1)], keepC);
+        // ★ 재생은 조금 여유 있게 친다 — 2적구를 맞고도 조금 더 구르게 (위 주석)
+        const V0 = simNeedV0([...before, ...pts2.slice(1)], keepC) * SIM_PLAY_BOOST;
         S.sim     = simInit(dirOf(cue.p, S.aim), V0, kk, englishSide());
+        S.sim.stop = SIM_PLAY_STOP;              // 기어가는 끝을 조금 더 보여준다
         S.simLast = performance.now();
         S.simRest = S.simLast;
         S.simAcc  = 0;
