@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 306;
+const MOBILE_VER = 307;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1503,7 +1503,22 @@ function clockCenter(){
   const clear = ballR() * 1.1;                              // 이만큼 떨어지면 안 덮는다
   // 공은 반드시 피하고, **그중에서 궤적도 가능하면 피한다** (사용자 지시).
   const okay = spot.filter(t => ballD(t) >= clear);
-  const cand = okay.length ? okay : spot;
+  let cand = okay.length ? okay : spot;
+  // ★★ 점수 슬라이더도 피한다 (사용자 2026-08-16, 12.jpg:
+  //   '의견과 포인트가 중복이 됩니다 … 이 화면에서는 보정판이 위로 올라가면 좋겠습니다.')
+  //   슬라이더는 다이 아래를 가로로 다 덮는다. 뭉치가 그 위에 앉으면 —
+  //     · 당점을 누르려 해도 슬라이더가 가로챈다 (요청 #13)
+  //     · 의견 칸이 왼쪽으로 밀려 슬라이더 눈금 '0' 과 겹친다 (12.jpg)
+  //   → 슬라이더와 안 겹치는 모서리가 있으면 그쪽을 쓴다. 그러면 저절로 위로 간다.
+  {
+    let vb = null;
+    try { vb = verBar(); } catch(e){ vb = null; }
+    if (vb){
+      const free = cand.filter(t => { const b = clusterBox(t);
+        return !(b[0] < vb.x + vb.w && b[2] > vb.x && b[1] < vb.y + vb.h && b[3] > vb.y); });
+      if (free.length) cand = free;
+    }
+  }
   let best = cand[0], bestD = -1;
   for (const t of cand){
     const d = okay.length ? pathDist(t) : ballD(t);
@@ -3668,9 +3683,12 @@ function noteBtn(){
   const b = verBar();
   if (!b) return null;
   // ★ 사용자 2026-08-16: '버튼명 말을 의견으로 고처주세요' → 두 글자라 칸을 넓힌다
-  const last = {x: b.x + b.w, y: b.y, w: b.h*1.15, h: b.h};   // 슬라이더 오른쪽 끝
-  const first = {x: b.x, y: b.y, w: b.h*1.15, h: b.h};
-  const w = last.w, gap = b.h*0.12;
+  // ★ 사용자 2026-08-16: '의견바를 30% 좁혀도 될듯합니다'
+  //   ⚠️ 사이(gap)도 벌린다 — 슬라이더 양 끝 눈금 숫자(0 · 100)가 반쯤 밖으로 나와서
+  //      바짝 붙이면 그 숫자와 겹친다 (12.jpg 에서 '0' 과 겹쳤다).
+  const w = b.h*0.80, gap = b.h*0.42;                          // 1.15 → 0.80 (30% 좁힘)
+  const last = {x: b.x + b.w, y: b.y, w, h: b.h};              // 슬라이더 오른쪽 끝
+  const first = {x: b.x, y: b.y, w, h: b.h};
   const R = {x: last.x + gap, y: last.y, w, h: last.h};
   // ★★ 당점·보정 뭉치와 겹치면 **왼쪽으로 옮긴다** (사용자 2026-08-16: '보정판과 겹칩니다').
   //   당점 시계·당점이름·▶·보정바는 다이 안을 돌아다니므로 자리가 고정이 아니다.
