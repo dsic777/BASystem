@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 339;
+const MOBILE_VER = 340;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2659,6 +2659,8 @@ const DROP_REVERSE = false;   // ★ 켜지 말 것 — '역각은 쓰리쿠션�
 //    교본 그림과 반대였다 (ss4 뒤돌리기가 장 먼저, ss3 앞돌리기가 단 먼저).
 //    그림 7장이 모두 위 규칙으로 맞아떨어져 이쪽을 따른다.
 const BANK_KR = ['', '원뱅크', '투뱅크', '쓰리뱅크'];
+// 2뱅크 곱셈 1쿠션 포인트 색 — 밝은 핑크 (사용자 2026-08-17). 상황판도 이 값을 쓴다
+const TWOBANK_FIRST = '#ff5ce0';
 // ★★ 뱅크샷은 **빼는 게 아니라 뒤로 민다.** 사용자 확정 2026-08-12 —
 //   '12 같은 경로는 선택하지 않습니다. 13 과 같이 칩니다.'  (12 원뱅크 · 13 직접 50%)
 //   '**1적구를 직접 겨냥해서 당점을 변경하면 가능한 경로가 1순위,
@@ -4933,7 +4935,9 @@ function drawNumbers2Bank(){
     if (dia <= (isLong(tb.r2) ? 8 : 4)) put(tb.r2, tb.cS, dia, String(v), '#f0be28');
   }
   // 1쿠션 위치값 — 한 칸에 10 (빨강)
-  for (let k = 1; k <= n1; k++) put(tb.r1, tb.cF, k, String(k*10), '#ff5a4e');
+  // ★ 밝은 핑크 (사용자 2026-08-17, 5.jpg: '포인트 밝은 핑크로').
+  //   빨강(#ff5a4e)은 1적구 궤적(COL.obj)과 같은 계열이라 레일 위에서 섞였다.
+  for (let k = 1; k <= n1; k++) put(tb.r1, tb.cF, k, String(k*10), TWOBANK_FIRST);
 }
 
 function railPoint(sc, rail, idx){
@@ -6975,7 +6979,8 @@ function drawReadout(){
   } else if (sys === 1){
     const tb = twoBank();
     // ★ 다이에 그린 2뱅크 숫자와 **같은 색** (drawNumbers2Bank 의 put 색 그대로)
-    cols = [['출발값', tb && tb.start, '#f6f5ee'], ['1쿠션', tb && tb.first, '#ff5a4e'],
+    cols = [['출발값', tb && tb.start, '#f6f5ee'],
+            ['1쿠션', tb && tb.first, TWOBANK_FIRST],
             ['2쿠션', tb && tb.second, '#f0be28']];
   } else {
     const n = systemNumbers();
@@ -7045,20 +7050,8 @@ function drawReadout(){
   //   → 상황판에는 **▸ 표시만** 남긴다 (탭하면 바뀐다는 신호). 이름은 다이 안에 크게.
   // ★ 사용자 2026-08-13: '위 화살표 버튼도 지우고, 수구수 위 여백을 반으로 줄이면
   //   될 것 같네요.'  → ▸ 를 안 그린다. 이름이 다이 안에 있으니 여기는 숫자만 남는다.
-  if (sys === 1){                       // 팁 가이드 — 무회전이 기본, 안 되면 회전
-    const tg = tipGuide();
-    g.textAlign = 'right';
-    g.font = '800 ' + Math.round(r.h*0.19) + 'px system-ui, sans-serif';
-    let txt = '—', col = '#8b93a0';
-    if (tg && tg.ok){                       // 지금 당점으로 닿는다
-      txt = tg.tip < 0.25 ? '무회전 ○' : tg.tip.toFixed(1) + '팁 ○'; col = '#6eeb5a';
-    } else if (tg && tg.tip !== null){      // 안 닿는다 — 이 팁이면 닿는다
-      txt = '→ ' + (tg.tip < 0.25 ? '무회전' : tg.tip.toFixed(1) + '팁'); col = '#ffd400';
-    }
-    g.fillStyle = col;
-    g.fillText(txt, r.x + r.w - r.h*0.10, r.y + r.h*0.04);
-    g.textAlign = 'center';
-  }
+  // ★ '무회전 ○' 팁 가이드를 지운다 (사용자 2026-08-17: '상황판 무회전 표지 지우세요').
+  //   2뱅크 곱셈은 당점이 무회전으로 **정해져 있는** 시스템이라 매번 알릴 것이 없다.
   cols.forEach(([lb, v, col], i) => {
     const cx = r.x + r.w*(i + 0.5)/cols.length;   // 칸 수는 모드마다 다르다 (기울기는 4칸)
     g.textBaseline = 'top';
