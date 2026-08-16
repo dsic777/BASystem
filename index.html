@@ -52,6 +52,8 @@
   <textarea id="noteTxt" placeholder="지금 화면을 보고 느낀 것을 그대로 쓰세요.&#10;배치·경로·당점·점수는 자동으로 같이 저장됩니다."></textarea>
   <div class="row" style="margin-top:10px">
     <button id="noteCancel">취소</button>
+    <button id="noteHist">지난 글</button>
+    <button id="noteBack">새로 쓰기</button>
     <button id="noteSave" class="go">저장</button>
   </div>
   <div id="noteList"></div>
@@ -100,7 +102,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 295;
+const MOBILE_VER = 296;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -123,6 +125,8 @@ window.addEventListener('load', () => {
   on('noteKindB', () => noteKind('요청'));
   on('noteCancel', noteClose);
   on('noteSave', noteSave);
+  on('noteHist', noteHist);
+  on('noteBack', noteBack);
   noteSync();
 });
 // 파이브앤하프 모바일 — 윈도우판(ui/app.py)과 같은 두뇌를 쓴다.
@@ -3525,6 +3529,7 @@ let VER_HIT = [];
 //   ⚠️ 입력은 캔버스로 못 한다. 진짜 <textarea> 라야 폰 자판이 뜬다.
 let NOTE = {kind: '요청', rows: [], seen: 0, open: false,
             wait: 0,      // 답을 기다리는 글 번호 (0 이면 쓰는 상태)
+            hist: 0,      // 지난 글을 보는 중인가
             show: [],     // 지금 창에 보여줄 글 번호들 — '이 화면 것만'
             tick: 0};     // 기다리는 동안 도는 확인 타이머
 let NOTE_HIT = null;
@@ -3621,33 +3626,54 @@ function noteOpen(){
   if (!el) return;
   NOTE.open = NOTE_OPEN = true;
   const unread = NOTE.rows.filter(n => n.reply && n.id > NOTE.seen).map(n => n.id);
-  NOTE.show = NOTE.wait ? [NOTE.wait] : unread;      // 새 답이 있으면 그것만 보여준다
+  if (NOTE.wait) NOTE.show = [NOTE.wait];            // 기다리던 글이 있으면 그것부터
+  else if (unread.length){ NOTE.hist = 1; NOTE.show = unread; }   // 새 답만
+  else { NOTE.hist = 0; NOTE.show = []; }
   NOTE.seen = NOTE.rows.reduce((m, n) => Math.max(m, n.id), NOTE.seen);
   noteKind(NOTE.kind);
   noteMode();
   el.style.display = 'block';
-  if (!NOTE.wait)
+  noteSync(() => noteDraw());
+  if (!NOTE.wait && !NOTE.hist)
     setTimeout(() => { const t = document.getElementById('noteTxt'); if (t) t.focus(); }, 60);
 }
+// ★ 닫아도 **기다리던 글은 기억한다** (사용자 2026-08-16:
+//   '빠져나오면 지난번 화면으로 갈 방법이 없어요').
+//   다시 '의견' 을 누르면 그 글과 답이 그대로 다시 뜬다.
+//   새 글을 쓰려면 창 안에서 '새로 쓰기' 를 누른다.
 function noteClose(){
   NOTE.open = NOTE_OPEN = false;
-  NOTE.wait = 0; NOTE.show = [];
   clearInterval(NOTE.tick); NOTE.tick = 0;
   const el = document.getElementById('note');
   if (el) el.style.display = 'none';
-  const t = document.getElementById('noteTxt'); if (t) t.value = '';
-  noteMode();
 }
-// 쓰는 상태 / 기다리는 상태를 오간다
+// 상태 셋 — 쓰기 · 기다리기 · 지난 글. 어디서든 서로 오갈 수 있다.
 function noteMode(){
-  const w = !!NOTE.wait;
+  const m = NOTE.wait ? 'wait' : (NOTE.hist ? 'hist' : 'write');
   const hide = (id, off) => { const e = document.getElementById(id);
                               if (e) e.style.display = off ? 'none' : ''; };
-  hide('noteKindA', w); hide('noteKindB', w);
-  hide('noteTxt', w);   hide('noteSave', w);
+  const write = (m === 'write');
+  hide('noteKindA', !write); hide('noteKindB', !write);
+  hide('noteTxt',   !write); hide('noteSave',  !write);
+  hide('noteBack',   write);            // 쓰기 상태에서는 '새로 쓰기' 가 필요 없다
+  hide('noteHist',   m === 'hist');     // 지난 글을 보는 중에는 그 버튼을 숨긴다
   const c = document.getElementById('noteCancel');
-  if (c) c.textContent = w ? '닫기' : '취소';
+  if (c) c.textContent = write ? '취소' : '닫기';
   noteDraw();
+}
+function noteHist(){                    // 지난 글 보기
+  NOTE.hist = 1; NOTE.wait = 0;
+  clearInterval(NOTE.tick); NOTE.tick = 0;
+  NOTE.show = NOTE.rows.slice(0, 8).map(n => n.id);
+  noteSync(() => { NOTE.show = NOTE.rows.slice(0, 8).map(n => n.id); noteMode(); });
+  noteMode();
+}
+function noteBack(){                    // 새로 쓰기로 돌아간다
+  NOTE.hist = 0; NOTE.wait = 0; NOTE.show = [];
+  clearInterval(NOTE.tick); NOTE.tick = 0;
+  const t = document.getElementById('noteTxt'); if (t) t.value = '';
+  noteMode();
+  setTimeout(() => { const e = document.getElementById('noteTxt'); if (e) e.focus(); }, 60);
 }
 function noteKind(k){
   NOTE.kind = k;
@@ -3693,7 +3719,7 @@ function noteSave(){
     .then(x => x.ok ? x.json() : null)
     .then(j => {
       if (!(j && j.id)){ say('저장 실패 — 다시 눌러 주세요'); return; }
-      NOTE.wait = j.id; NOTE.show = [j.id];
+      NOTE.wait = j.id; NOTE.hist = 0; NOTE.show = [j.id];
       NOTE.rows = [{id: j.id, at: new Date().toISOString(), kind: NOTE.kind,
                     text: txt, reply: null}].concat(NOTE.rows);
       noteMode();
