@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 319;
+const MOBILE_VER = 320;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5125,7 +5125,7 @@ const SIM_PLAY_STOP = 45;
 //   그래서 세기를 올리면 반사각이 달라지고, 굴러가는 공이 그려 둔 궤적에서 벗어난다.
 //   더 구르게 하려면 세기가 아니라 **서는 기준**만 낮춘다 (SIM_PLAY_STOP).
 //   그것은 각에 손대지 않는다.
-const SIM_PLAY_BOOST = 1.0;
+const SIM_PLAY_BOOST = 1.10;
 
 // 이 길을 끝까지 갈 만큼의 세기 — **엔진과 똑같은 모델로** 굴려 보고 이분법으로 찾는다.
 // ⚠️ needV0/trackOf 는 등감속 · 쿠션 무손실이라 엔진과 값이 안 맞는다. 그쪽은 kissAt 용이다.
@@ -5307,7 +5307,11 @@ function playInit(cuePoly, objPoly, hitAt, keepC, share, rest, v0Poly){
   //    당연하다 — 짧은 길을 완주할 만큼만 줬는데 긴 길을 가라고 한 것이다.
   //    → 갈 길 전체를 완주할 세기를 준다. 그러면 끝까지 가서 자연스럽게 선다.
   //      그려 둔 구간은 여전히 100% 그대로 지난다 (선이 같으니까).
-  const V0 = needV0exact(cuePoly, keepC);
+  // ★ 사용자 2026-08-16: '수구는 겨우 2적구까지 도달을 하고 … 힘도 10%정도 더 강해야'
+  //   ⚠️ v300 에서 세기를 올렸다가 궤적이 어긋나 되돌린 적이 있다. 그때는 물리 엔진이라
+  //      속도가 반사각을 바꿨다. **지금은 그려 둔 선을 따라가므로 세기를 올려도
+  //      길이 안 바뀐다.** 그래서 안전하다.
+  const V0 = needV0exact(cuePoly, keepC) * SIM_PLAY_BOOST;
   return {cue: {poly: cuePoly, i: 0, s: 0, v: V0},
           obj: (objPoly && objPoly.length > 1)
                ? {poly: objPoly, i: 0, s: 0, v: 0} : null,
@@ -5595,7 +5599,9 @@ function drawPath(){
         //   그리는 1적구 선은 3쿠션까지다 (사용자 기준). 재생을 거기에 묶으면
         //   아직 빠른데 그 끝에서 딱 서고, 그 끝이 쿠션이면 붙은 것처럼 보인다.
         //   → 6쿠션까지 길을 주고 힘이 다할 때까지 굴린다. 그린 3쿠션은 그대로 지난다.
-        let oqLong = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 6).map(h => h.p)], cut.obj);
+        //   ⚠️ 6쿠션도 모자랐다 (사용자: '1적구도 16과 같이 붙어버립니다').
+        //      12쿠션이면 어떤 세기로도 힘이 먼저 다한다 — 선이 아니라 마찰이 세운다.
+        let oqLong = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 12).map(h => h.p)], cut.obj);
         const opPlay = (oqLong.pts && oqLong.pts.length > 1) ? oqLong.pts : op;
         // 서 있는 공들 — 수구와 1적구 말고 나머지. 닿으면 밀려난다
         const hitList = [];
