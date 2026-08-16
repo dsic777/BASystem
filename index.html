@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 307;
+const MOBILE_VER = 308;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5142,6 +5142,60 @@ function simStep(sim, dt){
       simHit(A, B);
     }
 }
+// ★★★ 재생은 **그려 둔 선 위로** 굴린다 (사용자 2026-08-16)
+//   '추천궤적과 시물레이션은 동일해야 합니다. 궤적과 같은 경로로 시물레이션을 보여주세요.
+//    시물레이션 중에 충돌은 관계없습니다. 그대로 보여주고 실패하면 실패인겁니다.'
+//
+//   ⚠️⚠️ 왜 어긋났나 — 둘이 아예 다른 방식이었다.
+//        그리는 궤적   기하 계산 (쿠션마다 반사각을 구해 선을 잇는다)
+//        시뮬레이션    물리 엔진 (마찰·쿠션·충돌을 따로 굴린다)
+//      따로 도니 어긋나는 것이 당연했다. v300 에서 세기만 맞춰 보려다 더 어긋났다
+//      (요청 #12). 물리 엔진을 재생에서 **뺀다.** 그러면 정의상 100% 같다.
+//   ★ 속도만 마찰 모델로 준다 — 쿠션마다 CUSHION_KEEP, 1적구에서 두께만큼 잃는다.
+//     ⚠️ 초구 뿌리기(scatter)는 그대로 물리 엔진을 쓴다. 거기는 길이 없다.
+function playInit(cuePoly, objPoly, hitAt, keepC, share){
+  const V0 = needV0exact(cuePoly, keepC);
+  return {cue: {poly: cuePoly, i: 0, s: 0, v: V0},
+          obj: (objPoly && objPoly.length > 1)
+               ? {poly: objPoly, i: 0, s: 0, v: 0} : null,
+          hitAt, keepC, share};
+}
+function playPos(b){
+  const a = b.poly[b.i], c = b.poly[Math.min(b.i+1, b.poly.length-1)];
+  const L = Math.hypot(c[0]-a[0], c[1]-a[1]) || 1;
+  const t = Math.min(1, b.s / L);
+  return [a[0] + (c[0]-a[0])*t, a[1] + (c[1]-a[1])*t];
+}
+function playStep(pl, dt){
+  const walk = (b, onVertex) => {
+    if (!b || b.v <= 0) return;
+    let left = b.v * dt;
+    while (left > 0 && b.i < b.poly.length - 1){
+      const a = b.poly[b.i], c = b.poly[b.i+1];
+      const L = Math.hypot(c[0]-a[0], c[1]-a[1]);
+      const rem = L - b.s;
+      if (left < rem){ b.s += left; break; }
+      left -= rem; b.i++; b.s = 0;
+      if (onVertex) onVertex(b.i);
+      if (b.v <= 0) return;
+    }
+    if (b.i >= b.poly.length - 1){ b.v = 0; return; }   // 선 끝 — 여기서 선다
+    const nv = b.v - accelAt(b.v)*dt;                   // 바닥 마찰 (실측 모델)
+    b.v = nv < SIM_PLAY_STOP ? 0 : nv;
+  };
+  walk(pl.cue, i => {
+    if (i === pl.hitAt){                 // 1적구를 맞았다 — 두께만큼 넘겨준다
+      const vin = pl.cue.v;
+      pl.cue.v = vin * pl.keepC;
+      if (pl.obj) pl.obj.v = vin * pl.share;
+    } else pl.cue.v *= CUSHION_KEEP;     // 쿠션에서 잃는다
+  });
+  walk(pl.obj, () => { pl.obj.v *= CUSHION_KEEP; });
+}
+function playMoving(pl){
+  return (pl.cue && pl.cue.v > 0) || (pl.obj && pl.obj.v > 0);
+}
+
 function simBall(p, color, R){
   const [x,y] = toPx(...p);
   g.beginPath(); g.arc(x, y, R, 0, 7);
@@ -5335,32 +5389,33 @@ function drawPath(){
     if (S.anim){
       const R = Math.max(4, T.ball_diameter*L.sc*0.5);
       if (!S.sim){
-        // 이 길을 완주할 만큼의 세기 (위 needV0 주석 참고). **여기서 한 번뿐이다.**
         // 수구가 1적구에 두께만큼 넘겨주고 남기는 몫 = √(1 − 두께²)
         const share = Math.max(0.10, Math.min(0.95, a.thick));
         const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
-        // ★ 재생은 조금 여유 있게 친다 — 2적구를 맞고도 조금 더 구르게 (위 주석)
-        const V0 = simNeedV0([...before, ...pts2.slice(1)], keepC) * SIM_PLAY_BOOST;
-        S.sim     = simInit(dirOf(cue.p, S.aim), V0, kk, englishSide());
-        S.sim.stop = SIM_PLAY_STOP;              // 기어가는 끝을 조금 더 보여준다
+        // ★ 그려 둔 선 그대로 굴린다 (위 playInit 주석)
+        //   수구 = 충돌 전 선 + 충돌 후 선.  hitAt = 충돌한 꼭짓점 번호.
+        S.sim = playInit([...before, ...pts2.slice(1)], op,
+                         before.length - 1, keepC, share);
         S.simLast = performance.now();
         S.simRest = S.simLast;
         S.simAcc  = 0;
       }
       const now = performance.now();
-      // 본 시간 → 물리 시간. PLAY_RATE 만큼 느리게 **보기만** 한다 (물리는 그대로).
+      // 본 시간 → 물리 시간. PLAY_RATE 만큼 느리게 **보기만** 한다.
       // ⚠️ 창을 가렸다 돌아오면 dt 가 몇 초씩 튄다. 0.20 초로 막는다.
-      // ★★ 남는 시간은 **다음 프레임으로 넘긴다.** 물리는 늘 SIM_DT 씩만 간다 —
-      //    그래야 프레임이 흔들려도 같은 배치가 늘 같은 결과를 낸다 (위 SIM_DT 주석).
       S.simAcc += Math.min(0.20, Math.max(0, (now - S.simLast)/1000)) * PLAY_RATE;
       S.simLast = now;
       if (S.simAcc > 0.20) S.simAcc = 0.20;
-      while (S.simAcc >= SIM_DT){ simStep(S.sim, SIM_DT); S.simAcc -= SIM_DT; }
-      for (const b of S.sim.balls) simBall(b.p, b.color, R);
+      while (S.simAcc >= SIM_DT){ playStep(S.sim, SIM_DT); S.simAcc -= SIM_DT; }
+      simBall(playPos(S.sim.cue), cue.color, R);
+      if (S.sim.obj && S.balls[cut.obj])
+        simBall(playPos(S.sim.obj), S.balls[cut.obj].color, R);
+      // 남은 공 하나는 제자리에 그대로 둔다 (그 공은 이 길에 안 나온다)
+      for (const key in S.balls)
+        if (key !== 'cue' && key !== cut.obj) simBall(S.balls[key].p, S.balls[key].color, R);
       // ★ 사용자 2026-08-13: '시뮬레이션 종료 후 공이 멈추고 1초 후 전 상태로.'
-      const moving = S.sim.balls.some(b => b.v[0] || b.v[1]);
-      if (moving) S.simRest = now;
-      if (!moving && now - S.simRest > SIM_TAIL*1000){ S.anim = 0; S.sim = null; }
+      if (playMoving(S.sim)) S.simRest = now;
+      if (!playMoving(S.sim) && now - S.simRest > SIM_TAIL*1000){ S.anim = 0; S.sim = null; }
     }
     for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
       const [x,y] = toPx(...op[i]);
