@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 346;
+const MOBILE_VER = 347;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2616,8 +2616,15 @@ function railPos(rail, corner, dia){              // 코너에서 dia 칸 떨어
 //    배치(38.jpg)에서는 **충돌 지점부터** 여정이 시작되므로 거기서 재야 한다.
 // 출발값이 이 값을 넘으면 수구 포인트를 안 보여준다 (위 twoBank 의 ★★★★ 주석)
 const TWO_BANK_MAX_START = 4;
-// 2쿠션값이 이 범위 밖이면 곱셈이 아니다 (원자료 확인 범위 · 사장님의 '한계각')
-const TWO_BANK_SECOND = [2, 4];
+// 2쿠션값이 이 범위 밖이면 곱셈이 아니다 (사장님의 '한계각')
+// ★ 아래를 2 → 1 로 내렸다 (사용자 2026-08-17, 7.jpg: '이거 투뱅크 곱셈 맞는데
+//   곱하기 안해주나요?'). 그 화면의 2쿠션값이 1.4 라 걸러지고 있었다.
+//   원자료에도 '2 미만 · 4 초과를 쓰는지 **사용자에게 물어볼 것**' 이라고 미확인으로
+//   적어 둔 자리다 — 사장님 판정으로 아래쪽이 채워졌다.
+//   1 은 눈금 자체의 바닥이다 (값 = 5 − 칸수 × per_diamond, 끝 칸에서 1).
+//   ⚠️ 위쪽 4 는 그대로 둔다. 그것을 풀면 2쿠션 9.5 · 15.0 같은 값이 도로 나온다 —
+//      곱셈을 뒤집어 낸 값이라 제한이 없으면 아무 숫자나 나오기 때문이다.
+const TWO_BANK_SECOND = [1, 4];
 // 그 레일 위에서 **가는 쪽** 끝 코너 (위 twoBank 의 ★★★★ 주석)
 function cornerToward(rail, d){
   if (!rail || !d) return null;
