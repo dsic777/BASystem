@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 358;
+const MOBILE_VER = 359;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7116,6 +7116,15 @@ function foreTurn(){
   return {first:  readScale('first_cushion_short', r0.rail, r0.t),
           second: r1 ? readScale('third_cushion', r1.rail, r1.t) : null};
 }
+// 횡단&더블 — 그 쿠션의 **레일 칸수** (장 0~8 · 단 0~4). 반 칸까지. 위 drawReadout 주석
+function crossPoint(i){
+  const b = systemBase();
+  const a = b && b.arrival;
+  if (!a || !a[i]) return null;
+  const rp = railParam(fold(orientation(), a[i].p));
+  if (!rp) return null;
+  return Math.round(rp.t * (isLong(rp.rail) ? 8 : 4) * 2) / 2;
+}
 // 눈금 색을 그대로 가져온다 (상황판이 다이의 숫자와 같은 색을 쓰게 — 2026-08-17)
 function scaleColor(name){
   const sc = SCALES.find(s => s.name === name);
@@ -7186,9 +7195,18 @@ function drawReadout(){
     const cross = curShotName() === '횡단&더블시스템';
     const sl = cross ? slopes() : null;
     const ft = cross ? null : foreTurn();
-    if (cross) cols = [['기울기', (sl && sl.cue1 !== null) ? sl.cue1 : null, scaleColor('start')],
-                       ['1쿠션',  n && n.first, scaleColor('first_cushion')],
-                       ['3쿠션',  n && n.third, scaleColor('third_cushion')]];
+    // ★★★ 이 시스템의 1쿠션·3쿠션은 **레일 포인트의 칸수**다 (사용자 2026-08-17,
+    //   18.jpg): '상단과 하단의 포인트는 0~8 까지로 하고 좌측 단다이는 0~4.
+    //   방향이 반대면 반대로. 1쿠션 3쿠션은 레일포인트로 갑시다.'
+    //   파이브앤하프 눈금(프레임·0~110)과 전혀 다른 자다 — 섞으면 안 된다.
+    //   ⚠️ '방향이 반대면 반대로' 는 fold() 가 이미 해 준다 — 번호표는 언제나
+    //      수구가 향하는 쪽으로 접힌다 (orientation 주석).
+    //   반 칸까지 쓴다 (영상이 1.5 · 0.5 를 쓴다).
+    //   기울기도 같은 자로 — 반 칸까지 (그냥 두면 0.0138 같은 값이 나온다)
+    const slope = (sl && sl.cue1 !== null) ? Math.round(sl.cue1*2)/2 : null;
+    if (cross) cols = [['기울기', slope, scaleColor('start')],
+                       ['1쿠션',  crossPoint(0), scaleColor('first_cushion')],
+                       ['3쿠션',  crossPoint(2), scaleColor('third_cushion')]];
     else cols = ft
       ? [['수구수', n && n.start, scaleColor('start')],
          ['1쿠션',  ft.first,  scaleColor('first_cushion_short')],
