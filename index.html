@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 332;
+const MOBILE_VER = 334;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2237,9 +2237,10 @@ function systemBase(){
   //   왜 중요한가 (사용자) — '원뱅크는 육안으로 첫 포인트를 경험으로 짐작할 뿐
   //   정확한 경로를 찾아내기가 매우 어렵다. 특히 걸어치기는 쿠션과 떨어져 있으면
   //   정말 어렵고 맞은 후 경로 찾기도 너무 어렵다. 그래서 우리 앱을 이용하자는 것이다.'
-  let arrival = hits;
+  let arrival = hits, before0 = -1;
   if (cut && cut.hit){
     const before = cut.pts.length - 2;               // 충돌 전에 쓴 쿠션 수
+    before0 = before;
     const P = cut.pts[cut.pts.length-1];
     const af = afterHit(cut.from, P, cut.obj);
     if (af){
@@ -2252,7 +2253,7 @@ function systemBase(){
       }
     }
   }
-  const val = {from, dir, hits, arrival};
+  const val = {from, dir, hits, arrival, before: before0};
   BASE_CACHE = {key, val};
   return val;
 }
@@ -2282,7 +2283,28 @@ function orientation(){
   if (!cue || !S.aim) return {fx:false, fy:false};
   const b = systemBase();
   const d = b ? b.dir : [S.aim[0] - cue.p[0], S.aim[1] - cue.p[1]];
-  return {fx: d[0] > 0, fy: !(d[1] > 0)};
+  const o = {fx: d[0] > 0, fy: !(d[1] > 0)};
+  // ★★★ 앞돌리기 — 장쿠션 번호표가 **뒤집히던 것**을 막는다 (사용자 2026-08-17,
+  //   9.jpg·10.jpg): '뒤돌려치기때는 정상인데 앞돌려치기때는 1쿠션(장상단) 포인트와
+  //   3쿠션(장하단) 포인트가 뒤집힙니다. 이것이 문제였고, 뒤집지 말고
+  //   3쿠션(장하단) 포인트를 2쿠션포인트라 보고 레일포인트를 읽어주면 됩니다.
+  //   이때 단우측이 1쿠션이 됩니다.'
+  //
+  //   왜 뒤집혔나 — 접는 기준은 수구가 향하는 쪽이다. 앞돌리기는 1적구를 맞고
+  //   **단쿠션**으로 먼저 가므로 세로 성분이 뒤돌리기와 반대로 잡혔고,
+  //   장쿠션 두 눈금(1쿠션 상단 · 3쿠션 하단)이 통째로 자리를 맞바꿨다.
+  //   → 앞돌리기일 때 세로만 되돌린다. 그러면 9.jpg 와 같은 배치가 되고,
+  //     앞돌리기의 2쿠션이 장하단(3쿠션 눈금) 위로 떨어져 읽힌다.
+  //   ⚠️ 세로를 되돌리면 **수구수 눈금도 같이** 옮겨진다 — 번호표는 통째로 한 벌이라
+  //      한 눈금만 떼어 옮길 수 없다. 앞돌리기의 수구수는 그래서 값이 달라진다.
+  //   ⚠️ 앞돌리기 = **1적구를 먼저 맞고**(빈쿠션 0) 단쿠션이 1쿠션인 길.
+  //      빈쿠션을 먼저 쓰는 길(원뱅크 걸어치기 등)은 건드리지 않는다 — 1.jpg·2.jpg
+  //      처럼 이미 맞게 읽히고 있다.
+  if (b && b.before === 0 && b.arrival && b.arrival.length){
+    const r0 = railParam(fold(o, b.arrival[0].p));
+    if (r0 && (r0.rail === 'left' || r0.rail === 'right')) o.fy = !o.fy;
+  }
+  return o;
 }
 function foldRail(o, rail){
   // 좌표를 접으면 레일도 같이 바뀐다 (좌↔우, 상↔하)
@@ -6816,6 +6838,21 @@ function systemNumbers(){
   return {start, first, third};
 }
 
+// ★★★ 앞돌리기 판독 — 사용자 2026-08-17:
+//   '3쿠션(장하단) 포인트를 2쿠션포인트라 보고 레일포인트를 읽어주면 됩니다.
+//    이때 단우측이 1쿠션이 됩니다.'
+//   1쿠션 = 우측 단쿠션의 레일 눈금(오렌지)  ·  2쿠션 = 장하단의 레일 눈금(연두)
+//   ⚠️ 3쿠션은 안 읽는다. 앞돌리기에서 3쿠션은 다시 단쿠션이라 읽을 눈금이 없다.
+function foreTurn(){
+  const b = systemBase();
+  if (!b || b.before !== 0 || !b.arrival || b.arrival.length < 2) return null;
+  const o = orientation();
+  const r0 = railParam(fold(o, b.arrival[0].p));
+  if (!r0 || (r0.rail !== 'left' && r0.rail !== 'right')) return null;
+  const r1 = railParam(fold(o, b.arrival[1].p));
+  return {first:  readScale('first_cushion_short', r0.rail, r0.t),
+          second: r1 ? readScale('third_cushion', r1.rail, r1.t) : null};
+}
 // 눈금 색을 그대로 가져온다 (상황판이 다이의 숫자와 같은 색을 쓰게 — 2026-08-17)
 function scaleColor(name){
   const sc = SCALES.find(s => s.name === name);
@@ -6879,9 +6916,14 @@ function drawReadout(){
     //   표시 순서도 이대로 입니다.'
     //   ⚠️ 2026-08-16 요청 #5 에서 '1쿠션과 3쿠션 위치를 바꾸어야 합니다' 로
     //      3쿠션을 앞에 뒀었다. 자문을 받고 **되돌린 것**이다. 값은 안 바뀐다.
-    cols = [['수구수', n && n.start, scaleColor('start')],
-            ['1쿠션',  n && n.first, scaleColor('first_cushion')],
-            ['3쿠션',  n && n.third, scaleColor('third_cushion')]];
+    const ft = foreTurn();
+    cols = ft
+      ? [['수구수', n && n.start, scaleColor('start')],
+         ['1쿠션',  ft.first,  scaleColor('first_cushion_short')],
+         ['2쿠션',  ft.second, scaleColor('third_cushion')]]
+      : [['수구수', n && n.start, scaleColor('start')],
+         ['1쿠션',  n && n.first, scaleColor('first_cushion')],
+         ['3쿠션',  n && n.third, scaleColor('third_cushion')]];
   }
   // ★ 카메라 미리보기 중에는 이 칸이 **무작위배치 버튼**이 된다 (사용자 2026-08-14).
   //   '카메라를 클릭하면 상황판을 무작위배치 라고 변경해 주세요.'
