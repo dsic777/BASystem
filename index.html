@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 293;
+const MOBILE_VER = 294;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3547,8 +3547,21 @@ function noteBtn(){
   const b = verBar();
   if (!b) return null;
   // ★ 사용자 2026-08-16: '버튼명 말을 의견으로 고처주세요' → 두 글자라 칸을 넓힌다
-  const last = b[b.length - 1], w = last.w * 0.92;
-  return {x: last.x + last.w + last.w * 0.08, y: last.y, w, h: last.h};
+  const last = b[b.length - 1], first = b[0], w = last.w * 0.92, gap = last.w * 0.08;
+  const R = {x: last.x + last.w + gap, y: last.y, w, h: last.h};
+  // ★★ 당점·보정 뭉치와 겹치면 **왼쪽으로 옮긴다** (사용자 2026-08-16: '보정판과 겹칩니다').
+  //   당점 시계·당점이름·▶·보정바는 다이 안을 돌아다니므로 자리가 고정이 아니다.
+  //   clusterBox() 가 그 뭉치를 통째로 감싼 상자다 — 그것과 부딪히는지만 본다.
+  const L2 = {x: first.x - gap - w, y: last.y, w, h: last.h};
+  let box = null;
+  try { box = clusterBox(tipCenter()); } catch(e){ box = null; }
+  const hit = q => box && q.x < box[2] && q.x + q.w > box[0] &&
+                          q.y < box[3] && q.y + q.h > box[1];
+  if (hit(R) && !hit(L2)) return L2;      // 오른쪽이 막히면 왼쪽
+  if (hit(R) && hit(L2)){                 // 양쪽 다 막히면 점수판 **위**로 띄운다
+    return {x: R.x, y: last.y - last.h * 1.15, w, h: last.h};
+  }
+  return R;
 }
 
 function drawNoteBtn(){
