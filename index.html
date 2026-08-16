@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 327;
+const MOBILE_VER = 328;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5928,7 +5928,11 @@ function drawScatter(){
   if (sc.acc > 0.20) sc.acc = 0.20;
   while (sc.acc >= SIM_DT){ simStep(sc.sim, SIM_DT); sc.acc -= SIM_DT; }
   const R = ballR();
-  for (const b of sc.sim.balls) simBall(b.p, b.color, R, b.key === 'cue');
+  // ★ 뿌리는 동안은 **수구 표시를 안 한다** (사용자 2026-08-16:
+  //   '초구 시물레이션시는 수구표시하지 마세요. 정지후 표시하면 됩니다.')
+  //   뿌리기는 어느 것이 내 공인지 아직 정해지기 전이다. 금색 링은 다 서고 나서
+  //   drawBalls 가 그린다. v323 에서 굴러가는 공에 링을 달면서 여기까지 따라왔다.
+  for (const b of sc.sim.balls) simBall(b.p, b.color, R, false);
   const moving = sc.sim.balls.some(b => b.v[0] || b.v[1]);
   if (moving) sc.rest = now;
   else if (now - sc.rest > 500){                 // 다 서고 잠깐 뒤 확정
