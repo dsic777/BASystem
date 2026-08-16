@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 335;
+const MOBILE_VER = 336;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1656,6 +1656,7 @@ function randomLayout(){
   // ROUTES 는 배치로 키를 잡으니 저절로 새로 계산된다. 화면 상태만 되돌린다.
   S.corr = 0; S.routeIx = -1; S.routeList = false; S.listShown = null;
   S.place = null; S.drag = null; S.anim = null; S.routePage = 0;
+  tipAuto();                               // 배치가 바뀌면 자동완성이 다시 산다
 }
 
 // ★★★ 실제 당구장에서 초구를 놓는 방식 그대로 (사용자 2026-08-14) —
@@ -4341,7 +4342,10 @@ const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Da
 //    performance.now() 값이 그 함수 눈에는 이미 지난 시각이라 **다음 프레임에 바로
 //    지워졌다** — 그래서 궤적이 전혀 안 깜빡였다 (사용자 2026-08-12).
 function blinking(){ return !!S.rblink && nowMs() - S.rblink < BLINK_MS; }
+// 자동완성을 다시 살린다 — 새 배치 · 새 추천경로 (setTip 의 ★★★ 주석)
+function tipAuto(){ S.tipLock = 0; }
 function pickRoute(r){
+  tipAuto();                               // 추천을 고르면 그 경로의 당점이 주인이다
   const cue = S.balls.cue;
   if (!cue || !r) return;
   S.lockRails = (r.rails || []).join('-');   // 당점을 바꿔도 이 회로를 지킨다
@@ -4456,6 +4460,7 @@ function scoresAt(a, k){
 function autoTipSide(){
   const cue = S.balls.cue;
   if (!cue || !S.aim) return false;
+  if (S.tipLock) return false;             // ★ 손으로 만진 뒤로는 안 건드린다 (setTip 주석)
   let hits = null;
   try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ return false; }
   if (!hits || !hits.length) return false;
@@ -6458,6 +6463,14 @@ function tipXY(dir, r, unit){
 //   분리각은 상하(tipV) 를, 쿠션 반사는 좌우(tipH) 를 쓴다.
 //   예) 2시30분 3팁 → 위로 0.78팁 · 옆으로 2.90팁
 function setTip(dir, r){
+  // ★★★ **손으로 만지면 자동완성을 푼다** (사용자 2026-08-17):
+  //   '자동완성때문에 당점을 조정할수가 없어요. 내가 자동완성 요구를 한것은 맞는데
+  //    당점을 임의 조정하면 그때부터는 자동완성을 해지해야 합니다.'
+  //   ⚠️ 자석(snapAim)이 조준을 붙일 때마다 autoTipSide 가 2시30분 3팁으로
+  //      되돌려 놓아서, 무회전(중앙)으로 바꿔도 즉시 3팁으로 튀었다.
+  //      그래서 '중앙으로 놓았는데 입사·반사가 거울이 안 된다' 로 보였다.
+  //   푸는 때 — 새 배치·새 추천경로를 고르면 다시 자동으로 돌아온다 (아래 tipAuto).
+  S.tipLock = 1;
   const a = dir * Math.PI / 12;
   S.tipDir = dir; S.tipR = r;
   S.tipV = r * Math.cos(a);
