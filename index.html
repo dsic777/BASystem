@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 328;
+const MOBILE_VER = 329;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3855,8 +3855,12 @@ function verBar(){
   // ★ 추천을 보고 있을 때 **그리고 직접지정으로 길을 잡았을 때** 뜬다 (사용자 2026-08-16)
   if (!S.routeList && !S.noteList && !previewOn() && !S.anim && !S.scatter &&
       (S.routeIx >= 0 || (S.aim && directRoute()))){
+    // ⚠️ 하단 c.h*0.035 자리에 있었더니 **3쿠션 초록 숫자와 겹쳤다**
+    //    (사용자 2026-08-16, 17.jpg: '3쿠션 위치때문에 점수판과 겹침').
+    //    3쿠션 눈금은 장쿠션 아래쪽에 고정으로 그려지므로(drawNumbers) 점수판이
+    //    비켜야 한다. 그 숫자 높이(천의 5.5%)에 여백을 얹어 위로 올린다.
     const c = L.cloth, w = Math.min(c.w*0.62, c.h*1.15), h = c.h*0.135;
-    return {x: c.x + (c.w - w)/2, y: c.y + c.h - h - c.h*0.035, w, h};
+    return {x: c.x + (c.w - w)/2, y: c.y + c.h - h - c.h*0.125, w, h};
   }
   return null;
 }
