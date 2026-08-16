@@ -52,8 +52,6 @@
   <textarea id="noteTxt" placeholder="지금 화면을 보고 느낀 것을 그대로 쓰세요.&#10;배치·경로·당점·점수는 자동으로 같이 저장됩니다."></textarea>
   <div class="row" style="margin-top:10px">
     <button id="noteCancel">취소</button>
-    <button id="noteHist">지난 글</button>
-    <button id="noteBack">새로 쓰기</button>
     <button id="noteSave" class="go">저장</button>
   </div>
   <div id="noteList"></div>
@@ -102,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 297;
+const MOBILE_VER = 298;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -125,8 +123,6 @@ window.addEventListener('load', () => {
   on('noteKindB', () => noteKind('요청'));
   on('noteCancel', noteClose);
   on('noteSave', noteSave);
-  on('noteHist', noteHist);
-  on('noteBack', noteBack);
   noteSync();
 });
 // 파이브앤하프 모바일 — 윈도우판(ui/app.py)과 같은 두뇌를 쓴다.
@@ -1221,6 +1217,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, pal:null, routePage:0, listDrag:null,
+           noteList:false, notePage:0,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
            //   두께·세기별 굴러간 거리 표가 채워지면 그때 연결한다 (data/speed.json).
@@ -1778,7 +1775,16 @@ function down(px,py){
   if (S.tipPanel){ tapTipPanel(px,py); return; }
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
   // ★ 상·중·하 — 다이 안 막대 (사용자 2026-08-14)
-  // ★ 점수판 오른쪽 '말' 칸 — 요청·평가를 쓴다 (위 NOTE 주석 참고)
+  // ★ 요청 목록이 열려 있으면 그것부터 (밀기와 고르기를 뗄 때 가른다)
+  if (S.noteList){ S.listDrag = {x:px, y:py, dx:0, note:1}; return; }
+  // ★ DSLINE 비밀 버튼 — 내 IP 일 때만 잡힌다 (drawDsline 이 BRAND_HIT 를 세운다)
+  if (BRAND_HIT && px >= BRAND_HIT.x && px <= BRAND_HIT.x + BRAND_HIT.w &&
+      py >= BRAND_HIT.y && py <= BRAND_HIT.y + BRAND_HIT.h){
+    S.noteList = true; S.notePage = 0;
+    noteSync(() => blink());
+    blink(); return;
+  }
+  // ★ 점수판 오른쪽 '의견' 칸 — 요청·평가를 쓴다 (위 NOTE 주석 참고)
   if (NOTE_HIT && px >= NOTE_HIT.x && px <= NOTE_HIT.x + NOTE_HIT.w &&
       py >= NOTE_HIT.y && py <= NOTE_HIT.y + NOTE_HIT.h){
     noteOpen(); return;
@@ -1910,6 +1916,23 @@ function up(px, py){
   }
   if (S.tipPanel) return;
   // ★ 추천 목록 — 가로로 많이 밀었으면 쪽 넘김, 아니면 그 칸 선택 (사용자 2026-08-13)
+  // ★ 요청 목록 — 밀면 쪽 넘김, 누르면 그 배치를 되살린다
+  if (S.listDrag && S.listDrag.note){
+    const q0 = S.listDrag; S.listDrag = null;
+    if (Math.abs(q0.dx) > L.cloth.w*0.08){
+      S.notePage = Math.max(0, Math.min(NOTE_PAGES-1,
+                    (S.notePage|0) + (q0.dx < 0 ? 1 : -1)));
+      return;
+    }
+    const rows = noteListRows();
+    for (const q of NOTE_CELLS){
+      if (q0.x < q.x || q0.x > q.x+q.w || q0.y < q.y || q0.y > q.y+q.h) continue;
+      if (rows[q.i]) noteRestore(rows[q.i]);
+      else S.noteList = false;
+      return;
+    }
+    S.noteList = false; return;                     // 바깥을 누르면 닫는다
+  }
   if (S.listDrag){
     const q0 = S.listDrag; S.listDrag = null;
     if (Math.abs(q0.dx) > L.cloth.w*0.08){          // 화면폭의 8% 넘게 밀면 스와이프
@@ -2041,7 +2064,8 @@ function draw(){
     if (!drawScatter()){ drawPath(); drawBalls(); drawVerBar(); drawNoteBtn(); }   // 뿌리는 중엔 궤적·공을 안 그린다
     drawClock();
   }
-  drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList(); drawTipPanel();
+  drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList();
+  drawNoteList(); drawTipPanel();
   drawDebugXY();
   requestAnimationFrame(draw);
 }
@@ -3460,7 +3484,7 @@ function verLeft(){                        // 아직 서버가 못 받은 것
 const VER_LV = [['100','100','#3aa76d'], ['70','70','#5ec07a'], ['50','50','#c8a23a'],
                 ['20','20','#e08a3a'], ['0','0','#e05a52']];
 function verBar(){
-  if (!S.routeList && !previewOn() && !S.anim && !S.scatter && S.routeIx >= 0){
+  if (!S.routeList && !S.noteList && !previewOn() && !S.anim && !S.scatter && S.routeIx >= 0){
     const n = VER_LV.length;
     const c = L.cloth, w = Math.min(c.w*0.62, c.h*1.15), h = c.h*0.135;
     const x0 = c.x + (c.w - w)/2, y0 = c.y + c.h - h - c.h*0.035;
@@ -3527,9 +3551,10 @@ let VER_HIT = [];
 //       서버에 AI 를 두지 않는다 (별도 요금이 들고, 저장소를 못 봐서 일반론만 나온다).
 //
 //   ⚠️ 입력은 캔버스로 못 한다. 진짜 <textarea> 라야 폰 자판이 뜬다.
-let NOTE = {kind: '요청', rows: [], seen: 0, open: false,
+let BRAND_HIT = null, NOTE_CELLS = [];
+const NOTE_PAGES = 3, NOTE_PER_PAGE = 6;      // 3쪽 × 6칸 = 18건 (사용자 '3페이지 정도')
+let NOTE = {kind: '요청', rows: [], seen: 0, open: false, mine: false,
             wait: 0,      // 답을 기다리는 글 번호 (0 이면 쓰는 상태)
-            hist: 0,      // 지난 글을 보는 중인가
             show: [],     // 지금 창에 보여줄 글 번호들 — '이 화면 것만'
             tick: 0};     // 기다리는 동안 도는 확인 타이머
 let NOTE_HIT = null;
@@ -3600,6 +3625,95 @@ function drawNoteBtn(){
     g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1.5, r*0.35); g.stroke();
   }
 }
+// ★★★ 요청 목록 — DSLINE 을 누르면 뜬다 (사용자 2026-08-16)
+//   '누르면 요청이 있었던 건만 최근 순서부터 리스트를 추천리스트 형식으로 그림으로
+//    3페이지 정도 보여주고, 누르면 해당 경로화면을 보여주세요.
+//    거기서 의견을 누르면 해당화면에 대한 내용을 보여주면 됩니다.'
+//   추천 목록(drawRouteList)과 같은 모양이다 — 작은 당구대 · 공 · 경로선.
+//   ⚠️ 경로선은 **저장할 때 같이 넣어 둔 poly** 를 쓴다. 18칸을 매번 다시 푸는 것은
+//      훑기가 42가지 당점을 도는 일이라 폰에서 감당이 안 된다.
+//      그 전에 쓴 글에는 poly 가 없어서 공만 나온다.
+function noteListRows(){
+  return NOTE.rows.filter(n => n.kind === '요청');   // 요청만. 서버가 최근 순으로 준다
+}
+function drawNoteList(){
+  NOTE_CELLS = [];
+  if (!S.noteList || previewOn()) return;
+  const c = L.cloth, rows = noteListRows();
+  g.fillStyle = 'rgba(8,10,14,0.92)'; g.fillRect(c.x, c.y, c.w, c.h);
+  const pad = Math.max(6, c.w*0.014);
+  const cw = (c.w - pad*4)/3, chh = (c.h - pad*3)/2;
+  const pg = Math.max(0, Math.min(NOTE_PAGES-1, S.notePage|0));
+  for (let j = 0; j < NOTE_PER_PAGE; j++){
+    const i = pg*NOTE_PER_PAGE + j, n = rows[i];
+    const gx = c.x + pad + (j%3)*(cw+pad), gy = c.y + pad + Math.floor(j/3)*(chh+pad);
+    NOTE_CELLS.push({x:gx, y:gy, w:cw, h:chh, i});
+    if (!n) continue;
+    g.fillStyle = '#1a2029'; round(gx, gy, cw, chh, chh*0.10); g.fill();
+    g.strokeStyle = n.reply ? '#3aa76d' : '#c8a23a';     // 답이 왔으면 초록, 대기면 노랑
+    g.lineWidth = Math.max(2, chh*0.022); g.stroke();
+    const m = chh*0.12, aw = cw - m*2, ah = chh*0.56;
+    const k = Math.min(aw/T.width, ah/T.height);
+    const tw = T.width*k, th = T.height*k;
+    const ox = gx + (cw-tw)/2, oy = gy + m;
+    const P = (x,y) => [ox + x*k, oy + (T.height-y)*k];
+    g.fillStyle = '#2b3440'; g.fillRect(ox, oy, tw, th);
+    g.strokeStyle = '#55606e'; g.lineWidth = 1; g.strokeRect(ox, oy, tw, th);
+    const poly = n.info && n.info.poly;
+    if (poly && poly.length > 1){
+      g.strokeStyle = '#7ee08a'; g.lineWidth = Math.max(1.5, k*40);
+      g.lineJoin = 'round'; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(...P(poly[0][0], poly[0][1]));
+      for (let q = 1; q < poly.length; q++) g.lineTo(...P(poly[q][0], poly[q][1]));
+      g.stroke();
+    }
+    for (const b of (n.balls || [])){
+      if (!b || typeof b.x !== 'number') continue;
+      const [bx,by] = P(b.x, b.y);
+      g.fillStyle = TONE[b.color] || '#eee';
+      g.beginPath(); g.arc(bx, by, Math.max(2, k*40), 0, 7); g.fill();
+      g.strokeStyle = '#14161a'; g.lineWidth = Math.max(0.8, k*10); g.stroke();
+    }
+    g.save(); g.textAlign = 'left'; g.textBaseline = 'top';
+    g.font = '700 ' + Math.round(chh*0.105) + 'px system-ui, -apple-system, sans-serif';
+    g.fillStyle = n.reply ? '#8fe3a8' : '#e0c07a';
+    g.fillText('#' + n.id + '  ' + String(n.at||'').slice(5,10) +
+               (n.reply ? '  답 왔음' : '  기다리는 중'), gx + m, gy + m + th + chh*0.015);
+    g.fillStyle = '#e6ecf6';
+    g.font = '700 ' + Math.round(chh*0.125) + 'px system-ui, -apple-system, sans-serif';
+    const one = String(n.text||'').split(String.fromCharCode(10))[0];
+    let t = one;
+    while (t.length > 1 && g.measureText(t + '…').width > cw - m*2) t = t.slice(0, -1);
+    g.fillText(t + (t.length < one.length ? '…' : ''), gx + m, gy + m + th + chh*0.14);
+    g.restore();
+  }
+  g.save(); g.textAlign = 'center'; g.textBaseline = 'bottom';
+  g.font = '700 ' + Math.round(c.h*0.034) + 'px system-ui, sans-serif';
+  g.fillStyle = '#8a94a2';
+  g.fillText('요청 ' + rows.length + '건   ·   ' + (pg+1) + '/' + NOTE_PAGES +
+             '   ·   좌우로 밀면 넘어갑니다   ·   바깥을 누르면 닫힙니다',
+             c.x + c.w/2, c.y + c.h - 4);
+  g.restore();
+}
+// 그 배치와 경로를 그대로 되살린다
+function noteRestore(n){
+  S.noteList = false;
+  if (n.balls && n.balls.length){
+    const nb = {};
+    for (const b of n.balls) if (b && b.c && typeof b.x === 'number')
+      nb[b.c] = {p: [b.x, b.y], color: b.color};
+    if (nb.cue) S.balls = nb;
+  }
+  S.corr = (n.info && typeof n.info.corr === 'number') ? n.info.corr : 0;
+  S.routeIx = -1; S.routeList = false; S.aim = null; S.snapA = null; S.listShown = null;
+  const list = routesReady() || [];
+  const i = n.route_key ? list.findIndex(r => r.key === n.route_key) : -1;
+  if (i >= 0){ S.routeIx = i; pickRoute(list[i]); }
+  else if (n.route_key)
+    // ⚠️ 그동안 반사 모델을 고쳤으면 같은 배치라도 후보가 달라진다. 숨기지 않고 알린다.
+    say('그때 경로는 지금 목록에 없습니다 — 배치만 되살렸습니다', 4000);
+  blink();
+}
 function noteUnread(){
   return NOTE.rows.filter(n => n.reply && n.id > NOTE.seen).length;
 }
@@ -3608,7 +3722,8 @@ function noteUnread(){
 function noteSync(after){
   fetch(API + 'mynotes?limit=30', {cache: 'no-store'})
     .then(r => r.ok ? r.json() : null)
-    .then(j => { if (j && j.rows) NOTE.rows = j.rows; if (after) after(); })
+    .then(j => { if (j){ if (j.rows) NOTE.rows = j.rows; NOTE.mine = !!j.mine; }
+                 if (after) after(); })
     .catch(() => {});
 }
 
@@ -3625,17 +3740,12 @@ function noteOpen(){
   const el = document.getElementById('note');
   if (!el) return;
   NOTE.open = NOTE_OPEN = true;
-  const unread = NOTE.rows.filter(n => n.reply && n.id > NOTE.seen).map(n => n.id);
-  if (NOTE.wait) NOTE.show = [NOTE.wait];            // 기다리던 글이 있으면 그것부터
-  else if (unread.length){ NOTE.hist = 1; NOTE.show = unread; }   // 새 답만
-  else { NOTE.hist = 0; NOTE.show = []; }
   NOTE.seen = NOTE.rows.reduce((m, n) => Math.max(m, n.id), NOTE.seen);
   noteKind(NOTE.kind);
   noteMode();
   el.style.display = 'block';
   noteSync(() => noteDraw());
-  if (!NOTE.wait && !NOTE.hist)
-    setTimeout(() => { const t = document.getElementById('noteTxt'); if (t) t.focus(); }, 60);
+  setTimeout(() => { const t = document.getElementById('noteTxt'); if (t) t.focus(); }, 60);
 }
 // ★ 닫아도 **기다리던 글은 기억한다** (사용자 2026-08-16:
 //   '빠져나오면 지난번 화면으로 갈 방법이 없어요').
@@ -3647,33 +3757,15 @@ function noteClose(){
   const el = document.getElementById('note');
   if (el) el.style.display = 'none';
 }
-// 상태 셋 — 쓰기 · 기다리기 · 지난 글. 어디서든 서로 오갈 수 있다.
+// ★ 창은 늘 **이 화면의 대화**다 (사용자 2026-08-16:
+//   '거기서 의견을 누르면 해당화면에 대한 내용을 보여주면 됩니다.
+//    추가 내용 대화는 거기서 하면 됩니다.')
+//   지금 배치(place_key)에 달린 글과 답을 위에 쌓아 보여주고, 아래에서 이어서 쓴다.
+//   지난 글 목록은 DSLINE 비밀 버튼이 맡는다 — 여기서는 안 다룬다.
 function noteMode(){
-  const m = NOTE.wait ? 'wait' : (NOTE.hist ? 'hist' : 'write');
-  const hide = (id, off) => { const e = document.getElementById(id);
-                              if (e) e.style.display = off ? 'none' : ''; };
-  const write = (m === 'write');
-  hide('noteKindA', !write); hide('noteKindB', !write);
-  hide('noteTxt',   !write); hide('noteSave',  !write);
-  hide('noteBack',   write);            // 쓰기 상태에서는 '새로 쓰기' 가 필요 없다
-  hide('noteHist',   m === 'hist');     // 지난 글을 보는 중에는 그 버튼을 숨긴다
   const c = document.getElementById('noteCancel');
-  if (c) c.textContent = write ? '취소' : '닫기';
+  if (c) c.textContent = NOTE.wait ? '닫기' : '취소';
   noteDraw();
-}
-function noteHist(){                    // 지난 글 보기
-  NOTE.hist = 1; NOTE.wait = 0;
-  clearInterval(NOTE.tick); NOTE.tick = 0;
-  NOTE.show = NOTE.rows.slice(0, 8).map(n => n.id);
-  noteSync(() => { NOTE.show = NOTE.rows.slice(0, 8).map(n => n.id); noteMode(); });
-  noteMode();
-}
-function noteBack(){                    // 새로 쓰기로 돌아간다
-  NOTE.hist = 0; NOTE.wait = 0; NOTE.show = [];
-  clearInterval(NOTE.tick); NOTE.tick = 0;
-  const t = document.getElementById('noteTxt'); if (t) t.value = '';
-  noteMode();
-  setTimeout(() => { const e = document.getElementById('noteTxt'); if (e) e.focus(); }, 60);
 }
 function noteKind(k){
   NOTE.kind = k;
@@ -3685,9 +3777,9 @@ function noteDraw(){
   const el = document.getElementById('noteList');
   if (!el) return;
   const esc = t => String(t || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  // ★ **이 화면 것만** 보여준다 (사용자 요청 #3). 지난 글 목록은 안 띄운다.
-  const ids = NOTE.show || [];
-  const rows = NOTE.rows.filter(n => ids.indexOf(n.id) >= 0);
+  // ★ **이 배치에 달린 글만** — 오래된 것이 위, 새 것이 아래 (대화 순서)
+  const pk = placeKey();
+  const rows = NOTE.rows.filter(n => pk && n.place_key === pk).slice().reverse();
   if (!rows.length){ el.innerHTML = ''; return; }
   el.innerHTML = rows.map(n =>
     '<div class="n"><div class="t">#' + n.id + '  ' + esc(n.kind) + '  ' +
@@ -3710,6 +3802,10 @@ function noteSave(){
                          ({c: q, x: Math.round(S.balls[q].p[0]), y: Math.round(S.balls[q].p[1]),
                            color: S.balls[q].color})),
                 info: r ? {name: r.name, tip: r.tip, tipV: r.tipV, corr: S.corr,
+                           // ★ 목록에 그림으로 보여주려고 경로선을 같이 넣는다
+                           poly: (function(){ try { const q = routePoly(r);
+                             return q ? q.map(v => [Math.round(v[0]), Math.round(v[1])]) : null;
+                           } catch(e){ return null; } })(),
                            thick: r.thick === undefined ? null : Math.round(r.thick*100),
                            sep: r.sep === undefined ? null : Math.round(r.sep),
                            kiss: !!r.kiss, ix: S.routeIx,
@@ -3719,9 +3815,10 @@ function noteSave(){
     .then(x => x.ok ? x.json() : null)
     .then(j => {
       if (!(j && j.id)){ say('저장 실패 — 다시 눌러 주세요'); return; }
-      NOTE.wait = j.id; NOTE.hist = 0; NOTE.show = [j.id];
+      NOTE.wait = j.id;
       NOTE.rows = [{id: j.id, at: new Date().toISOString(), kind: NOTE.kind,
-                    text: txt, reply: null}].concat(NOTE.rows);
+                    text: txt, reply: null, place_key: body.place_key}].concat(NOTE.rows);
+      const t2 = document.getElementById('noteTxt'); if (t2) t2.value = '';
       noteMode();
       // 답이 올 때까지 8초마다 본다 (60초 주기와 따로 돈다)
       clearInterval(NOTE.tick);
@@ -6298,7 +6395,22 @@ function drawDsline(){
   g.lineJoin = 'round';
   g.strokeStyle = 'rgba(10,12,16,0.90)'; g.lineWidth = Math.max(2, fs*0.24);
   g.strokeText('DSLINE', cam.x + cam.w/2, cy);
-  g.fillStyle = '#c9d2e0'; g.fillText('DSLINE', cam.x + cam.w/2, cy);
+  // ★★ 내 IP 일 때만 **비밀 버튼**이 된다 (사용자 2026-08-16:
+  //   '우측하단에 DSLINE을 내 ip시만 비밀버튼으로 바꾸고').
+  //   남에게는 그냥 회사명이다 — 눌러도 아무 일이 없다.
+  //   내 것일 때만 옅은 밑줄 하나로 표시한다 (눌러도 되는 자리라는 것만 알게).
+  g.fillStyle = NOTE.mine ? '#e6ecf6' : '#c9d2e0';
+  g.fillText('DSLINE', cam.x + cam.w/2, cy);
+  if (NOTE.mine){
+    const w = g.measureText('DSLINE').width, hx = cam.x + cam.w/2;
+    BRAND_HIT = {x: hx - w/2 - fs*0.5, y: cy - fs*0.9, w: w + fs, h: fs*1.9};
+    g.strokeStyle = 'rgba(230,236,246,0.35)'; g.lineWidth = Math.max(1, fs*0.06);
+    g.beginPath(); g.moveTo(hx - w/2, cy + fs*0.62); g.lineTo(hx + w/2, cy + fs*0.62); g.stroke();
+    if (noteUnread() > 0){                       // 답이 와 있으면 점 하나
+      g.beginPath(); g.arc(hx + w/2 + fs*0.42, cy - fs*0.32, fs*0.20, 0, 7);
+      g.fillStyle = '#e05a52'; g.fill();
+    }
+  } else BRAND_HIT = null;
   g.restore();
 }
 function bwLine(){ return Math.round(BW * 0.05); }
