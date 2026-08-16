@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 320;
+const MOBILE_VER = 321;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5247,7 +5247,13 @@ function simStep(sim, dt){
     const dir = [b.v[0]/sp, b.v[1]/sp];
     let nd;
     // ★ 엔진도 그 순간 속도를 넘긴다 — 역각이 속도로 정해지므로 (2026-08-14)
-    if (b.spin) nd = bend(dir, rail, sim.k, sim.E, sp)[0];     // 수구 — 회전이 걸린다
+    // ★★★ 2026-08-16 — **여기가 궤적과 어긋난 뿌리였다.**
+    //   그리는 궤적은 roll() 이 bend 를 **속도 없이** 부른다 (기본 속도로 본다).
+    //   엔진은 그 순간 속도를 넘긴다. 그러니 같은 배치·같은 당점인데 반사각이 달랐다.
+    //   사용자가 세 번 지적한 '시뮬레이션이 궤적과 다르다' 가 전부 이것이다.
+    //   → 재생(sim.sameAsPath)에서는 엔진도 **속도를 안 넘긴다.** 각이 똑같아진다.
+    //     초구 뿌리기는 따라갈 길이 없으므로 그대로 속도를 넘긴다.
+    if (b.spin) nd = bend(dir, rail, sim.k, sim.E, sim.sameAsPath ? undefined : sp)[0];
     else { const n = RAILS[rail], dot = dir[0]*n[0] + dir[1]*n[1];
            nd = [dir[0]-2*dot*n[0], dir[1]-2*dot*n[1]]; }       // 적구 — 거울반사
     // ★★★ 사용자 2026-08-13 (영상 14-10-35): 수구가 2적구를 **한 공 폭쯤 비껴간다.**
@@ -5589,28 +5595,17 @@ function drawPath(){
     if (S.anim){
       const R = Math.max(4, T.ball_diameter*L.sc*0.5);
       if (!S.sim){
-        // 수구가 1적구에 두께만큼 넘겨주고 남기는 몫 = √(1 − 두께²)
+        // ★★★ 재생은 **물리 엔진**이다 (사용자 2026-08-16:
+        //   '공은 초구배치 움직이듯이 돌아다녀야 합니다. 반드시.')
+        //   초구 뿌리기와 같은 엔진이라 구르고, 부딪히고, 천천히 선다.
+        //   ⚠️ 궤적과 어긋나던 뿌리는 simStep 에서 뽑았다 — 재생에서는 엔진도
+        //      bend 를 **속도 없이** 부른다. 그리는 쪽과 같은 반사각이 나온다.
         const share = Math.max(0.10, Math.min(0.95, a.thick));
         const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
-        // ★ 그려 둔 선 그대로 굴린다 (위 playInit 주석)
-        //   수구 = 충돌 전 선 + 충돌 후 선.  hitAt = 충돌한 꼭짓점 번호.
-        // ★ 1적구도 **그린 것보다 길게** 굴린다 (사용자 2026-08-16:
-        //   '1적구는 충돌 후 거기까지 빨리 나가다가 쿠션에 붙어버렸어요').
-        //   그리는 1적구 선은 3쿠션까지다 (사용자 기준). 재생을 거기에 묶으면
-        //   아직 빠른데 그 끝에서 딱 서고, 그 끝이 쿠션이면 붙은 것처럼 보인다.
-        //   → 6쿠션까지 길을 주고 힘이 다할 때까지 굴린다. 그린 3쿠션은 그대로 지난다.
-        //   ⚠️ 6쿠션도 모자랐다 (사용자: '1적구도 16과 같이 붙어버립니다').
-        //      12쿠션이면 어떤 세기로도 힘이 먼저 다한다 — 선이 아니라 마찰이 세운다.
-        let oqLong = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 12).map(h => h.p)], cut.obj);
-        const opPlay = (oqLong.pts && oqLong.pts.length > 1) ? oqLong.pts : op;
-        // 서 있는 공들 — 수구와 1적구 말고 나머지. 닿으면 밀려난다
-        const hitList = [];
-        for (const key in S.balls)
-          if (key !== 'cue' && key !== cut.obj)
-            hitList.push({key, p: S.balls[key].p.slice(), dir: [0,0], v: 0, on: 0});
-        // 굴러가는 길은 자르지 않은 것(post.pts). 세기도 그 길 전체로 잰다
-        S.sim = playInit([...before, ...post.pts.slice(1)], opPlay,
-                         before.length - 1, keepC, share, hitList);
+        const V0 = simNeedV0([...before, ...pts2.slice(1)], keepC) * SIM_PLAY_BOOST;
+        S.sim = simInit(dirOf(cue.p, S.aim), V0, kk, englishSide());
+        S.sim.sameAsPath = 1;                    // 그리는 쪽과 같은 반사각으로
+        S.sim.stop = SIM_PLAY_STOP;              // 기어가는 끝까지 보여준다
         S.simLast = performance.now();
         S.simRest = S.simLast;
         S.simAcc  = 0;
@@ -5621,16 +5616,12 @@ function drawPath(){
       S.simAcc += Math.min(0.20, Math.max(0, (now - S.simLast)/1000)) * PLAY_RATE;
       S.simLast = now;
       if (S.simAcc > 0.20) S.simAcc = 0.20;
-      while (S.simAcc >= SIM_DT){ playStep(S.sim, SIM_DT); S.simAcc -= SIM_DT; }
-      simBall(playPos(S.sim.cue), cue.color, R);
-      if (S.sim.obj && S.balls[cut.obj])
-        simBall(playPos(S.sim.obj), S.balls[cut.obj].color, R);
-      // 서 있던 공들 — 닿으면 밀려난 자리에 그려진다
-      for (const h of (S.sim.rest || []))
-        if (S.balls[h.key]) simBall(h.p, S.balls[h.key].color, R);
+      while (S.simAcc >= SIM_DT){ simStep(S.sim, SIM_DT); S.simAcc -= SIM_DT; }
+      for (const b of S.sim.balls) simBall(b.p, b.color, R);   // 공 세 개가 다 굴러간다
       // ★ 사용자 2026-08-13: '시뮬레이션 종료 후 공이 멈추고 1초 후 전 상태로.'
-      if (playMoving(S.sim)) S.simRest = now;
-      if (!playMoving(S.sim) && now - S.simRest > SIM_TAIL*1000){ S.anim = 0; S.sim = null; }
+      const moving = S.sim.balls.some(b => b.v[0] || b.v[1]);
+      if (moving) S.simRest = now;
+      if (!moving && now - S.simRest > SIM_TAIL*1000){ S.anim = 0; S.sim = null; }
     }
     for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
       const [x,y] = toPx(...op[i]);
