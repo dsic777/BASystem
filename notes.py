@@ -34,8 +34,11 @@ def run(sql: str) -> str:
 
 def show(all_: bool) -> None:
     where = "" if all_ else " WHERE reply IS NULL"
+    # ⚠️ 글에 줄바꿈이 들어가면 psql 한 줄 출력이 여러 줄로 쪼개져 표가 깨진다
+    #    (2026-08-16 요청 #4 에서 실제로 깨졌다). 탭과 줄바꿈을 미리 바꿔 둔다.
+    flat = "replace(replace({0}, chr(9), ' '), chr(10), ' / ')"
     sql = ("SELECT id, to_char(at,'MM-DD HH24:MI'), kind, ip, coalesce(app::text,''),"
-           " replace(text, chr(9), ' '), coalesce(replace(reply, chr(9), ' '),''),"
+           f" {flat.format('text')}, coalesce({flat.format('reply')},''),"
            " coalesce(place_key,''), coalesce(route_key,'')"
            f" FROM note{where} ORDER BY id")
     rows = [r.split("\t") for r in run(sql).splitlines() if r.strip()]
