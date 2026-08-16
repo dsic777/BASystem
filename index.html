@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 345;
+const MOBILE_VER = 346;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2616,6 +2616,8 @@ function railPos(rail, corner, dia){              // 코너에서 dia 칸 떨어
 //    배치(38.jpg)에서는 **충돌 지점부터** 여정이 시작되므로 거기서 재야 한다.
 // 출발값이 이 값을 넘으면 수구 포인트를 안 보여준다 (위 twoBank 의 ★★★★ 주석)
 const TWO_BANK_MAX_START = 4;
+// 2쿠션값이 이 범위 밖이면 곱셈이 아니다 (원자료 확인 범위 · 사장님의 '한계각')
+const TWO_BANK_SECOND = [2, 4];
 // 그 레일 위에서 **가는 쪽** 끝 코너 (위 twoBank 의 ★★★★ 주석)
 function cornerToward(rail, d){
   if (!rail || !d) return null;
@@ -4685,8 +4687,11 @@ function drawSysName(){
   const nm = curShotName();                       // 궤적이 정한 이름 (위 주석)
   // ★ 투뱅크인데 구구단 당점이 아니면 **'투뱅크' 하나로** 부른다 (사용자 2026-08-17).
   //   '투뱅크 · 파이브앤하프' 로 두 이름을 붙이면 어느 눈금으로 읽는지 헷갈린다.
-  const txt = (nm === '투뱅크' && sys === 0)
-            ? '투뱅크'
+  // ★★★★ 투뱅크는 **이름 하나로** 부른다 (사용자 2026-08-17:
+  //   '모두 2뱅크로 통일합시다. 당점으로도 안 되겠어요').
+  //   '투뱅크 · 2뱅크 곱셈' 처럼 두 이름을 붙이니 어느 눈금으로 읽는지 헷갈렸다 (6.jpg).
+  //   곱셈이 되는지는 **이름이 아니라 아래 공식 줄**로 알린다.
+  const txt = (nm === '투뱅크') ? '2뱅크'
             : (nm ? nm + ' · ' : '') + SYS_NAMES[sys];
   // 피해야 할 점들 — 공 세 개 + 궤적 꺾이는 자리
   const avoid = [];
@@ -4718,6 +4723,45 @@ function drawSysName(){
   g.strokeText(txt, best.x, best.y);
   g.fillStyle = (cur && cur.kiss) ? '#ff8a80' : '#ffffff';
   g.fillText(txt, best.x, best.y);
+  // ★★★★ 곱셈이 성립하면 **공식을 숫자로** 적는다 (사용자 2026-08-17:
+  //   '다이에 곱셈시스템이라 보여주면서 공식까지 숫자로 표현할 수 있나요?')
+  //   왜 필요한가 (사용자) — '쉬운 공인데 포인트 계산을 잘못해서 실수가 많아서'.
+  //   ★ 성립하는 조건은 **세 값이 다 나오는 것** 하나다.
+  //     출발값이 4를 넘으면 twoBank() 가 null 을 준다 → 곱셈이 아니다.
+  //     6.jpg 가 그 경우다 (사용자: '6은 2뱅크 곱셈이 아니거든요').
+  //   ★ 색은 쿠션 포인트와 같게 — 다이의 숫자와 눈으로 이어진다.
+  if (sys === 1){
+    let tb = null; try { tb = twoBank(); } catch(e){ tb = null; }
+    // ★ 2쿠션값이 **2~4 밖이면 곱셈이 아니다.** 이것이 사장님이 말씀하신 '한계각' 이다
+    //   (2026-08-17: '2.jpg는 2뱅크곱셈 한계각을 벗어나 있습니다').
+    //   원자료에 '2 미만 · 4 초과는 화면에 안 나온다' 고 적혀 있던 그 범위다.
+    //   ⚠️ 이 칸은 곱셈을 뒤집어 낸 값(1쿠션÷출발)이라 제한이 없으면 9.5 · 15.0 같은
+    //      값이 그냥 나온다. 그런 배치는 애초에 이 시스템으로 치는 길이 아니다.
+    const inRange = tb && tb.second !== null &&
+                    tb.second >= TWO_BANK_SECOND[0] - 1e-9 &&
+                    tb.second <= TWO_BANK_SECOND[1] + 1e-9;
+    if (tb && tb.start !== null && tb.first !== null && inRange){
+      const num = v => Number.isInteger(v) ? String(v) : (Math.round(v*10)/10).toFixed(1);
+      const parts = [['곱셈  ', '#cfd6e0'],
+                     ['출발 ' + num(tb.start), '#f6f5ee'], ['  ×  ', '#cfd6e0'],
+                     ['2쿠션 ' + num(tb.second), '#f0be28'], ['  =  ', '#cfd6e0'],
+                     ['1쿠션 ' + num(tb.first), TWOBANK_FIRST]];
+      const fs2 = Math.round(c.h*0.052);
+      g.font = '800 ' + fs2 + 'px system-ui, sans-serif';
+      let w = 0;
+      for (const [t] of parts) w += g.measureText(t).width;
+      let x = best.x - w/2;
+      const y2 = best.y + c.h*0.075;
+      g.textAlign = 'left';
+      g.lineWidth = Math.max(3, c.h*0.012);
+      for (const [t, col] of parts){
+        g.strokeStyle = 'rgba(8,10,14,0.92)'; g.strokeText(t, x, y2);
+        g.fillStyle = col; g.fillText(t, x, y2);
+        x += g.measureText(t).width;
+      }
+      g.textAlign = 'center';
+    }
+  }
   // ★ 키스가 나면 **피하는 두께**를 바로 아래에 한 줄로
   const fix = kissFreeThick();
   if (fix){
