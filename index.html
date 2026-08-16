@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 342;
+const MOBILE_VER = 344;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2600,6 +2600,15 @@ function railPos(rail, corner, dia){              // 코너에서 dia 칸 떨어
 // 이 샷의 레일 배정과 값. 못 정하면 null.
 // ⚠️ 출발은 수구 자리가 아니라 systemBase() 가 정한 자리다. 1적구를 먼저 맞고 도는
 //    배치(38.jpg)에서는 **충돌 지점부터** 여정이 시작되므로 거기서 재야 한다.
+// 출발값이 이 값을 넘으면 수구 포인트를 안 보여준다 (위 twoBank 의 ★★★★ 주석)
+const TWO_BANK_MAX_START = 4;
+// 그 레일 위에서 **가는 쪽** 끝 코너 (위 twoBank 의 ★★★★ 주석)
+function cornerToward(rail, d){
+  if (!rail || !d) return null;
+  return isLong(rail)
+    ? [d[0] >= 0 ? T.width : 0, rail === 'top' ? T.height : 0]
+    : [rail === 'right' ? T.width : 0, d[1] >= 0 ? T.height : 0];
+}
 function twoBank(){
   const b = systemBase();
   if (!b || !b.hits || b.hits.length < 2) return null;
@@ -2608,12 +2617,43 @@ function twoBank(){
   const back = railHit(b.from, [-d[0], -d[1]]);    // 기준선을 뒤로 늘린 자리 = 출발
   const r0 = back ? railOf(back) : null;
   if (!r0 || !r1 || !r2 || r1 === r2) return null;
-  const cS = cornerOf(r0, r2), cF = cornerOf(r1, r2);
+  // ★★★★ 기준 코너는 **수구의 진행방향** 쪽 끝이다 (사용자 2026-08-17:
+  //   '무조건 수구의 진행방향이라니까요').
+  //   ⚠️ 전에는 cornerOf(출발레일, 2쿠션레일) 로 **맞닿은 코너**를 찾았다. 그러면
+  //      두 레일이 마주 볼 때 코너가 없어 값이 통째로 안 나왔다 (7.jpg —
+  //      출발 하단 장쿠션 · 2쿠션 상단 장쿠션. 사장님이 '범위 안' 이라고 한 배치다).
+  //   ★ 두 방식은 맞닿은 경우에 **같은 답**을 낸다 — 원자료 캡처가 그렇다.
+  //        캡처 1~9   출발 우측 단쿠션 · 위로 진행  → 우상   (= cornerOf(우측,상단))
+  //        캡처 10~18 출발 상단 장쿠션 · 우로 진행  → 우상   (= cornerOf(상단,우측))
+  //      그러니 값이 바뀌는 것이 아니라, 못 풀던 배치가 풀린다.
+  const d1 = (hits[1] && hits[0]) ? [hits[1].p[0]-hits[0].p[0], hits[1].p[1]-hits[0].p[1]] : d;
+  //   ⚠️⚠️ 다만 **되던 것은 안 바꾼다.** 맞닿은 코너가 있으면 그것을 그대로 쓴다 —
+  //      원자료(캡처 18장)가 검증한 것이 그쪽이고, 무작위 600배치로 재 보니
+  //      맞닿은 경우에도 두 방식이 **36건에서 답이 갈렸다.** 근거가 있는 쪽을 남긴다.
+  //      맞닿은 코너가 아예 없을 때만(395건) 진행방향으로 푼다.
+  const cS = cornerOf(r0, r2) || cornerToward(r0, d);
+  const cF = cornerOf(r1, r2) || cornerToward(r1, d1);
   if (!cS || !cF) return null;
-  const start  = diamondsFrom(r0, back, cS);                       // 한 칸에 1
-  const first  = diamondsFrom(r1, hits[0].p, cF) * 10;             // 한 칸에 10
-  const second = start > 0.05 ? first / start : null;              // 곱셈식을 뒤집는다
-  return {r0, r1, r2, cS, cF, start, first, second};
+  const start = diamondsFrom(r0, back, cS);                        // 한 칸에 1
+  // ★ 1쿠션 포인트는 **정수만** 쓴다 (사용자 2026-08-17: '단 1쿠션포인트는 정수만
+  //   사용하세요'). 한 칸이 10 이므로 정수 하나가 다이아몬드의 1/10 이다 —
+  //   그보다 잘게 겨눌 수 없다. 실제로 보고 치는 값이 이것이다.
+  const first = Math.round(diamondsFrom(r1, hits[0].p, cF) * 10);  // 한 칸에 10
+  // ★★★★ 출발값이 4를 넘으면 **수구 포인트를 안 보여준다** (사용자 2026-08-17):
+  //   '4를 넘어가면 수구포인트는 보여주지 말고 1쿠션 2쿠션 레일 포인트만 보여줍시다.
+  //    실제는 1쿠션 레일포인트만 보고 칠테니까요.'
+  //   사장님이 직접 따져 보고 내린 결론이다 —
+  //     '장쿠션은 4.5 5 5.5 6이 되어야 하네요. 이것도 오차가 생기는데, 그렇게 되면
+  //      하단 레일포인트 6에서 상단 레일포인트 3으로 보낼려면 18인데 각이 안맞아요.'
+  //   → 4 너머는 곱셈이 성립하지 않는다. 없는 값을 지어내 보여주지 않는다.
+  //   ⚠️ 그때 2쿠션값은 곱셈(first/start)으로 뒤집을 수 없다. **실제로 닿는 자리**를
+  //      눈금에서 직접 읽는다 (data/system_2bank.json: 값 = 5 − 칸수 × 장0.5·단1).
+  //   ⚠️ 4 이하는 하나도 안 바꾼다 — 원자료 캡처가 검증한 구간이다.
+  const over = start > TWO_BANK_MAX_START;
+  const second = over
+    ? 5 - diamondsFrom(r2, hits[1].p, cS) * (isLong(r2) ? 0.5 : 1)
+    : (start > 0.05 ? first / start : null);
+  return {r0, r1, r2, cS, cF, start: over ? null : start, first, second};
 }
 
 // ─────────────────────────────── 경로 찾기 (360도 훑기 + 묶기) · 사용자 승인 2026-08-11
@@ -7096,6 +7136,7 @@ function drawReadout(){
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
     const txt = (v === null || v === undefined) ? '—'
               : (typeof v === 'string') ? v
+              : Number.isInteger(v) ? String(v)          // ★ 1쿠션 정수는 '9.0' 이 아니라 '9'
               : (sys >= 1 ? (Math.round(v*10)/10).toFixed(1) : String(Math.round(v)));
     // ⚠️ 2뱅크는 소수점이 들어가 세 값이 붙어 '1.63.11.9' 로 읽혔다 (사용자 지적 31.jpg).
     //    칸 안에 들어갈 때까지 글자를 줄인다.
