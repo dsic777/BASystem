@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 331;
+const MOBILE_VER = 332;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6875,9 +6875,13 @@ function drawReadout(){
     // ★★ 사용자 2026-08-17: '상황판도 쿠션포인트와 컬러를 통일해 주세요.'
     //   색은 data/five_half_numbers.json 이 정한다 — 여기서 지어내지 않는다.
     //   눈금 색을 바꾸면 상황판도 저절로 따라온다.
+    // ★★ 표시 순서 — 사용자 2026-08-17 (자문): '수구 1쿠션(프레임) 3쿠션(레일).
+    //   표시 순서도 이대로 입니다.'
+    //   ⚠️ 2026-08-16 요청 #5 에서 '1쿠션과 3쿠션 위치를 바꾸어야 합니다' 로
+    //      3쿠션을 앞에 뒀었다. 자문을 받고 **되돌린 것**이다. 값은 안 바뀐다.
     cols = [['수구수', n && n.start, scaleColor('start')],
-            ['3쿠션',  n && n.third, scaleColor('third_cushion')],
-            ['1쿠션',  n && n.first, scaleColor('first_cushion')]];
+            ['1쿠션',  n && n.first, scaleColor('first_cushion')],
+            ['3쿠션',  n && n.third, scaleColor('third_cushion')]];
   }
   // ★ 카메라 미리보기 중에는 이 칸이 **무작위배치 버튼**이 된다 (사용자 2026-08-14).
   //   '카메라를 클릭하면 상황판을 무작위배치 라고 변경해 주세요.'
