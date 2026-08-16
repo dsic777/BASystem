@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 323;
+const MOBILE_VER = 324;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3413,6 +3413,74 @@ function routeFix(r){
 //      훑기는 '어느 길이 있나' 를 찾고, 그리기는 '그 길이 실제로 어떻게 가나' 를 낸다.
 //   ⚠️ 한 프레임에 엔진을 다시 굴리면 안 된다. 조준·당점·보정이 그대로면 지난 것을 쓴다.
 let EPATH = {key: null, val: null};
+// 엔진을 한 번 굴려 **공이 지나간 자리**를 받아 적는다 (아래 enginePath 가 두 번 쓴다)
+function engineRun(dir, V0, kk, E){
+  const sim = simInit(dir, V0, kk, E);
+  sim.sameAsPath = 1;                    // 반사각을 속도에 안 맡긴다 — 세기를 바꿔도 모양은 그대로
+  sim.stop = SIM_PLAY_STOP;
+  const D = T.ball_diameter;
+  const rec = {}, last = {}, touch = {}, bumped = {};
+  for (const b of sim.balls){ rec[b.key] = {p: [b.p.slice()], k: ['start']}; last[b.key] = null; }
+  let hitIdx = -1, hitObj = null, scoreIdx = -1, hitAt = null;
+  let spPrev = 0, spIn = 0, spOut = 0, outAt = -1;
+  // ⚠️ 끝까지 굴리면 한 번에 250ms 다 — 조준을 밀 때마다 하면 폰이 버벅인다.
+  //    화면에 그리는 것은 충돌 뒤 8쿠션 · 1적구 4쿠션까지뿐이라 거기까지만 굴린다.
+  const need = (key, cap) => {
+    const r = rec[key]; if (!r) return false;
+    let c = 0;
+    for (let i = (key === 'cue' ? hitIdx : 0) + 1; i < r.k.length; i++) if (r.k[i] === 'rail') c++;
+    return c >= cap;
+  };
+  for (let n = 0; n < 24000; n++){
+    if (!sim.balls.some(b => b.v[0] || b.v[1])) break;
+    if (hitIdx > 0 && (scoreIdx > 0 || need('cue', 9)) && (!hitObj || need(hitObj, 5))) break;
+    // ⚠️ '닿았다' 를 아는 순간과 실제로 **꺾이는 순간**이 몇 걸음 어긋난다
+    //    (닿음은 지름+0.8mm 에서 보고, 꺾임은 엔진이 부딪힘을 풀고 난 뒤다).
+    //    표시를 몇 걸음 남겨 두지 않으면 공에 맞아 꺾인 자리를 쿠션으로 잘못 적고
+    //    **득점을 통째로 놓친다** (25배치 전부 놓쳤다).
+    for (const b of sim.balls) if (bumped[b.key]) bumped[b.key]--;
+    const cb = sim.balls.find(b => b.key === 'cue');
+    if (cb) spPrev = Math.hypot(cb.v[0], cb.v[1]);
+    simStep(sim, SIM_DT);
+    for (let i = 0; i < sim.balls.length; i++)
+      for (let j = i+1; j < sim.balls.length; j++){
+        const A = sim.balls[i], B = sim.balls[j], kk2 = A.key + '|' + B.key;
+        const on = Math.hypot(A.p[0]-B.p[0], A.p[1]-B.p[1]) < D + 0.8;
+        if (on && !touch[kk2]){
+          bumped[A.key] = bumped[B.key] = 6;
+          const other = A.key === 'cue' ? B.key : (B.key === 'cue' ? A.key : null);
+          if (other && hitIdx < 0){                    // 수구가 처음 맞힌 공 = 1적구
+            hitObj = other; hitAt = [(A.p[0]+B.p[0])/2, (A.p[1]+B.p[1])/2];
+            rec.cue.p.push(hitAt.slice()); rec.cue.k.push('ball');
+            hitIdx = rec.cue.p.length - 1;
+            spIn = spPrev; outAt = n + 8;              // 부딪힘이 풀린 뒤에 재려고 미뤄 둔다
+          }
+        }
+        touch[kk2] = on;
+      }
+    if (outAt === n && cb) spOut = Math.hypot(cb.v[0], cb.v[1]);   // 1적구에 얼마를 넘겼나
+    for (const b of sim.balls){
+      const sp = Math.hypot(b.v[0], b.v[1]);
+      if (sp < 1e-9) continue;
+      const d = [b.v[0]/sp, b.v[1]/sp], l = last[b.key];
+      if (l && (Math.abs(l[0]-d[0]) > 2e-3 || Math.abs(l[1]-d[1]) > 2e-3)){
+        const isBall = !!bumped[b.key];
+        if (!(b.key === 'cue' && isBall && rec.cue.p.length - 1 === hitIdx)){
+          rec[b.key].p.push(b.p.slice());
+          rec[b.key].k.push(isBall ? 'ball' : 'rail');
+          if (b.key === 'cue' && isBall && hitIdx > 0 && scoreIdx < 0)
+            scoreIdx = rec.cue.p.length - 1;           // 두 번째 공 = 득점
+        }
+      }
+      last[b.key] = d;
+    }
+  }
+  for (const b of sim.balls){ rec[b.key].p.push(b.p.slice()); rec[b.key].k.push('stop'); }
+  if (hitIdx <= 0 || !hitObj) return null;
+  return {cue: rec.cue, obj: rec[hitObj] || null, hitIdx, hitObj, scoreIdx,
+          scored: scoreIdx > 0, hitAt,
+          keepC: (spIn > 1 && spOut > 0) ? Math.max(0.05, Math.min(0.98, spOut/spIn)) : null};
+}
 function enginePath(cueP, aim){
   const key = cueP + '|' + aim + '|' + S.tipH + '|' + S.tipV + '|' + S.corr + '|' +
               Object.keys(S.balls).map(k => S.balls[k].p).join(';');
@@ -3421,74 +3489,40 @@ function enginePath(cueP, aim){
   try {
     const pl = planShot(cueP, aim);
     if (pl){
-      const sim = simInit(pl.dir, pl.V0 * SIM_PLAY_BOOST, pl.kk,
-                          englishSideFor(cueP, pl.dir));
-      sim.sameAsPath = 1;                  // 반사각은 그리던 것과 같은 기준으로
-      sim.stop = SIM_PLAY_STOP;
-      const D = T.ball_diameter;
-      // rec[key] = {p: 꼭짓점, k: 왜 꺾였나('rail'·'ball')}
-      const rec = {}, last = {}, touch = {}, bumped = {};
-      for (const b of sim.balls){
-        rec[b.key] = {p: [b.p.slice()], k: ['start']}; last[b.key] = null;
+      const E = englishSideFor(cueP, pl.dir);
+      // ★★★ 세기 규칙 — 사장님 2026-08-16, **모든 시뮬레이션 공통**:
+      //   '수구가 2적구를 맞을만큼이 100이라면 110정도의 힘을 자동으로 계산.'
+      //
+      //   100 을 **엔진이 직접 잰다.** 기하 계산이 낸 세기를 쓰면 100 이 흔들린다 —
+      //   2적구에 안 닿는 길에서는 '그려 놓은 선을 완주할 힘' 이 되어 훨씬 세진다.
+      //   그래서 세기를 위아래로 좁혀 가며 **2적구에 닿는 제일 약한 세기**를 찾는다.
+      //   반사각을 속도에 안 맡기므로(sameAsPath) 세기를 바꿔도 **길 모양은 그대로**고
+      //   얼마나 가느냐만 달라진다. 그래서 이 좁히기가 성립한다.
+      //   ⚠️ 어떤 세기로도 2적구에 못 닿으면(정말 못 치는 길) 100 이 없다.
+      //      그때는 그리는 데까지 갈 만큼으로 둔다 — 옛날 그대로.
+      const base = pl.V0 * SIM_PLAY_BOOST;
+      let V0 = base, best = null;
+      let lo = 0, hi = 0;
+      for (const f of [0.55, 0.8, 1.0, 1.35, 1.8]){        // 닿는 세기를 먼저 하나 찾는다
+        const r = engineRun(pl.dir, base*f, pl.kk, E);
+        if (r && r.scored){ hi = base*f; best = r; break; }
+        lo = base*f;
       }
-      let hitIdx = -1, hitObj = null, scoreIdx = -1, hitAt = null;
-      // ⚠️ 끝까지 굴리면 한 번에 250ms 다 — 조준을 밀 때마다 이걸 하면 폰이 버벅인다.
-      //    화면에 그리는 것은 **충돌 뒤 8쿠션 · 1적구 4쿠션** 까지뿐이다.
-      //    거기까지 나왔으면 더 굴릴 이유가 없다. 재생은 어차피 따로 굴린다.
-      const need = (key, cap) => {
-        const r = rec[key]; if (!r) return false;
-        let c = 0;
-        for (let i = (key === 'cue' ? hitIdx : 0) + 1; i < r.k.length; i++)
-          if (r.k[i] === 'rail') c++;
-        return c >= cap;
-      };
-      for (let n = 0; n < 24000; n++){
-        if (!sim.balls.some(b => b.v[0] || b.v[1])) break;
-        if (hitIdx > 0 && (scoreIdx > 0 || need('cue', 9)) &&
-            (!hitObj || need(hitObj, 5))) break;
-        // ⚠️ 공에 '닿았다' 를 아는 순간과 실제로 **꺾이는 순간**이 몇 걸음 어긋난다
-        //    (닿음은 지름+0.8mm 에서 보고, 꺾임은 엔진이 부딪힘을 풀고 난 뒤다).
-        //    그래서 표시를 몇 걸음 남겨 둔다. 안 그러면 공에 맞아 꺾인 자리를
-        //    쿠션으로 잘못 적고 **득점을 놓친다** (25배치 전부 놓쳤다).
-        for (const b of sim.balls) if (bumped[b.key]) bumped[b.key]--;
-        simStep(sim, SIM_DT);
-        // 접촉 — 처음 닿는 순간만 센다
-        for (let i = 0; i < sim.balls.length; i++)
-          for (let j = i+1; j < sim.balls.length; j++){
-            const A = sim.balls[i], B = sim.balls[j], kk2 = A.key + '|' + B.key;
-            const on = Math.hypot(A.p[0]-B.p[0], A.p[1]-B.p[1]) < D + 0.8;
-            if (on && !touch[kk2]){
-              bumped[A.key] = bumped[B.key] = 6;
-              const other = A.key === 'cue' ? B.key : (B.key === 'cue' ? A.key : null);
-              if (other && hitIdx < 0){                // 수구가 처음 맞힌 공 = 1적구
-                hitObj = other; hitAt = [(A.p[0]+B.p[0])/2, (A.p[1]+B.p[1])/2];
-                rec.cue.p.push(hitAt.slice()); rec.cue.k.push('ball');
-                hitIdx = rec.cue.p.length - 1;
-              }
-            }
-            touch[kk2] = on;
-          }
-        // 꺾이면 그 자리를 적는다
-        for (const b of sim.balls){
-          const sp = Math.hypot(b.v[0], b.v[1]);
-          if (sp < 1e-9) continue;
-          const d = [b.v[0]/sp, b.v[1]/sp], l = last[b.key];
-          if (l && (Math.abs(l[0]-d[0]) > 2e-3 || Math.abs(l[1]-d[1]) > 2e-3)){
-            const isBall = !!bumped[b.key];
-            if (!(b.key === 'cue' && isBall && rec.cue.p.length - 1 === hitIdx)){
-              rec[b.key].p.push(b.p.slice());
-              rec[b.key].k.push(isBall ? 'ball' : 'rail');
-              if (b.key === 'cue' && isBall && hitIdx > 0 && scoreIdx < 0)
-                scoreIdx = rec.cue.p.length - 1;       // 두 번째 공 = 득점
-            }
-          }
-          last[b.key] = d;
+      if (best){
+        if (lo <= 0) lo = hi * 0.25;
+        for (let i = 0; i < 7 && hi - lo > hi*0.02; i++){   // 7번이면 2% 안으로 좁혀진다
+          const m = (lo + hi) / 2;
+          const r = engineRun(pl.dir, m, pl.kk, E);
+          if (r && r.scored){ hi = m; best = r; } else lo = m;
         }
+        const r110 = engineRun(pl.dir, hi * SIM_PLAY_BOOST, pl.kk, E);
+        if (r110 && r110.scored){ out = r110; V0 = hi * SIM_PLAY_BOOST; }
+        else { out = best; V0 = hi; }
+      } else {
+        out = engineRun(pl.dir, base, pl.kk, E);
+        V0 = base;
       }
-      for (const b of sim.balls){ rec[b.key].p.push(b.p.slice()); rec[b.key].k.push('stop'); }
-      if (hitIdx > 0 && hitObj)
-        out = {cue: rec.cue, obj: rec[hitObj] || null,
-               hitIdx, hitObj, scoreIdx, scored: scoreIdx > 0, hitAt};
+      if (out) out.V0 = V0;
     }
   } catch(e){ out = null; }
   EPATH = {key, val: out};
@@ -5216,7 +5250,7 @@ const SIM_STOP = 150;       // mm/s — 엔진에서 '섰다'고 보는 속도
 //   ⚠️ 경로 **계산**은 150 그대로 둔다 — 거기서 낮추면 v223 에서 없앤
 //      '기어가는 꼬리' 가 되살아나 경로가 길어진다. 재생만 낮춘다.
 //   2적구를 맞고 수구에 남는 것은 스치는 쪽 몫뿐이라 150 아래로 떨어져 바로 섰다.
-const SIM_PLAY_STOP = 95;
+const SIM_PLAY_STOP = 120;
 // ⚠️⚠️ 여기에 1.15 를 곱했다가 **되돌렸다** (v300 → v304).
 //   사용자 요청 #12 (2026-08-16): '시물레이션이 괘적과 다릅니다.'
 //   엔진은 쿠션마다 **그 순간 속도**를 bend() 에 넘긴다 (역각이 속도로 정해지므로).
@@ -5758,7 +5792,9 @@ function drawPath(){
         //      bend 를 **속도 없이** 부른다. 그리는 쪽과 같은 반사각이 나온다.
         const share = Math.max(0.10, Math.min(0.95, a.thick));
         const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
-        const V0 = simNeedV0([...before, ...pts2.slice(1)], keepC) * SIM_PLAY_BOOST;
+        // ★ 그린 선을 낸 그 세기 그대로. 엔진이 이미 '2적구에 닿을 만큼 × 110%' 로 풀었다.
+        const V0 = (EP && EP.V0) ? EP.V0
+                 : simNeedV0([...before, ...pts2.slice(1)], keepC) * SIM_PLAY_BOOST;
         S.sim = simInit(dirOf(cue.p, S.aim), V0, kk, englishSide());
         S.sim.sameAsPath = 1;                    // 그리는 쪽과 같은 반사각으로
         S.sim.stop = SIM_PLAY_STOP;              // 2적구를 맞고도 조금 더 구른다
