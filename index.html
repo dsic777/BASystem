@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 312;
+const MOBILE_VER = 313;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1480,7 +1480,9 @@ function cluster(){
   return {q, r, y: cy,
           tip: [q.x + mid,            cy],
           nam: [q.x + mid + step,     cy],
-          sim: [q.x + mid + step*2,   cy]};
+          sim: [q.x + mid + step*2,   cy],
+          // ★ 키스 자동조정 — 키스가 날 때만 뜬다 (위 kissFixTip 주석)
+          kiss:[q.x + mid + step*3,   cy]};
 }
 function tipCenter(){ return cluster().tip; }
 function simCenter(){ return cluster().sim; }
@@ -1803,6 +1805,11 @@ function down(px,py){
   if (NOTE_HIT && px >= NOTE_HIT.x && px <= NOTE_HIT.x + NOTE_HIT.w &&
       py >= NOTE_HIT.y && py <= NOTE_HIT.y + NOTE_HIT.h){
     noteOpen(); return;
+  }
+  // ★ 키스 자동조정 — 당점을 돌려 키스가 없어지는 길을 찾는다 (위 kissFixTip)
+  if (KISS_HIT && px >= KISS_HIT.x && px <= KISS_HIT.x + KISS_HIT.w &&
+      py >= KISS_HIT.y && py <= KISS_HIT.y + KISS_HIT.h){
+    kissFixTip(); blink(); return;
   }
   // ★ 점수 슬라이더 — 누르면 잡고, 밀면 따라오고, 떼면 그 값으로 정해진다
   //   ⚠️ 사용자 요청 #13 (2026-08-16): '직접조준 후 당점수정이 않되요.'
@@ -3382,6 +3389,52 @@ function planShot(cueP, aim){
   const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
   return {kk, cut, af, poly, keepC, V0: simNeedV0(poly, keepC), dir: dirOf(cueP, aim)};
 }
+// ★★★ 키스를 피하는 당점을 **자동으로 찾는다** (사용자 2026-08-16) —
+//   '여기서 당점을 조정해서 키스를 피하는 길로 만들어볼수도 있지 않겠어요.
+//    키스를 피하는 당점 자동조정버튼을 다이안에 만들어 주고
+//    다시 경로를 계산해서 보여주고 시물레이션. 이러면 굿인데.'
+//
+//   ★ 지키는 것 — **같은 회로(쿠션 차례)** 다. 당점만 바꾸고 조준은 reaimForTip 이
+//     같은 회로로 다시 맞춘다 (그래서 두께가 바뀐다. 사용자 2026-08-14 규칙 그대로).
+//   ★ 고르는 것 — 지금 당점에서 **제일 가까운** 것부터 본다. 멀리 튀지 않게.
+//   ⚠️ 키스 판정은 **비거리**로 정해진다 (두 공이 언제 그 자리에 있나).
+//      천갈이 뒤 실측이 오면 CUSHION_KEEP·DRAG_TABLE 만 고치면 이 기능도 같이 좋아진다.
+//      사용자 2026-08-16: '실측 후 조정.'
+let KISS_NOW = false;
+function kissFixTip(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return false;
+  if (!S.lockRails){                       // 직접지정이면 지금 회로를 잠근다
+    const d0 = directRoute();
+    if (d0) S.lockRails = (d0.rails || []).join('-');
+  }
+  const hS = S.tipH, vS = S.tipV, rS = S.tipR, dS = S.tipDir;
+  const aS = S.aim.slice(), lS = S.lastAim ? S.lastAim.slice() : null, snS = S.snapA;
+  const VS = [3, 1.5, 0.78, 0, -1.5, -3];
+  const cand = [];
+  for (const tv of VS) for (let tp = -3; tp <= 3; tp++) cand.push([tp, tv]);
+  cand.sort((x, y) =>
+    (Math.abs(x[0]-hS) + Math.abs(x[1]-vS)) - (Math.abs(y[0]-hS) + Math.abs(y[1]-vS)));
+  for (const [tp, tv] of cand){
+    if (tp === hS && tv === vS) continue;
+    S.tipH = tp; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(tp, tv));
+    S.aim = aS.slice(); S.lastAim = aS.slice(); S.snapA = snS;
+    if (!reaimForTip()) continue;          // 같은 회로를 못 지키는 당점은 버린다
+    let k = null;
+    try { k = kissEngine(cue.p, S.aim).kiss; } catch(e){ k = null; }
+    if (k === false){                      // 키스가 없어졌다
+      S.tipDir = ((Math.round(Math.atan2(S.tipH, S.tipV) / (Math.PI/12)) % 24) + 24) % 24;
+      S.rblink = nowMs();
+      say('키스 없는 당점 — ' + tipName(S.tipH, S.tipV), 3000);
+      return true;
+    }
+  }
+  S.tipH = hS; S.tipV = vS; S.tipR = rS; S.tipDir = dS;
+  S.aim = aS; S.lastAim = lS; S.snapA = snS;
+  say('이 회로에서는 키스를 피할 당점이 없습니다', 3000);
+  return false;
+}
+
 // ★★★ 키스를 **엔진으로** 판정한다 (사용자 승인 2026-08-13).
 //   ⚠️⚠️ kissAt() 은 옛 물리다 — 세기 2600 고정 · 등감속 500 · 쿠션 손실 없음.
 //      Node 로 추천 상위 20개를 재 보니 **6개(30%)가 틀렸다** —
@@ -3702,7 +3755,7 @@ function drawVerBar(){
   }
   g.restore();
 }
-let VER_HIT = null;
+let VER_HIT = null, KISS_HIT = null;
 
 // ★★★ 요청·평가 메모 (사용자 2026-08-16)
 //   '점수판 0 우측에 평가버튼. 누르면 평가이유와 요청사항을 설명하는 텍스트 창을 만들어 주세요.
@@ -5378,6 +5431,7 @@ function drawPath(){
   //   사용자: '미리 키스가 없는 두께와 당점을 미리 알려주면 얼마나 좋겠어요.'
   //   ⚠️ 시간을 못 재므로 '겹친다' 까지만이다. 실제로는 비껴갈 수도 있다.
   const kAt = kissAt(P, a, pts2, cut.obj);
+  KISS_NOW = !!kAt;                    // 키스 버튼을 띄울지 정한다 (아래 kissFixTip)
   if (kAt){
     g.save(); g.globalAlpha = DIM;
     const [kx, ky] = toPx(...kAt), kr = Math.max(7, band*0.55);
@@ -5853,6 +5907,24 @@ function drawClock(){
     g.lineTo(sx - a*0.45, sy + a*0.62);
     g.closePath();
     g.fillStyle = 'rgba(24,26,30,0.88)'; g.fill();
+  }
+  // ★ 키스 자동조정 버튼 — **키스가 날 때만** 뜬다. 평소엔 화면을 안 어지럽힌다.
+  KISS_HIT = null;
+  if (KISS_NOW){
+    const cl2 = cluster(), [kx, ky] = cl2.kiss, kr = cl2.r;
+    KISS_HIT = {x: kx - kr, y: ky - kr, w: kr*2, h: kr*2};
+    g.beginPath(); g.arc(kx, ky, kr, 0, 7);
+    g.fillStyle = '#3a1f1f'; g.fill();
+    g.strokeStyle = '#ff3b30'; g.lineWidth = Math.max(2, kr*0.16); g.stroke();
+    g.save();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const fs2 = Math.round(kr*0.62);
+    g.font = '900 ' + fs2 + 'px system-ui, -apple-system, sans-serif';
+    g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(10,12,16,0.9)'; g.lineWidth = Math.max(2, fs2*0.28);
+    g.strokeText('키스', kx, ky);
+    g.fillStyle = '#ffb3ae'; g.fillText('키스', kx, ky);
+    g.restore();
   }
   // ★ 당점 이름 — 가운데(보정 0 위)에 늘 띄운다 (사용자 2026-08-14)
   //   ⚠️ 한 줄로 작게 넣었더니 '안보여요' 하셨다 (2026-08-14).
