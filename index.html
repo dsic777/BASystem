@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 353;
+const MOBILE_VER = 354;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -139,7 +139,12 @@ const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa',
              obj:'#ff2f22'};   // 1적구 궤적 — 공 색과 무관하게 늘 적색 (사용자 확정)
 // 다이 색 — 파란 천에서 **차콜**로 (design.png 방향). 배경을 무채색으로 내리면
 // 남는 색이 전부 정보가 된다 (궤적·눈금·공).
-const FELT = '#24272c', FELT_HI = '#31353c', FELT_EDGE = '#15171a';
+// ★ 천 색 (사용자 2026-08-17: '녹색천도 괜찮아 보이지 않나요' · '더 당구다이 같아 보이네요')
+//   ⚠️ 차콜로 갔던 이유는 '배경을 무채색으로 내리면 남는 색이 전부 정보가 된다' 였다.
+//      녹색은 배경이 다시 색을 갖는다 — 그래서 **연두(3쿠션 눈금)보다 훨씬 어두운**
+//      녹색으로 잡았다. 눈금이 안 묻히는 선에서 당구장 천처럼 보이게.
+//   되돌리려면 이 세 값만 차콜로: '#24272c' · '#31353c' · '#15171a'
+const FELT = '#22523c', FELT_HI = '#2d6349', FELT_EDGE = '#16382a';
 // #rrggbb 를 k 배로 어둡게
 function shade(hex, k){
   const n = parseInt(hex.slice(1), 16);
