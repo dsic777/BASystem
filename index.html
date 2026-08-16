@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 334;
+const MOBILE_VER = 335;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3881,8 +3881,14 @@ function verBar(){
     //    (사용자 2026-08-16, 17.jpg: '3쿠션 위치때문에 점수판과 겹침').
     //    3쿠션 눈금은 장쿠션 아래쪽에 고정으로 그려지므로(drawNumbers) 점수판이
     //    비켜야 한다. 그 숫자 높이(천의 5.5%)에 여백을 얹어 위로 올린다.
+    // ★ 가운데가 아니라 **왼쪽 끝에** 붙인다 (사용자 2026-08-17, 11.jpg:
+    //   '이럴때는 점수판이 좌측 끝까지 가야할듯').
+    //   가운데 붙박이라 보정판이 우측 아래로 내려오면 그대로 겹쳤다.
+    //   ⚠️ 보정판(clockCenter)은 이미 점수판을 피해 다닌다. 그러니 점수판이
+    //      먼저 자리를 잡고 보정판이 비키는 **한 방향**이라야 서로 안 밀어낸다.
+    //      여기서 보정판 자리를 되물으면 둘이 무한히 서로를 피한다.
     const c = L.cloth, w = Math.min(c.w*0.62, c.h*1.15), h = c.h*0.135;
-    return {x: c.x + (c.w - w)/2, y: c.y + c.h - h - c.h*0.125, w, h};
+    return {x: c.x + c.w*0.02, y: c.y + c.h - h - c.h*0.125, w, h};
   }
   return null;
 }
