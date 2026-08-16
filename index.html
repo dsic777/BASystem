@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 330;
+const MOBILE_VER = 331;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6816,6 +6816,11 @@ function systemNumbers(){
   return {start, first, third};
 }
 
+// 눈금 색을 그대로 가져온다 (상황판이 다이의 숫자와 같은 색을 쓰게 — 2026-08-17)
+function scaleColor(name){
+  const sc = SCALES.find(s => s.name === name);
+  return sc ? sc.color : '#ffffff';
+}
 // 카메라 버튼 위 판독창 — 수구수 / 1쿠션 / 3쿠션
 function drawReadout(){
   if (!READOUT) return;
@@ -6862,10 +6867,17 @@ function drawReadout(){
             ['팁수', tip]];
   } else if (sys === 1){
     const tb = twoBank();
-    cols = [['출발값', tb && tb.start], ['1쿠션', tb && tb.first], ['2쿠션', tb && tb.second]];
+    // ★ 다이에 그린 2뱅크 숫자와 **같은 색** (drawNumbers2Bank 의 put 색 그대로)
+    cols = [['출발값', tb && tb.start, '#f6f5ee'], ['1쿠션', tb && tb.first, '#ff5a4e'],
+            ['2쿠션', tb && tb.second, '#f0be28']];
   } else {
     const n = systemNumbers();
-    cols = [['수구수', n && n.start], ['3쿠션', n && n.third], ['1쿠션', n && n.first]];
+    // ★★ 사용자 2026-08-17: '상황판도 쿠션포인트와 컬러를 통일해 주세요.'
+    //   색은 data/five_half_numbers.json 이 정한다 — 여기서 지어내지 않는다.
+    //   눈금 색을 바꾸면 상황판도 저절로 따라온다.
+    cols = [['수구수', n && n.start, scaleColor('start')],
+            ['3쿠션',  n && n.third, scaleColor('third_cushion')],
+            ['1쿠션',  n && n.first, scaleColor('first_cushion')]];
   }
   // ★ 카메라 미리보기 중에는 이 칸이 **무작위배치 버튼**이 된다 (사용자 2026-08-14).
   //   '카메라를 클릭하면 상황판을 무작위배치 라고 변경해 주세요.'
@@ -6931,10 +6943,11 @@ function drawReadout(){
     g.fillText(txt, r.x + r.w - r.h*0.10, r.y + r.h*0.04);
     g.textAlign = 'center';
   }
-  cols.forEach(([lb, v], i) => {
+  cols.forEach(([lb, v, col], i) => {
     const cx = r.x + r.w*(i + 0.5)/cols.length;   // 칸 수는 모드마다 다르다 (기울기는 4칸)
     g.textBaseline = 'top';
-    g.fillStyle = 'rgba(238,243,250,0.92)';
+    // ★ 범례도 그 쿠션 포인트 색으로 (사용자 2026-08-17). 색이 없으면 지금까지대로 흰색.
+    g.fillStyle = col || 'rgba(238,243,250,0.92)';
     // ⚠️ 범례도 칸에 안 들어가면 잘린다 (사용자 지적 2026-08-12). 값과 같은 방식으로 줄인다.
     let lf = r.h*0.19;
     for (let k = 0; k < 12; k++){
@@ -6944,7 +6957,7 @@ function drawReadout(){
     }
     g.fillText(lb, cx, r.y + r.h*0.19);          // 0.30 → 0.19 (위 여백 반으로)
     g.textBaseline = 'bottom';
-    g.fillStyle = v === null || v === undefined ? '#8b93a0' : '#ffffff';
+    g.fillStyle = (v === null || v === undefined) ? '#8b93a0' : (col || '#ffffff');
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
     const txt = (v === null || v === undefined) ? '—'
               : (typeof v === 'string') ? v
