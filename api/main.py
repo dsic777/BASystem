@@ -214,12 +214,28 @@ def put_note(v: Note, req: Request) -> dict:
     if not txt:
         return {"ok": False, "why": "빈 글"}
     with db() as c:
-        row = c.execute(
-            "INSERT INTO note (ip, who, app, kind, text, place_key, route_key, balls, info)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (ip, v.who, v.app, v.kind, txt[:4000], v.place_key, v.route_key,
-             Json(v.balls), Json(v.info)),
-        ).fetchone()
+        # ★ 평가는 **한 화면에 하나** 다 (사용자 2026-08-16 요청 #13:
+        #   '수정을 할때 자료를 계속 쌓지 말고 수정만 하세요. 평가도 마찬가지 입니다.')
+        #   같은 배치·같은 경로에 이미 내 평가가 있으면 그것을 고친다.
+        #   ⚠️ 요청은 안 그렇다 — 요청은 주고받는 대화라 쌓이는 것이 맞다.
+        row = None
+        if v.kind == "평가" and v.place_key:
+            row = c.execute(
+                "UPDATE note SET text=%s, balls=%s, info=%s, app=%s, at=now(),"
+                " reply=NULL, replied_at=NULL"
+                " WHERE ip=%s AND kind='평가' AND place_key=%s"
+                "   AND coalesce(route_key,'') = coalesce(%s,'')"
+                " RETURNING id",
+                (txt[:4000], Json(v.balls), Json(v.info), v.app,
+                 ip, v.place_key, v.route_key),
+            ).fetchone()
+        if row is None:
+            row = c.execute(
+                "INSERT INTO note (ip, who, app, kind, text, place_key, route_key, balls, info)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                (ip, v.who, v.app, v.kind, txt[:4000], v.place_key, v.route_key,
+                 Json(v.balls), Json(v.info)),
+            ).fetchone()
         c.commit()
     return {"ok": True, "id": row["id"], "ip": ip, "mine": ip == OWNER_IP}
 
