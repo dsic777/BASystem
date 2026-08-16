@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 359;
+const MOBILE_VER = 360;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7143,7 +7143,7 @@ function drawReadout(){
   //   ⚠️ 값은 안 바꿨다. 칸 순서만 바꿨다 (3.jpg 에서 53 − 40 = 13 로 서로 맞았다).
   //   2뱅크 곱셈    출발값 | 1쿠션 | 2쿠션값    〃 (1쿠션위치값 = 2쿠션값 × 출발값)
   const sys = curSystem();
-  let cols;
+  let cols, cross = false;
   if (sys === 4){
     // ★ 옆돌리기 — 구역 팁수 + 기울기 + 3쿠션 보정 = 당점. 두께는 1/2 기준
     const st = sideTurnNums();
@@ -7192,7 +7192,7 @@ function drawReadout(){
     // ★★ 횡단&더블시스템은 **수구-1적구 기울기(칸)** 를 알려준다 (사용자 2026-08-17:
     //   '포인트도 수구와 1적구 간에 기울기가 몇칸인지를 알려줘야 합니다')
     //   파이브앤하프 수구수는 이 시스템과 관계없으므로 그 자리를 기울기로 바꾼다.
-    const cross = curShotName() === '횡단&더블시스템';
+    cross = curShotName() === '횡단&더블시스템';
     const sl = cross ? slopes() : null;
     const ft = cross ? null : foreTurn();
     // ★★★ 이 시스템의 1쿠션·3쿠션은 **레일 포인트의 칸수**다 (사용자 2026-08-17,
@@ -7290,8 +7290,11 @@ function drawReadout(){
     g.textBaseline = 'bottom';
     g.fillStyle = (v === null || v === undefined) ? '#8b93a0' : (col || '#ffffff');
     g.font = '800 ' + Math.round(r.h*0.50) + 'px system-ui, sans-serif';
+    // ★ 횡단&더블은 **칸수**라 반 칸이 뜻이 있다 — 소수점 한 자리로 보여준다
+    //   (사용자 2026-08-17: '기울기도 소수점 1자리'). 파이브앤하프 눈금은 정수 그대로.
     const txt = (v === null || v === undefined) ? '—'
               : (typeof v === 'string') ? v
+              : cross ? (Math.round(v*10)/10).toFixed(1)
               : Number.isInteger(v) ? String(v)          // ★ 1쿠션 정수는 '9.0' 이 아니라 '9'
               : (sys >= 1 ? (Math.round(v*10)/10).toFixed(1) : String(Math.round(v)));
     // ⚠️ 2뱅크는 소수점이 들어가 세 값이 붙어 '1.63.11.9' 로 읽혔다 (사용자 지적 31.jpg).
