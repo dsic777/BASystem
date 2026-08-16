@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 310;
+const MOBILE_VER = 312;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5216,11 +5216,17 @@ function simStep(sim, dt){
 //      (요청 #12). 물리 엔진을 재생에서 **뺀다.** 그러면 정의상 100% 같다.
 //   ★ 속도만 마찰 모델로 준다 — 쿠션마다 CUSHION_KEEP, 1적구에서 두께만큼 잃는다.
 //     ⚠️ 초구 뿌리기(scatter)는 그대로 물리 엔진을 쓴다. 거기는 길이 없다.
-function playInit(cuePoly, objPoly, hitAt, keepC, share){
+function playInit(cuePoly, objPoly, hitAt, keepC, share, hit2){
   const V0 = needV0exact(cuePoly, keepC);
   return {cue: {poly: cuePoly, i: 0, s: 0, v: V0},
           obj: (objPoly && objPoly.length > 1)
                ? {poly: objPoly, i: 0, s: 0, v: 0} : null,
+          // ★ 길 끝에서 맞는 공들 — 닿으면 밀려난다 (사용자 2026-08-16:
+          //   '시물레이션이 공을 부디쳐도 움직이지 않네요' · '모든공이 포함입니다').
+          //   수구 길 끝에서 하나, 1적구 길 끝에서 하나. 세 공이 다 움직일 수 있다.
+          //   ⚠️ 그 공들의 길은 그린 적이 없다. 중심선 방향으로 곧게만 굴린다 —
+          //      '맞았다' 가 보이면 되고, 어디로 가는지는 주장하지 않는다.
+          hits: (hit2 || []).filter ? hit2 : (hit2 ? [hit2] : []),
           hitAt, keepC, share};
 }
 function playPos(b){
@@ -5254,9 +5260,26 @@ function playStep(pl, dt){
     } else pl.cue.v *= CUSHION_KEEP;     // 쿠션에서 잃는다
   });
   walk(pl.obj, () => { pl.obj.v *= CUSHION_KEEP; });
+  // ★ 길 끝에서 맞는 공들 — 밀어낸다
+  for (const h of (pl.hits || [])){
+    const src = h.by === 'obj' ? pl.obj : pl.cue;
+    if (!src) continue;
+    if (!h.on && src.i >= src.poly.length - 1){
+      h.on = 1; h.v = Math.max(300, src.v * 0.8);       // 거의 정면이라 대부분 넘어간다
+      src.v = 0;
+    }
+    if (h.on && h.v > 0){
+      h.p = [h.p[0] + h.dir[0]*h.v*dt, h.p[1] + h.dir[1]*h.v*dt];
+      const e = T.ball_diameter*0.5;                   // 쿠션에 닿으면 거기서 멈춘다
+      if (h.p[0] < e || h.p[0] > T.width - e ||
+          h.p[1] < e || h.p[1] > T.height - e) h.v = 0;
+      else { const nv = h.v - accelAt(h.v)*dt; h.v = nv < SIM_PLAY_STOP ? 0 : nv; }
+    }
+  }
 }
 function playMoving(pl){
-  return (pl.cue && pl.cue.v > 0) || (pl.obj && pl.obj.v > 0);
+  return (pl.cue && pl.cue.v > 0) || (pl.obj && pl.obj.v > 0) ||
+         (pl.hits || []).some(h => h.on && h.v > 0);
 }
 
 function simBall(p, color, R){
@@ -5457,8 +5480,18 @@ function drawPath(){
         const keepC = Math.sqrt(Math.max(0.04, 1 - share*share));
         // ★ 그려 둔 선 그대로 굴린다 (위 playInit 주석)
         //   수구 = 충돌 전 선 + 충돌 후 선.  hitAt = 충돌한 꼭짓점 번호.
+        // 길 끝에서 맞는 공들 — 수구가 맞히는 것 · 1적구가 맞히는 것
+        const mk = (endP, key, by) => {
+          if (!key || !S.balls[key]) return null;
+          const oC = S.balls[key].p;
+          const dx = oC[0]-endP[0], dy = oC[1]-endP[1], L2 = Math.hypot(dx,dy) || 1;
+          return {key, by, dir: [dx/L2, dy/L2], p: oC.slice(), v: 0, on: 0};
+        };
+        const hitList = [];
+        if (post.hit) { const h = mk(pts2[pts2.length-1], post.obj, 'cue'); if (h) hitList.push(h); }
+        if (oq.hit)   { const h = mk(op[op.length-1],     oq.obj,   'obj'); if (h) hitList.push(h); }
         S.sim = playInit([...before, ...pts2.slice(1)], op,
-                         before.length - 1, keepC, share);
+                         before.length - 1, keepC, share, hitList);
         S.simLast = performance.now();
         S.simRest = S.simLast;
         S.simAcc  = 0;
@@ -5473,9 +5506,14 @@ function drawPath(){
       simBall(playPos(S.sim.cue), cue.color, R);
       if (S.sim.obj && S.balls[cut.obj])
         simBall(playPos(S.sim.obj), S.balls[cut.obj].color, R);
-      // 남은 공 하나는 제자리에 그대로 둔다 (그 공은 이 길에 안 나온다)
+      // 맞아서 밀려나는 공들
+      const moved = {};
+      for (const h of (S.sim.hits || []))
+        if (S.balls[h.key]){ simBall(h.p, S.balls[h.key].color, R); moved[h.key] = 1; }
+      // 아무 길에도 안 나오는 공은 제자리에 둔다
       for (const key in S.balls)
-        if (key !== 'cue' && key !== cut.obj) simBall(S.balls[key].p, S.balls[key].color, R);
+        if (key !== 'cue' && key !== cut.obj && !moved[key])
+          simBall(S.balls[key].p, S.balls[key].color, R);
       // ★ 사용자 2026-08-13: '시뮬레이션 종료 후 공이 멈추고 1초 후 전 상태로.'
       if (playMoving(S.sim)) S.simRest = now;
       if (!playMoving(S.sim) && now - S.simRest > SIM_TAIL*1000){ S.anim = 0; S.sim = null; }
