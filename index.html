@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 337;
+const MOBILE_VER = 338;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2529,12 +2529,13 @@ function slopes(){
 const TWO_BANK_CORNER_DIA = 1.5;
 function curSystem(){
   if (S.sysMode) return S.sysMode - 1;            // 손으로 고정했으면 그대로
-  const b = systemBase();
-  if (!b || !b.hits || !b.hits.length) return 0;
-  const h = b.hits[0], lg = isLong(h.rail);
-  const span = lg ? T.width : T.height, n = lg ? 8 : 4;
-  const dia = (lg ? h.p[0] : h.p[1]) / span * n;  // 코너(0쪽)에서 몇 칸
-  return Math.min(dia, n - dia) <= TWO_BANK_CORNER_DIA ? 1 : 0;
+  // ★★★★ **궤적이 정한다** (사용자 2026-08-17: '궤적에 따라 시스템을 표시하면
+  //   됩니다. 쉬운 기준을 너무 어렵게 잡으려고 합니다.')
+  //   빈쿠션 둘을 거쳐 가는 길 = 투뱅크 = 2뱅크 곱셈. 그 밖은 파이브앤하프.
+  //   ⚠️ 전에는 '1쿠션이 코너에서 몇 다이아 안쪽인가'(TWO_BANK_CORNER_DIA) 로 갈랐다.
+  //      내가 만든 대용품이었고, 사장님이 1.jpg·2.jpg 로 틀렸다고 짚었다 —
+  //      1쿠션 포인트가 조금 옮겨졌다고 시스템이 통째로 바뀌었다.
+  return curShotName() === '투뱅크' ? 1 : 0;
 }
 function railHit(from, d){                       // 쿠션 날(플레이필드)과 만나는 점
   const n = Math.hypot(d[0], d[1]);
@@ -4572,6 +4573,22 @@ function snapAim(){
 //   ⚠️ 아주 옅게. 궤적과 숫자가 주인공이다 (사용자: '너무 진하지 않게').
 // ★★ 시스템명을 **다이 안 빈자리**에 크게 (사용자 2026-08-13 · 노안).
 //   후보 여섯 자리 중 공과 궤적에서 제일 먼 곳을 고른다. 검은 테두리 흰 글씨.
+// ★★★★ 진로 이름은 **궤적이 정한다** (사용자 2026-08-17):
+//   '여하튼 궤적에 따라 시스템을 표시하면 됩니다. 쉬운 기준을 너무 어렵게 잡으려고
+//    합니다. 추천경로도 직접지정과 마찬가지 입니다.'
+//   ⚠️ 지금까지는 **추천 경로를 고른 때만** 이름이 붙었다. 직접지정이면 이름이
+//      '직접지정' 이라 안 붙였고, 그래서 2.jpg 가 옆돌리기인데 '파이브앤하프' 만 나왔다.
+//   → 쿠션 차례(rails)와 빈쿠션 수로 shotName() 을 그대로 부른다. 둘 다 같은 규칙이다.
+function curShotName(){
+  const rl = routesReady();
+  const cur = (rl && S.routeIx >= 0) ? rl[S.routeIx] : null;
+  if (cur && cur.name && cur.name !== '직접지정') return cur.name;
+  const d = directRoute();
+  if (!d || !d.rails || !d.rails.length) return null;
+  const cue = S.balls.cue;
+  const obj = (d.first && S.balls[d.first]) ? S.balls[d.first].p : null;
+  return shotName(d.before, d.rails, cue ? cue.p : null, obj);
+}
 function drawSysName(){
   if (previewOn() || S.routeList) return;
   const c = L.cloth, sys = curSystem();
@@ -4580,7 +4597,8 @@ function drawSysName(){
   // ★ 사용자 2026-08-13: '먼저 자동을 넣어야 할까요? 그냥 파이브앤하프로 합시다.'
   //   → '자동 ·' 을 안 붙인다. 어느 시스템으로 읽고 있는지가 궁금한 것이지
   //     그것을 자동으로 골랐는지 손으로 골랐는지는 볼 일이 아니다.
-  const txt = (cur ? cur.name + ' · ' : '') + SYS_NAMES[sys];
+  const nm = curShotName();                       // 궤적이 정한 이름 (위 주석)
+  const txt = (nm ? nm + ' · ' : '') + SYS_NAMES[sys];
   // 피해야 할 점들 — 공 세 개 + 궤적 꺾이는 자리
   const avoid = [];
   for (const k in S.balls) avoid.push(toPx(...S.balls[k].p));
