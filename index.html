@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 315;
+const MOBILE_VER = 316;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3304,7 +3304,7 @@ function findRoutes(){
   //      성공하는 경로를 찾아 추천에 넣어줘야 합니다').
   //     그래도 안 되면 그때 뺀다.
   //   ★ 키스는 안 뺀다. 키스는 당점으로 피할 수 있고, 사용자가 그렇게 정했다.
-  const drawn = list.filter(routeFix);    // 못 맞히면 각을 옮겨 살린다. 안 되면 뺀다
+  const drawn = list.filter(routeSettle); // 판의 점 당점으로 붙이고, 각(두께)으로 맞춘다
   if (drawn.length) list = drawn;          // 다 빠지면 원래대로 둔다 (빈 목록보다 낫다)
   for (const r of list){
     r.reach = routeReach(r);
@@ -3318,6 +3318,7 @@ function findRoutes(){
   return list;
 }
 // ★ 이 각으로 **화면에 그리면** 2적구에 닿나. 그리는 것과 똑같이 푼다.
+let LAST_THICK = null;
 function drawnScores(r, ang){
   const cue = S.balls.cue;
   if (!cue) return true;
@@ -3342,12 +3343,38 @@ function drawnScores(r, ang){
         const post = cutAtBall([P, ...later.map(h => h.p)], cut.obj);
         // ⚠️ 회로(쿠션 차례)까지 같아야 '그 경로' 다. 다른 길로 득점하면 딴 경로다.
         ok = post.hit && (cut.pts.length - 2) === r.before;
+        if (ok) LAST_THICK = af.thick;      // 조준이 옮겨졌으면 두께도 바뀐다
       }
     }
   } catch(e){ ok = true; }
   S.tipH = hS; S.tipV = vS; S.tipR = rS; S.aim = aS;
   return ok;
 }
+// ★★★ 당점을 **판의 점**으로 붙인다 (사용자 2026-08-16, 15.jpg) —
+//   '포인트를 확정할 수 있는 당점으로 갑시다. 이정도면 2팁이 맞고 두께를 조정해야 합니다.
+//    실전에서 그 퍼센티지로 칠수는 없겟지만 공의 두께가 있기 때문에 관계없습니다.'
+//   ⚠️ 훑기는 좌우(정수)와 상하(3·1.5·0.78·0·−1.5·−3)를 따로 돌아서, 합치면
+//      판에 없는 팁수가 나온다 (좌우1·상하1.5 → 1.80팁). 그건 칠 수가 없다.
+//      판은 팁수 0·1·2·3 자리에만 점이 있다.
+//   → 제일 가까운 점으로 붙이고, **같은 회로를 지키며 조준을 다시 맞춘다**(= 두께가 바뀐다).
+//     그래도 득점하면 그 당점으로 확정. 안 되면 원래 값을 그대로 둔다.
+function tipToDot(r){
+  if (r.tip === undefined) return false;
+  const h = r.tip, v = (r.tipV === undefined ? 0 : r.tipV);
+  const rr = Math.max(0, Math.min(3, Math.round(Math.hypot(h, v))));
+  const dd = ((Math.round(Math.atan2(h, v) / (Math.PI/12)) % 24) + 24) % 24;
+  const nh = rr * Math.sin(dd*Math.PI/12), nv = rr * Math.cos(dd*Math.PI/12);
+  if (Math.abs(nh - h) < 1e-6 && Math.abs(nv - v) < 1e-6) return false;   // 이미 점 위
+  r.tip = nh; r.tipV = nv;
+  return true;
+}
+function routeSettle(r){
+  const oh = r.tip, ov = r.tipV, oa = r.a, ot = r.thick;
+  if (tipToDot(r) && routeFix(r)){ r.dot = 1; return true; }   // 판의 점으로 확정
+  r.tip = oh; r.tipV = ov; r.a = oa; r.thick = ot;             // 안 되면 원래 당점으로
+  return routeFix(r);
+}
+
 // ★★★ 못 맞히면 **지우지 말고 고친다** (사용자 2026-08-16 정정) —
 //   '13 인 경우는 100점짜리 좋은 경로입니다. 성공하는 경로를 찾아 추천에 넣어줘야 합니다.'
 //   그 경로의 각 구간 안팎을 훑어 **득점하는 각**을 찾아 그리로 옮긴다.
@@ -3355,13 +3382,17 @@ function drawnScores(r, ang){
 //   그래도 없으면 그때는 뺀다 (진짜로 안 되는 길이다).
 function routeFix(r){
   if (typeof r.a !== 'number') return true;
-  if (drawnScores(r, r.a)) return true;
+  if (drawnScores(r, r.a)){ if (LAST_THICK !== null) r.thick = LAST_THICK; return true; }
   const W = Math.max(0.20, r.w || 0.5) * Math.PI/180;   // 그 경로의 각 폭
   const STEP = W/12;
   for (let d = STEP; d <= W*1.5 + 1e-12; d += STEP)
     for (const sg of [1, -1]){
       const a = r.a + sg*d;
-      if (drawnScores(r, a)){ r.a = a; r.fixed = 1; return true; }
+      if (drawnScores(r, a)){
+        r.a = a; r.fixed = 1;
+        if (LAST_THICK !== null) r.thick = LAST_THICK;
+        return true;
+      }
     }
   return false;
 }
