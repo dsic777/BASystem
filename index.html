@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 294;
+const MOBILE_VER = 295;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5945,7 +5945,12 @@ function drawReadout(){
   if (!READOUT) return;
   const r = READOUT;
   // ★ 시스템에 따라 판독창 내용이 바뀐다. 탭하면 돈다 (사용자 지시 2026-08-11).
-  //   파이브앤하프  수구수 | 1쿠션 | 3쿠션      출발 · 조준 · 도착
+  //   파이브앤하프  수구수 | 3쿠션 | 1쿠션      출발 · 도착 · 조준
+  //   ★ 사용자 요청 #5 (2026-08-16): '포인트 안내에 1쿠션과 3쿠션 위치를 바꾸어야 합니다.'
+  //     읽는 순서가 그렇다 — 어디로 **보낼지(3쿠션)** 를 먼저 정하고,
+  //     거기서 **어디를 겨냥할지(1쿠션 = 수구수 − 3쿠션)** 가 나온다.
+  //     1쿠션은 계산 결과이므로 맨 뒤가 맞다.
+  //   ⚠️ 값은 안 바꿨다. 칸 순서만 바꿨다 (3.jpg 에서 53 − 40 = 13 로 서로 맞았다).
   //   2뱅크 곱셈    출발값 | 1쿠션 | 2쿠션값    〃 (1쿠션위치값 = 2쿠션값 × 출발값)
   const sys = curSystem();
   let cols;
@@ -5984,7 +5989,7 @@ function drawReadout(){
     cols = [['출발값', tb && tb.start], ['1쿠션', tb && tb.first], ['2쿠션', tb && tb.second]];
   } else {
     const n = systemNumbers();
-    cols = [['수구수', n && n.start], ['1쿠션', n && n.first], ['3쿠션', n && n.third]];
+    cols = [['수구수', n && n.start], ['3쿠션', n && n.third], ['1쿠션', n && n.first]];
   }
   // ★ 카메라 미리보기 중에는 이 칸이 **무작위배치 버튼**이 된다 (사용자 2026-08-14).
   //   '카메라를 클릭하면 상황판을 무작위배치 라고 변경해 주세요.'
