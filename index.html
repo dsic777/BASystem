@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 313;
+const MOBILE_VER = 315;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5269,8 +5269,13 @@ function simStep(sim, dt){
 //      (요청 #12). 물리 엔진을 재생에서 **뺀다.** 그러면 정의상 100% 같다.
 //   ★ 속도만 마찰 모델로 준다 — 쿠션마다 CUSHION_KEEP, 1적구에서 두께만큼 잃는다.
 //     ⚠️ 초구 뿌리기(scatter)는 그대로 물리 엔진을 쓴다. 거기는 길이 없다.
-function playInit(cuePoly, objPoly, hitAt, keepC, share, hit2){
-  const V0 = needV0exact(cuePoly, keepC);
+function playInit(cuePoly, objPoly, hitAt, keepC, share, hit2, v0Poly){
+  // ⚠️ 세기는 **그려 둔 길**로 정하고, 굴러가는 길은 **그보다 길게** 준다.
+  //    그리는 선은 보기 좋게 잘라 놓은 것(DRAW_UPTO)이라, 그 끝에서 공을 세우면
+  //    아직 힘이 남았는데 뚝 끊긴다 (사용자 2026-08-16:
+  //    '지난번은 공이 굴러갔는데 지금은 끊어지고 있어요').
+  //    → 힘이 다할 때까지 스스로 구르다 선다. 그려 둔 구간은 여전히 100% 그대로 간다.
+  const V0 = needV0exact(v0Poly || cuePoly, keepC);
   return {cue: {poly: cuePoly, i: 0, s: 0, v: V0},
           obj: (objPoly && objPoly.length > 1)
                ? {poly: objPoly, i: 0, s: 0, v: 0} : null,
@@ -5301,7 +5306,9 @@ function playStep(pl, dt){
       if (onVertex) onVertex(b.i);
       if (b.v <= 0) return;
     }
-    if (b.i >= b.poly.length - 1){ b.v = 0; return; }   // 선 끝 — 여기서 선다
+    // ⚠️ 선 끝에 닿으면 **그때 속도를 남겨 둔다.** 안 그러면 그 공을 밀 힘이 없어진다
+    //    (사용자 2026-08-16: '여전히 시물레이션에서 공끼리 충돌은 반영이 안되었습니다').
+    if (b.i >= b.poly.length - 1){ b.endV = b.v; b.v = 0; return; }
     const nv = b.v - accelAt(b.v)*dt;                   // 바닥 마찰 (실측 모델)
     b.v = nv < SIM_PLAY_STOP ? 0 : nv;
   };
@@ -5318,7 +5325,8 @@ function playStep(pl, dt){
     const src = h.by === 'obj' ? pl.obj : pl.cue;
     if (!src) continue;
     if (!h.on && src.i >= src.poly.length - 1){
-      h.on = 1; h.v = Math.max(300, src.v * 0.8);       // 거의 정면이라 대부분 넘어간다
+      // 닿는 순간에 남아 있던 세기로 민다 (위 endV 주석). 거의 정면이라 대부분 넘어간다
+      h.on = 1; h.v = Math.max(250, (src.endV || src.v) * 0.85);
       src.v = 0;
     }
     if (h.on && h.v > 0){
@@ -5542,10 +5550,12 @@ function drawPath(){
           return {key, by, dir: [dx/L2, dy/L2], p: oC.slice(), v: 0, on: 0};
         };
         const hitList = [];
-        if (post.hit) { const h = mk(pts2[pts2.length-1], post.obj, 'cue'); if (h) hitList.push(h); }
+        if (post.hit) { const h = mk(post.pts[post.pts.length-1], post.obj, 'cue'); if (h) hitList.push(h); }
         if (oq.hit)   { const h = mk(op[op.length-1],     oq.obj,   'obj'); if (h) hitList.push(h); }
-        S.sim = playInit([...before, ...pts2.slice(1)], op,
-                         before.length - 1, keepC, share, hitList);
+        // 굴러가는 길은 자르지 않은 것(post.pts), 세기는 그려 둔 것(pts2) 기준
+        S.sim = playInit([...before, ...post.pts.slice(1)], op,
+                         before.length - 1, keepC, share, hitList,
+                         [...before, ...pts2.slice(1)]);
         S.simLast = performance.now();
         S.simRest = S.simLast;
         S.simAcc  = 0;
@@ -6173,10 +6183,16 @@ function reaimForTip(){
 
 // 사용자가 실제로 쓰는 말로 읽는다 — systems.json '2시30분 3팁', kiss.json '5시'.
 function tipClock(dir, r){
-  if (!r) return '중단 무팁';
+  // ⚠️ 사용자 2026-08-16 (15.jpg): 제목에 '1시 · 1.8027756377319948팁' 이 찍혔다.
+  //   S.tipR 은 hypot(좌우, 상하) 라 판의 점에 없는 값이 나온다 (1과 1.5 → 1.80).
+  //   판은 팁수 0·1·2·3 자리에만 점이 있다. **칠 수 없는 값을 적으면 안 된다.**
+  //   사용자: '포인트를 확정할 수 있는 당점으로 갑시다. 이정도면 2팁이 맞고
+  //            두께를 조정해야 합니다.'
+  const rr = Math.max(0, Math.min(3, Math.round(r)));
+  if (!rr) return '중단 무팁';
   let hh = dir / 2; if (hh === 0) hh = 12;
   const h = Math.floor(hh), m = hh - h;
-  return (m ? h + '시30분' : h + '시') + ' · ' + r + '팁';
+  return (m ? h + '시30분' : h + '시') + ' · ' + rr + '팁';
 }
 
 // ⚠️ 세로 자리를 0.10h ~ 0.84h 안에만 둔다. 폰 화면이 캔버스보다 짧게 보이는
