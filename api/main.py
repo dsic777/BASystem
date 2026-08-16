@@ -224,6 +224,29 @@ def put_note(v: Note, req: Request) -> dict:
     return {"ok": True, "id": row["id"], "ip": ip, "mine": ip == OWNER_IP}
 
 
+class NoteEdit(BaseModel):
+    id: int
+    text: str
+
+
+@app.post("/api/note/edit")
+def edit_note(v: NoteEdit, req: Request) -> dict:
+    """내가 쓴 글을 고친다 (사용자 2026-08-16: '내용을 클릭하면 수정이 가능하게').
+
+    ⚠️ **자기 IP 것만** 고칠 수 있다. 남의 글은 못 건드린다.
+       답(reply)은 여기서 못 쓴다 — 그건 psql 로만 쓴다 (notes.py 참고).
+    """
+    ip = client_ip(req)
+    txt = (v.text or "").strip()
+    if not txt:
+        return {"ok": False, "why": "빈 글"}
+    with db() as c:
+        n = c.execute("UPDATE note SET text = %s WHERE id = %s AND ip = %s",
+                      (txt[:4000], v.id, ip)).rowcount
+        c.commit()
+    return {"ok": bool(n), "id": v.id}
+
+
 @app.get("/api/notes")
 def get_notes(limit: int = 50, mine: bool = False, ip: str | None = None) -> dict:
     """내가 쓴 것과 그 답. 앱은 **자기 IP 것만** 본다 (인자를 안 주면 그렇게 된다).

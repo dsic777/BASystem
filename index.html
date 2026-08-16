@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 300;
+const MOBILE_VER = 301;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3558,6 +3558,7 @@ let VER_HIT = [];
 let BRAND_HIT = null, NOTE_CELLS = [];
 const NOTE_PAGES = 3, NOTE_PER_PAGE = 6;      // 3쪽 × 6칸 = 18건 (사용자 '3페이지 정도')
 let NOTE = {kind: '요청', tab: '요청', rows: [], seen: 0, open: false, mine: false,
+            edit: 0,      // 고치는 중인 글 번호 (0 이면 새 글)
             wait: 0,      // 답을 기다리는 글 번호 (0 이면 쓰는 상태)
             show: [],     // 지금 창에 보여줄 글 번호들 — '이 화면 것만'
             tick: 0};     // 기다리는 동안 도는 확인 타이머
@@ -3771,6 +3772,8 @@ function noteOpen(){
   if (!el) return;
   NOTE.open = NOTE_OPEN = true;
   NOTE.seen = NOTE.rows.reduce((m, n) => Math.max(m, n.id), NOTE.seen);
+  NOTE.edit = 0;
+  const sb = document.getElementById('noteSave'); if (sb) sb.textContent = '저장';
   noteKind(NOTE.kind);
   noteMode();
   el.style.display = 'block';
@@ -3783,6 +3786,8 @@ function noteOpen(){
 //   새 글을 쓰려면 창 안에서 '새로 쓰기' 를 누른다.
 function noteClose(){
   NOTE.open = NOTE_OPEN = false;
+  NOTE.edit = 0;
+  const sb = document.getElementById('noteSave'); if (sb) sb.textContent = '저장';
   clearInterval(NOTE.tick); NOTE.tick = 0;
   const el = document.getElementById('note');
   if (el) el.style.display = 'none';
@@ -3811,13 +3816,35 @@ function noteDraw(){
   const pk = placeKey();
   const rows = NOTE.rows.filter(n => pk && n.place_key === pk).slice().reverse();
   if (!rows.length){ el.innerHTML = ''; return; }
+  // ★ 사용자 2026-08-16 —
+  //   '내용을 클릭하면 수정이 가능하게 해 주세요. 내용을 입력창으로 넘기면 될것 같은데.'
+  //   '하단에 답을 기다리는 중.... 은 삭제해 주세요. 지금의 안내는 요청시만 필요합니다.'
   el.innerHTML = rows.map(n =>
     '<div class="n"><div class="t">#' + n.id + '  ' + esc(n.kind) + '  ' +
-    esc(String(n.at || '').slice(5, 16).replace('T', ' ')) + '</div>' +
-    '<div class="q">' + esc(n.text) + '</div>' +
+    esc(String(n.at || '').slice(5, 16).replace('T', ' ')) +
+    '   (눌러서 고치기)</div>' +
+    '<div class="q" data-id="' + n.id + '" style="cursor:pointer">' + esc(n.text) + '</div>' +
     (n.reply ? '<div class="a">' + esc(n.reply) + '</div>'
-             : '<div class="t" style="margin-top:6px">답을 기다리는 중…  '
-               + '프롬프트에 x 를 쳐 주세요</div>') + '</div>').join('');
+             : (n.kind === '요청'
+                ? '<div class="t" style="margin-top:6px">답을 기다리는 중…  '
+                  + '프롬프트에 x 를 쳐 주세요</div>'
+                : '')) + '</div>').join('');
+  el.onclick = e => {
+    const q = e.target.closest ? e.target.closest('.q[data-id]') : null;
+    if (q) noteEdit(+q.getAttribute('data-id'));
+  };
+}
+// ★ 그 글을 입력창으로 옮겨 고친다. 저장하면 그 글이 바뀐다 (새 글이 안 생긴다).
+function noteEdit(id){
+  const n = NOTE.rows.find(x => x.id === id);
+  if (!n) return;
+  NOTE.edit = id;
+  noteKind(n.kind || '요청');
+  const t = document.getElementById('noteTxt');
+  if (t){ t.value = n.text || ''; t.focus(); }
+  const b = document.getElementById('noteSave');
+  if (b) b.textContent = '수정';
+  say('#' + id + ' 을 고치는 중입니다', 2500);
 }
 function noteSave(){
   const t = document.getElementById('noteTxt');
@@ -3840,11 +3867,34 @@ function noteSave(){
                            sep: r.sep === undefined ? null : Math.round(r.sep),
                            kiss: !!r.kiss, ix: S.routeIx,
                            verdict: verGet(r) || null} : {corr: S.corr, ix: S.routeIx}};
+  // ★ 고치는 중이면 새 글을 만들지 않고 그 글을 바꾼다
+  if (NOTE.edit){
+    const id = NOTE.edit;
+    fetch(API + 'note/edit', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                              body: JSON.stringify({id, text: txt})})
+      .then(x => x.ok ? x.json() : null)
+      .then(j => {
+        say(j && j.ok ? ('#' + id + ' 고쳤습니다') : '수정 실패 — 다시 눌러 주세요');
+        NOTE.edit = 0;
+        const b = document.getElementById('noteSave'); if (b) b.textContent = '저장';
+        const t2 = document.getElementById('noteTxt'); if (t2) t2.value = '';
+        noteSync(() => noteDraw());
+      })
+      .catch(() => say('수정 실패 — 인터넷을 확인해 주세요'));
+    return;
+  }
   fetch(API + 'note', {method: 'POST', headers: {'Content-Type': 'application/json'},
                        body: JSON.stringify(body)})
     .then(x => x.ok ? x.json() : null)
     .then(j => {
       if (!(j && j.id)){ say('저장 실패 — 다시 눌러 주세요'); return; }
+      // ★ 평가는 답을 기다리는 자리가 아니다 — 저장하면 바로 전 화면으로 (사용자 2026-08-16)
+      if (NOTE.kind === '평가'){
+        NOTE.rows = [{id: j.id, at: new Date().toISOString(), kind: '평가',
+                      text: txt, reply: null, place_key: body.place_key}].concat(NOTE.rows);
+        say('평가 #' + j.id + ' 저장했습니다');
+        noteClose(); return;
+      }
       NOTE.wait = j.id;
       NOTE.rows = [{id: j.id, at: new Date().toISOString(), kind: NOTE.kind,
                     text: txt, reply: null, place_key: body.place_key}].concat(NOTE.rows);
