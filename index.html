@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 379;
+const MOBILE_VER = 381;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6787,6 +6787,17 @@ function drawClock(){
     const raw = tipName(S.tipH, S.tipV);
     const sp  = raw.lastIndexOf(' ');
     const ln  = sp > 0 ? [raw.slice(0, sp), raw.slice(sp+1)] : [raw];
+    // ★★★★ 당점 아래 **1쿠션 포인트 숫자** 한 줄 (사용자 2026-08-17):
+    //   '시간 아래 팁수(1쿠션) 이렇게 할까요. 1쿠션만 다른 컬러로, 부가적인 설명은
+    //    하지 말고, 어느 방향이던 첫번째 궤적의 포인트 숫자만 강하게 보여주면
+    //    되겠습니다. 이러면 다른 자리를 차지하지 않아요. 상황판은 그대로 두면 되고.'
+    //   ★ 숫자만 쓴다 — '1쿠션' 이라는 말은 안 붙인다. 색이 그것을 말한다.
+    //   ★ 값은 판독창의 1쿠션 칸과 **같은 것**을 쓴다 (시스템마다 자가 다르다).
+    //   ★ 자리 — 윗줄 '2시30분', 아랫줄 '3팁(27)'. 괄호 안 숫자만 색이 다르다
+    //     (사용자 2026-08-17: '웟줄 2시30분 아래줄 3팁(00) 00만 다른컬러로').
+    //     줄을 늘리지 않으니 자리를 더 차지하지 않는다.
+    const fc = firstCushionShow();
+    if (fc && ln.length > 1) ln[1] = ln[1] + '(' + fc.txt + ')';
     // 당점 공과 ▶ 사이의 빈 폭
     const step = cl.q.bw + cl.q.gap;
     const room = Math.max(cl.q.bw, step*2 - cl.r*2.1);
@@ -6804,8 +6815,25 @@ function drawClock(){
     ln.forEach((t, i) => {
       const yy = cl.nam[1] + (i - (ln.length-1)/2) * gapY * 2;
       g.strokeStyle = 'rgba(10,12,16,0.90)'; g.lineWidth = Math.max(2.5, fs*0.34);
-      g.strokeText(t, cl.nam[0], yy);
-      g.fillStyle = '#ffffff'; g.fillText(t, cl.nam[0], yy);
+      // ★ '3팁(27)' 줄은 **괄호 안 숫자만** 색이 다르다 — 토막으로 나눠 그린다
+      const cut = fc && i === 1 && t.indexOf('(') > 0;
+      if (!cut){
+        g.strokeText(t, cl.nam[0], yy);
+        g.fillStyle = '#ffffff'; g.fillText(t, cl.nam[0], yy);
+        return;
+      }
+      const parts = [[t.slice(0, t.indexOf('(')+1), '#ffffff'],
+                     [fc.txt, fc.col], [')', '#ffffff']];
+      let wSum = 0;
+      for (const [q] of parts) wSum += g.measureText(q).width;
+      let x2 = cl.nam[0] - wSum/2;
+      g.textAlign = 'left';
+      for (const [q, col] of parts){
+        g.strokeText(q, x2, yy);
+        g.fillStyle = col; g.fillText(q, x2, yy);
+        x2 += g.measureText(q).width;
+      }
+      g.textAlign = 'center';
     });
     g.restore();
   }
@@ -7400,6 +7428,29 @@ function crossPoint(i){
   const rp = railParam(fold(orientation(), a[i].p));
   if (!rp) return null;
   return Math.round(rp.t * (isLong(rp.rail) ? 8 : 4) * 2) / 2;
+}
+// ★ 다이에 크게 띄울 **1쿠션 포인트** — 판독창의 1쿠션 칸과 같은 값·같은 색.
+//   시스템마다 자가 다르므로 그 갈래를 그대로 따라간다 (위 tipName 옆 ★★★★ 주석).
+function firstCushionShow(){
+  try {
+    if (curSystem() === 1){                                  // 2뱅크시스템
+      const tb = twoBank();
+      if (!tb || tb.first === null || tb.first === undefined) return null;
+      return {txt: String(Math.round(tb.first)), col: TWOBANK_FIRST};
+    }
+    if (curShotName() === '횡단&더블시스템'){                  // 레일 칸수
+      const v = crossPoint(0);
+      if (v === null) return null;
+      return {txt: v.toFixed(1), col: scaleColor('first_cushion')};
+    }
+    const ft = foreTurn();                                   // 앞돌리기 — 단쿠션 레일
+    if (ft && ft.first !== null && ft.first !== undefined)
+      return {txt: String(Math.round(ft.first)), col: scaleColor('first_cushion_short')};
+    const n = systemNumbers();                               // 파이브앤하프
+    if (n && n.first !== null && n.first !== undefined)
+      return {txt: String(Math.round(n.first)), col: scaleColor('first_cushion')};
+  } catch(e){}
+  return null;
 }
 // 눈금 색을 그대로 가져온다 (상황판이 다이의 숫자와 같은 색을 쓰게 — 2026-08-17)
 function scaleColor(name){
