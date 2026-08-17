@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 388;
+const MOBILE_VER = 389;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7183,18 +7183,32 @@ function tipGeom(){
   const bw = Math.max(40, Math.round(w - x0 - w*0.04));
   // 버튼 띠는 0.30h ~ TIP_BOT. 글자 띠(TIP_TOP ~ 0.27h)와 절대 안 겹치게 나눈다.
   // ⚠️ 전에는 글자 셋째 줄이 0.321h, 버튼 시작이 0.319h 라 정확히 겹쳤다 (7.jpg).
-  // 프리셋 4개 + '조정 완료' 1개 = 다섯 칸.
+  // ⚠️ 칸 수를 **못 박아 두면 안 된다** (사용자 2026-08-18: '팁수 설정후 전화면으로
+  //    전환은 어찌하나요'). 설정 두 줄(자동조정·찾는 범위)을 더하면서 일곱 칸이 됐는데
+  //    높이가 다섯 칸으로 박혀 있어 **'조정 완료' 가 화면 밖으로 밀렸다.**
+  //    이제 PRESET 개수에서 바로 계산한다 — 줄을 더 늘려도 안 밀린다.
   // ⚠️ 탭하면 바로 닫던 것을 사용자가 되돌렸다 — 오른쪽 안내를 읽을 시간이 필요하다.
   //    '위치 지정시 우측에서 다 보여주는데 바로 넘어가면 좀 그렇네요.'
   const band = h*(TIP_BOT - 0.30), gap = Math.round(h*0.016);
-  const bh = Math.round((band - gap*4) / 5);
+  // ★ **한 줄에 두 개씩** (사용자 2026-08-18: '한줄에 두개씩 넣어도 되요').
+  //   일곱 칸을 한 줄씩 넣으면 칸이 얇아진다. 둘씩 넣으면 네 줄이라 오히려 커진다.
+  //     파이브앤하프 · 무회전 뱅크 / 끌어치기 · 중단 기준 / 자동조정 · 찾는 범위
+  //     조정 완료는 한 줄 전체
+  const nRow = Math.ceil(PRESET.length / 2) + 1;
+  const bh = Math.round((band - gap*(nRow-1)) / nRow);
   const y0 = Math.round(h*0.30);
   // ★ 설정 줄은 지금 값을 글씨에 붙여 보여준다 (2026-08-18)
   const rows = PRESET.map(q => q.scope ? {...q, lb: '찾는 범위  ' +
                     ((S.aimScope === 5) ? '5°' : '360°')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
                    : q).concat([{lb:'조정 완료', done:true}]);
-  const btn = rows.map((p,i) => ({...p, x:x0, y:y0 + i*(bh+gap), w:bw, h:bh}));
+  const hw = Math.round((bw - gap) / 2);
+  const btn = rows.slice(0, -1).map((p,i) => ({...p,
+      x: x0 + (i % 2) * (hw + gap),
+      y: y0 + Math.floor(i/2) * (bh + gap),
+      w: hw, h: bh}));
+  btn.push({...rows[rows.length-1],                   // 조정 완료 — 한 줄 전체
+      x: x0, y: y0 + (nRow-1) * (bh + gap), w: bw, h: bh});
   return {R, cx, cy, x0, bw, y0, btn, dots: tipDots(), unit: R*TIP_R};
 }
 
@@ -7294,7 +7308,13 @@ function drawTipPanel(){
     g.lineWidth   = b.done ? 2.5 : (on ? 3 : 1.5);
     g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
     g.fillStyle = b.done ? '#1a1508' : (on ? '#ffe98a' : '#dfe3ea');
-    g.font = (b.done ? '800 ' : '700 ') + Math.round(b.h*0.44) + 'px system-ui, sans-serif';
+    // ★ 칸이 반으로 좁아졌다 — 글씨가 넘치면 줄인다 (2026-08-18)
+    let bf = b.h*0.44;
+    for (let k = 0; k < 10; k++){
+      g.font = (b.done ? '800 ' : '700 ') + Math.round(bf) + 'px system-ui, sans-serif';
+      if (g.measureText(b.lb).width <= b.w*0.88 || bf < 9) break;
+      bf *= 0.92;
+    }
     g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
   }
   g.restore();
