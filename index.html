@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 373;
+const MOBILE_VER = 374;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3086,7 +3086,15 @@ function simulate(dir, k){
   //   **없애지 말고 뒤로 민다.**
   let name = shotName(c1, rails, cue.p, cut1.obj);
   // ★ 여섯 쿠션 이상을 직접 치고 도는 것 = **대회전** (사용자 6·7.jpg)
-  if (name && c1 === 0 && c1 + c2 >= 6) name = '대회전';
+  // ★★★★ 2026-08-17 (32.jpg) — 사장님: '이 중에 대회전은 없습니다.
+  //   또 다섯번째는 횡단샷입니다.'
+  //   ⚠️ 쿠션 수만 보고 덮어써서 **횡단이 대회전으로 둔갑**했다. 장쿠션 두 개 사이를
+  //      지그재그로 오가면 쿠션은 쉽게 여섯이 넘는데, 그건 도는 것이 아니라 건너는 것이다.
+  //   → 두 가지를 건다.
+  //      ① 횡단&더블시스템은 **덮지 않는다** (그 이름이 이미 진로를 말한다)
+  //      ② 네 쿠션(상·하·좌·우)을 **다 써야** 대회전이다 — 한 바퀴 돈다는 뜻이니까
+  if (name && name !== '횡단&더블시스템' && c1 === 0 && c1 + c2 >= 6 &&
+      new Set(rails).size >= 4) name = '대회전';
   let loose = false;
   if (!name){
     if (c1 > 0) return null;              // 뱅크는 이름이 있어야 한다 (억지 경로가 돌아온다)
