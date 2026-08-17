@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 364;
+const MOBILE_VER = 365;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6976,11 +6976,18 @@ function drawTipPanel(){
   g.fillText(tipClock(S.tipDir, S.tipR), q.x0, Math.round(L.h*0.125));
   const vn = Math.abs(S.tipV) < 0.05 ? '중단'
            : (S.tipV>0?'상단 ':'하단 ') + Math.abs(S.tipV).toFixed(1) + '팁';
+  // ★★ 왼쪽 회전(음수)이 '회전 없음' 으로 나오던 것 (사용자 2026-08-17, 25.jpg:
+  //   '회전팁수가 안내와 틀림'). 제목은 '10시30분 · 3팁' 인데 그 아래가
+  //   '상단 2.1팁 · 회전 없음' 이었다 — S.tipH < 0.05 로 봐서 음수가 다 걸렸다.
+  //   ⚠️ 순/역회전은 **공이 도는 방향**이 정한다. 당점판만 보고는 알 수 없다.
+  //      그래서 좌·우로 적는다 — 시계 이름(9시·3시)과 바로 이어진다.
+  const hAbs = Math.abs(S.tipH);
+  const hn = hAbs < 0.05 ? '회전 없음'
+           : (S.tipH > 0 ? '우회전 ' : '좌회전 ') + hAbs.toFixed(1) + '팁';
   const sa = separationAngle(0.5, S.tipV), rf = reflect(45, S.tipH) - 45;
   g.fillStyle = '#9aa2b2';
   g.font = '600 ' + Math.round(fs*0.76) + 'px system-ui, sans-serif';
-  g.fillText(vn + ' · ' + (S.tipH < 0.05 ? '회전 없음' : '순회전 ' + S.tipH.toFixed(1) + '팁'),
-             q.x0, Math.round(L.h*0.190));
+  g.fillText(vn + ' · ' + hn, q.x0, Math.round(L.h*0.190));
   g.fillText('반두께 분리각 ' + (sa === null ? '-' : sa.toFixed(0) + '°')
              + '    쿠션 45° 입사 +' + rf.toFixed(1) + '°',
              q.x0, Math.round(L.h*0.250));
