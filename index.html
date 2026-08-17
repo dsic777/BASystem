@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 368;
+const MOBILE_VER = 369;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3305,9 +3305,14 @@ function rank(r){
   if (r.name === '뒤돌리기' && r.sep >= 20 && r.sep <= 45) v += 0.4;
   return v;
 }
-// 수구가 쿠션에 붙었나 — **공 가장자리**와 쿠션 사이가 이만큼 안이면 붙은 것으로 본다.
-// 사용자가 값을 고치라고 하면 이 숫자 하나만 바꾸면 된다 (2026-08-17).
-const CUE_RAIL_GAP = 31;                 // mm ≒ 공 반 개
+// 수구가 쿠션에 붙었나 — **공 가장자리**와 쿠션 사이가 이만큼 안이면 끌어치기를 뺀다.
+// ★ 31 → 61.5 로 넓혔다 (사용자 2026-08-17, 29.jpg: '이정도는 되어야 큐를 30%정도
+//   위에서 공을 칠 수가 있습니다. 단 마세이').
+//   그 화면을 재 보니 가장자리와 쿠션 사이가 **50mm 쯤**인데, 거기서도 큐를 세워야
+//   하고 그건 마세이다 — 보통 치는 샷이 아니다. 그러니 그 거리도 배제 안이어야 한다.
+//   공 하나(61.5mm)가 들어갈 만큼은 떨어져야 큐가 눕는다.
+// 사용자가 값을 고치라고 하면 이 숫자 하나만 바꾸면 된다.
+const CUE_RAIL_GAP = 61.5;               // mm = 공 하나
 function cueOnRail(){
   const c = S.balls.cue;
   if (!c) return false;
