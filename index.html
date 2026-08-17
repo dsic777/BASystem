@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 363;
+const MOBILE_VER = 364;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3335,14 +3335,33 @@ function findRoutes(){
   //   창의 반각 = asin(공 지름 / 거리). 여기에 조금 여유를 준다.
   //   ⚠️ 2·3·4순위(빈쿠션 1·2·3개)는 아직 안 낸다 — 사용자: '일단 1순위부터
   //      하나씩 해봅시다. 그 후 내용을 보고 합칩시다.'
+  // ★★★★ 조준창 — 적구 쪽 **그리고 쿠션에 비친 적구 쪽** (사용자 2026-08-17, 24.jpg:
+  //   '직접 경로설정을 한 배치인데 내가 낸 평가를 보세요. 지금 앱이 이런 경로를
+  //    추천하지 못하고 있어요')
+  //   ⚠️ 전에는 **적구 방향만** 봤다. 그러니 쿠션을 겨누고 시작하는 길(빈쿠션 먼저)은
+  //      구조적으로 못 찾았다 — 목록에 있던 원뱅크·투뱅크는 적구를 살짝 빗맞아
+  //      우연히 걸린 것들이었다.
+  //      사장님이 100점 준 길(빈쿠션 1 · right-right-top-bottom-left)이 그래서 없었다.
+  //      360도를 0.2도로 다 훑어 보니 그 길은 **있다** — 하단 당점 · 역회전 1~3팁,
+  //      조준 74.8도. 훑기가 그 각을 안 봤을 뿐이다.
+  //   → 각 적구를 네 쿠션에 비친 **거울상**으로도 창을 연다. 거울상을 겨누면 그 쿠션을
+  //     맞고 적구로 간다 — 원뱅크가 제대로 후보에 들어온다.
   const WINDOWS = [];
+  const addWin = (q) => {
+    const d = Math.hypot(q[0]-cue.p[0], q[1]-cue.p[1]);
+    if (d < 1e-6) return;
+    const half = Math.asin(Math.min(1, T.ball_diameter / d)) + step*2;
+    WINDOWS.push([Math.atan2(q[1]-cue.p[1], q[0]-cue.p[0]) - half, 2*half]);
+  };
   for (const kk in S.balls){
     if (kk === 'cue') continue;
     const q = S.balls[kk].p;
-    const d = Math.hypot(q[0]-cue.p[0], q[1]-cue.p[1]);
-    if (d < 1e-6) continue;
-    const half = Math.asin(Math.min(1, T.ball_diameter / d)) + step*2;
-    WINDOWS.push([Math.atan2(q[1]-cue.p[1], q[0]-cue.p[0]) - half, 2*half]);
+    addWin(q);
+    // 네 쿠션 거울상 (1쿠션 뱅크)
+    addWin([-q[0], q[1]]);            // 좌
+    addWin([2*T.width - q[0], q[1]]); // 우
+    addWin([q[0], -q[1]]);            // 하
+    addWin([q[0], 2*T.height - q[1]]);// 상
   }
   // ★★ 사용자 2026-08-13 승인: '네 상·하 당점까지 가 봅시다.'
   //   상하 당점이 **분리각**을 바꾼다 (separation.json 7칸 표) —
