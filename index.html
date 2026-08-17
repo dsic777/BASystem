@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 366;
+const MOBILE_VER = 367;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6007,8 +6007,12 @@ function simBall(p, color, R, isCue){
   g.beginPath(); g.arc(x,y,R,0,7); g.fill();
   g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, R*0.12); g.stroke();
   if (isCue){
+    // ★ 수구 금색 링을 **1/3로** 줄인다 (사용자 2026-08-17: '시뮬레이션시 수구 테두리
+    //   3/1로 줄이세요. 너무 큰 공이 움직이는 것 같아서 현실감이 떨어져요').
+    //   굵은 링이 공 바깥에 붙으니 공이 그만큼 커 보였다. 놓인 공(drawBalls)의 링은
+    //   **어느 것이 내 공인지** 알려 주는 표시라 그대로 두고, 굴러갈 때만 줄인다.
     g.save();
-    g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(3, R*0.42);
+    g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(1, R*0.14);
     g.beginPath(); g.arc(x, y, R + g.lineWidth*0.7, 0, 7); g.stroke();
     g.restore();
   }
