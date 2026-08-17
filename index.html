@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 377;
+const MOBILE_VER = 378;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2861,8 +2861,15 @@ const RAIL_ORDER = {top:0, right:1, bottom:2, left:3};
 //   거기서 더 가면 다섯 번째 쿠션에 닿는다 — 그것이 '마지막 네모를 넘어간다' 이다.
 //   ⚠️ 사장님도 '애매하다' 고 했다. 5쿠션이 그 선을 코드로 그은 것이다.
 const BIG_ROUND_C = 5;                   // 한 바퀴를 **넘어서면** 대회전
-function isBigRound(rails){
-  if (!rails || rails.length < BIG_ROUND_C) return false;
+function isBigRound(rails0){
+  if (!rails0 || !rails0.length) return false;
+  // ★★ 같은 쿠션이 **연달아** 나오면 하나로 본다 (사용자 2026-08-17, 41.jpg:
+  //   '이것도 대회전입니다. 대회전 원뱅크 넣어치기').
+  //   쿠션 → **적구** → 같은 쿠션 이면 rails 에 'top-top' 으로 들어온다.
+  //   연달아 같은 쿠션을 두 번 맞을 수는 없으니 그 사이에 공이 있었다는 뜻이고,
+  //   도는 흐름은 안 끊긴 것이다. 접어서 세지 않으면 거기서 회전 판정이 멈췄다.
+  const rails = rails0.filter((r, i) => i === 0 || r !== rails0[i-1]);
+  if (rails.length < BIG_ROUND_C) return false;
   let turn = 0;
   for (let i = 0; i < rails.length - 1; i++){
     const a = RAIL_ORDER[rails[i]], b = RAIL_ORDER[rails[i+1]];
