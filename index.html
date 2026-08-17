@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 396;
+const MOBILE_VER = 397;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4081,7 +4081,24 @@ function engineRun(dir, V0, kk, E){
           bumped[A.key] = bumped[B.key] = 6;
           const other = A.key === 'cue' ? B.key : (B.key === 'cue' ? A.key : null);
           if (other && hitIdx < 0){                    // 수구가 처음 맞힌 공 = 1적구
-            hitObj = other; hitAt = [(A.p[0]+B.p[0])/2, (A.p[1]+B.p[1])/2];
+            // ★★★★ 여기에 **두께를 통째로 망가뜨린 버그**가 있었다 (사용자 2026-08-18,
+            //   47.jpg: '빨간공을 스치듯 지나가는데 두께가 52% 입니다').
+            //   옛 코드:  hitAt = 두 공 중심의 **중점**
+            //   그런데 rec.cue.p 는 **수구 중심이 지나간 자리**를 적는 줄이다.
+            //   중점을 적으니 수구 선이 1적구 속으로 반 지름만큼 파고들었고,
+            //   그 점으로 두께를 재는 afterHit 가 통째로 어긋났다 —
+            //     afterHit: 두께 = (지름 − 중심선까지 거리) / 지름
+            //     중점은 1적구에서 늘 **지름의 절반**이라 거리 ≤ D/2
+            //     → 두께 = 1 − 0.5·sin(각) 이 되어 **50% 밑으로 못 내려간다.**
+            //     실제 두께 f 가 화면에는 0.5 + 0.5·f 로 나왔다.
+            //       스침 f=0.04 → 화면 52%   ← 사장님이 보신 그 숫자다
+            //       반    f=0.50 → 화면 75%
+            //       정면  f=1.00 → 화면 100% (여기만 맞았다)
+            //   → **수구 중심**을 적는다. 다른 점들과 같은 뜻이 된다.
+            //   ⚠️ 기하 계산(cutAtBall)은 처음부터 옳았다. 엔진이 그리기를 넘겨받으면서
+            //      (이번 회차 ③) 화면 숫자만 이 값을 타게 된 것이다.
+            const CU = A.key === 'cue' ? A : B;
+            hitObj = other; hitAt = CU.p.slice();
             rec.cue.p.push(hitAt.slice()); rec.cue.k.push('ball');
             hitIdx = rec.cue.p.length - 1;
             spIn = spPrev; outAt = n + 8;              // 부딪힘이 풀린 뒤에 재려고 미뤄 둔다
