@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 370;
+const MOBILE_VER = 371;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3328,6 +3328,28 @@ function cueRailGap(){
 //   공 하나(61.5mm)가 들어갈 만큼은 떨어져야 큐가 눕는다.
 // 사용자가 값을 고치라고 하면 이 숫자 하나만 바꾸면 된다.
 function cueOnRail(){ return cueRailGap() <= CUE_RAIL_STUCK; }
+// ★★★★ **직각으로는 못 끈다** (사용자 2026-08-17: '직각으로는 끌수 없다는 얘기를
+//   하고 싶었어요'). 큐는 진행 **반대쪽**에 놓인다 — 쿠션을 등지고 직각으로 나가면
+//   큐 뒤가 쿠션 위로 올라가 공 아래를 못 때린다.
+//   쿠션과 **나란히** 가는 방향은 큐가 다이 위에 눕으므로 끌 수 있다.
+//   ⚠️ 그래서 '쿠션에 가까우면 끌어치기 전부 배제'(v368·369)는 틀렸다. 방향을 봐야 한다.
+const DRAW_PERP_DEG = 45;                // 쿠션 법선에서 이 각 안이면 '직각에 가깝다'
+function nearRailNormal(){
+  const c = S.balls.cue;
+  if (!c) return null;
+  const d = [c.p[0], T.width - c.p[0], c.p[1], T.height - c.p[1]];
+  const i = d.indexOf(Math.min(...d));
+  return [[1,0], [-1,0], [0,1], [0,-1]][i];   // 좌·우·하·상 쿠션의 **안쪽** 법선
+}
+// 이 조준각으로 끌어치기가 막히나 (쿠션 가까이 + 직각에 가까운 방향)
+function drawPerpBlocked(ang){
+  if (typeof ang !== 'number') return false;
+  if (cueRailGap() > CUE_RAIL_MASSE) return false;
+  const n = nearRailNormal();
+  if (!n) return false;
+  const cs = Math.cos(ang)*n[0] + Math.sin(ang)*n[1];   // 쿠션 안쪽으로 나가는 정도
+  return cs >= Math.cos(DRAW_PERP_DEG * Math.PI/180);
+}
 // 반마세이라야 끌 수 있는 자리인가 (붙은 것은 제외 — 그건 아예 안 된다)
 function cueHalfMasse(){
   const g0 = cueRailGap();
@@ -3561,8 +3583,9 @@ function findRoutes(){
   //   끌어치는 모든 각도가 불가능합니다. 추천배제사유입니다').
   //   큐가 쿠션 위로 올라가 서게 되어 공 아래를 때릴 수가 없다.
   //   ⚠️ 다 빠지면 원래대로 둔다 (빈 목록보다 낫다).
-  if (cueOnRail()){
-    const noDraw = list.filter(r => !(r.tipV < -0.05));
+  {
+    // 끌어치기인데 **직각으로 쿠션을 등지고** 나가는 길은 뺀다 (위 drawPerpBlocked 주석)
+    const noDraw = list.filter(r => !(r.tipV < -0.05 && drawPerpBlocked(r.a)));
     if (noDraw.length) list = noDraw;
   }
   list.sort((a, b) => rank(b) - rank(a));                   // 넓은 것부터 = 쉬운 것부터
@@ -4950,7 +4973,9 @@ function drawSysName(){
     }
   }
   // ★ 반마세이 안내 — 쿠션 가까이서 끌어치는 길일 때 (위 CUE_RAIL_MASSE 주석)
-  if (cueHalfMasse() && (S.tipV || 0) < -0.05){
+  //   ⚠️ 나란히 가는 방향이면 그냥 끌면 된다 — 안내를 띄우지 않는다
+  if (cueHalfMasse() && (S.tipV || 0) < -0.05 && S.aim && S.balls.cue &&
+      drawPerpBlocked(Math.atan2(S.aim[1]-S.balls.cue.p[1], S.aim[0]-S.balls.cue.p[0]))){
     g.font = '800 ' + Math.round(c.h*0.052) + 'px system-ui, sans-serif';
     g.lineWidth = Math.max(3, c.h*0.012);
     // ★ 사용자 2026-08-17: '매우 어려운 공입니다' — 된다고만 하면 안 된다.
