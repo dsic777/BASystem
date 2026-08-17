@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 382;
+const MOBILE_VER = 383;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1802,7 +1802,9 @@ function roleOf(c){
 //   움직임의 폭 70% 줄여보세요.  →  0.25 × 0.30 = 0.075
 //   살살 밀면 손가락이 움직인 각의 **7.5%** 만 조준이 따라온다 (전에는 25%).
 //   ⚠️ 크게 휘두를 때는 그대로 1:1 이다. 멀리 옮기는 것이 느려지면 안 된다.
-const AIM_FINE_DEG = 2.0, AIM_FINE_GAIN = 0.075;
+// ★ 2026-08-17 세 번째 — '궤적잡기 더 내려 보세요' (더블 궤적 잡기가 힘들다)
+//   0.075 → 0.03. 살살 밀면 손가락이 움직인 각의 3% 만 따라온다.
+const AIM_FINE_DEG = 2.0, AIM_FINE_GAIN = 0.03;
 function frameAt(px,py){
   const c = L.cloth, r = L.rail;
   if (px > c.x && px < c.x+c.w && py > c.y && py < c.y+c.h) return null;
@@ -3856,9 +3858,9 @@ function engineScores(cueP, aim){
   ESC_CACHE = {key, val: v};
   return v;
 }
-function enginePath(cueP, aim){
-  const key = cueP + '|' + aim + '|' + S.tipH + '|' + S.tipV + '|' + S.corr + '|' +
-              Object.keys(S.balls).map(k => S.balls[k].p).join(';');
+function enginePath(cueP, aim, fast){
+  const key = (fast ? 'F|' : '') + cueP + '|' + aim + '|' + S.tipH + '|' + S.tipV + '|' +
+              S.corr + '|' + Object.keys(S.balls).map(k => S.balls[k].p).join(';');
   if (EPATH.key === key) return EPATH.val;
   let out = null;
   try {
@@ -3878,6 +3880,20 @@ function enginePath(cueP, aim){
       const base = pl.V0 * SIM_PLAY_BOOST;
       let V0 = base, best = null;
       let lo = 0, hi = 0;
+      // ★★★★ 끌고 있는 동안은 **세기 좁히기를 건너뛴다** (사용자 2026-08-17:
+      //   '손놓으면 혼자 움직입니다' — 자석이 아니라 이것이었다).
+      //   v323 에서 끌 때는 엔진을 아예 안 돌리고 기하 선을 그렸다. 그래서 손을 떼는
+      //   순간 **기하 선 → 엔진 선**으로 갈아타며 궤적이 튀었다.
+      //   이제 끌 때도 엔진이 그린다. 다만 세기 좁히기(엔진 8~12번 굴림)는 빼서
+      //   한 번만 굴린다 — 70ms 가 9ms 가 된다.
+      //   ★ 반사각을 속도에 안 맡기므로(sameAsPath) **모양은 같다.** 손을 떼면
+      //     세기만 정확해져 얼마나 더 굴러가느냐가 조금 달라질 뿐이다.
+      if (fast){
+        out = engineRun(pl.dir, base, pl.kk, E);
+        if (out) out.V0 = base;
+        EPATH = {key, val: out};
+        return out;
+      }
       for (const f of [0.55, 0.8, 1.0, 1.35, 1.8]){        // 닿는 세기를 먼저 하나 찾는다
         const r = engineRun(pl.dir, base*f, pl.kk, E);
         if (r && r.scored){ hi = base*f; best = r; break; }
@@ -6200,7 +6216,9 @@ function drawPath(){
   //   ⚠️ 공이나 조준을 **끌고 있는 동안**에는 엔진을 안 돌린다. 한 번에 10~25ms 라
   //      매 프레임 돌리면 폰에서 손가락이 끊긴다. 끄는 동안은 옛 기하 선을 보여주고,
   //      손을 떼면 그때 엔진 선으로 바뀐다.
-  const EP = (cut.hit && !S.drag && !S.aiming) ? enginePath(cue.p, S.aim) : null;
+  //   ⚠️ 끌고 있는 동안은 **빠른 모드**로 부른다 (세기 좁히기를 건너뛴다).
+  //      전에는 아예 안 불러서 손을 떼는 순간 선이 갈아타며 튀었다 (2026-08-17).
+  const EP = cut.hit ? enginePath(cue.p, S.aim, !!(S.drag || S.aiming)) : null;
   // 1) 적구에 부딪히기 전 — 공 두께(궤적) 띠를 깔고 그 위에 선
   const before = (EP && EP.hitIdx > 0) ? EP.cue.p.slice(0, EP.hitIdx + 1) : cut.pts;
   for (let i = 0; i < before.length-1; i++){
