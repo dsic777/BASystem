@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 392;
+const MOBILE_VER = 393;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2218,7 +2218,16 @@ function up(px, py){
     if (!q.moved){
       const t = nowMs();
       if (S.palTap && S.palTap.c === q.c && t - S.palTap.t < DOUBLE_MS){
-        S.palTap = null; setFirstObject(q.c); blink(q.c); return;   // 1적구가 된 공만
+        // ★★★★ 사용자 2026-08-18: '방법을 모르겠네요 두번을 탭해도 변화가 없어요'
+        //   두께판을 **1적구 탭**으로만 열게 했더니 못 열었다. 까닭이 둘이다 —
+        //     ① 1적구는 (따로 안 정하면) **흰/노랑 중 수구가 아닌 쪽**이다.
+        //        빨간 공을 탭하면 그건 2적구라 아무 일도 안 일어난다.
+        //     ② 폰에서 공은 반지름이 9 CSS px 밖에 안 된다. 손가락으로 못 짚는다.
+        //        (반경을 넓히는 안은 사장님이 막았다 — '두 공이 붙어있으면 못잡아요')
+        //   → **큰 색 버튼 두 번 탭 하나로 끝낸다.** 그 공을 1적구로 정하고 두께판까지 연다.
+        //     '두께와 당점을 결정한다는 것은 외길만 남습니다' — 정하는 순서 그대로다.
+        S.palTap = null; setFirstObject(q.c); blink(q.c);
+        S.thickPanel = true; return;
       }
       S.palTap = {c: q.c, t};
     }
@@ -2242,9 +2251,17 @@ function up(px, py){
   // ⚠️ 여기서 S.snapA 를 지우면 **다음에 손댈 때마다 다시 한가운데로 끌려간다**
   //    (사용자 2026-08-14: '클릭을 하면 위치가 지맘대로 위 또는 아래로 변경됩니다').
   //    붙은 각은 그대로 들고 있는다. 그 각에서 1.5도 넘게 벗어나면 저절로 풀린다.
-  // ★★★★ 1적구를 **탭하면 두께판**이 뜬다 (위 THICK_OPTS 의 ★★★★ 주석).
+  // ★★★★ 다이 위의 공을 **탭하면 두께판**이 뜬다 (위 색 버튼 주석과 같은 이야기).
   //   끌면 공이 움직이고, 안 끌고 떼면 판이 뜬다.
-  if (S.drag === 'obj1' && !S.dragMoved && !previewOn()) S.thickPanel = true;
+  //   ⚠️ 1적구일 때만 열지 않는다 — 사장님은 **치려는 공**을 탭한다. 그 공을
+  //      1적구로 삼고 연다. 수구만 뺀다.
+  if (S.drag && S.drag !== 'cue' && !S.dragMoved && !previewOn()){
+    const c0 = S.balls[S.drag] && S.balls[S.drag].color;
+    // 이미 1적구면 setFirstObject 를 안 부른다 — 그 안의 tipAuto() 가 손으로 잡아 둔
+    // 당점·방향을 지워 버린다. 판만 연다.
+    if (c0 && S.drag !== 'obj1') setFirstObject(c0);
+    if (c0) S.thickPanel = true;
+  }
   S.drag = null; S.dragMoved = 0; S.dragAt = null; S.aiming = false;
 }
 
@@ -7384,6 +7401,12 @@ function drawThickPanel(){
   g.fillStyle = 'rgba(190,196,210,0.80)';
   g.font = '600 ' + Math.round(L.h*0.036) + 'px system-ui, sans-serif';
   g.fillText('아래쪽이 수구가 오는 쪽', q.cx, L.h*0.105);
+  // ★ 어느 공의 두께인지 적는다 — 빨강인 줄 알고 노랑을 잡는 일이 없게
+  const nm = {white:'흰공', yellow:'노란공', red:'빨간공'};
+  g.fillStyle = 'rgba(150,158,175,0.75)';
+  g.font = '600 ' + Math.round(L.h*0.030) + 'px system-ui, sans-serif';
+  g.fillText('1적구 = ' + ((o1 && nm[o1.color]) || '?')
+           + '   ·   수구 = ' + ((cue && nm[cue.color]) || '?'), q.cx, L.h*0.152);
 
   // 수구가 오는 쪽 화살표
   const ay = q.cy + q.R*3.15;
