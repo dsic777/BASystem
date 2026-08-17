@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 391;
+const MOBILE_VER = 392;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1290,6 +1290,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
+           thickPanel:false, dragAt:null, dragMoved:0,
            noteList:false, notePage:0, verDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
@@ -1826,6 +1827,65 @@ function setFirstObject(c){
   tipAuto();
 }
 
+// ─────────────────────────────── 두께판 (사용자 아이디어 ④ · 2026-08-18)
+// '1적구를 직접 칠 경우 1적구를 탭하면 공이 많이 커지고 8/2 · 8/4 · 8/6 을 고른다'
+// '1적구 두께와 당점을 결정한다는 것은 외길만 남습니다. 딱 1길'
+//
+// ★★★★ 두께는 **지어내지 않았다.** 엔진이 이미 쓰는 정의를 거꾸로 푼 것뿐이다.
+//   afterHit():  두께 = (공지름 − 중심선까지 거리) / 공지름
+//   거꾸로     :  중심선까지 거리 = 공지름 × (1 − 두께)
+//                조준각          = asin(그 거리 / 수구–1적구 거리)
+//   맞춰 보면 8/4(1/2 두께) → asin(0.5) = 30도. 교본의 '1/2 두께 = 30도 컷' 과 같다.
+//   ⚠️ 그래서 두께판으로 잡은 조준을 엔진에 넣으면 엔진이 되읽는 두께가 그 값 그대로다.
+//
+// ★ 좌·우는 **수구가 1적구의 어느 쪽으로 지나가느냐**다. 화면은 위에서 내려다본
+//   그림이라 진행 방향으로 보는 사람의 왼쪽 = 화면의 왼쪽이다 (CLAUDE.md 의
+//   '수구가 1적구를 향하는 쪽 기준' 과 같은 기준).
+//   ⚠️ mm 좌표는 y 가 뒤집혀 있다(toPx). 그래서 각을 **화면 픽셀에서 돌린 뒤**
+//      toMm 으로 되돌린다 — 부호를 손으로 맞추다 틀리는 일을 아예 없앤다.
+const THICK_OPTS = [
+  {f:0.25, lb:'8/2', sub:'얇게'},
+  {f:0.50, lb:'8/4', sub:'반'},
+  {f:0.75, lb:'8/6', sub:'두껍게'},
+  {f:1.00, lb:'8/8', sub:'정면'}
+];
+// side: −1 수구가 1적구의 **왼쪽**으로 지나간다 · +1 오른쪽 · 0 정면
+// ⚠️ 화면 왼쪽으로 돌리려면 각이 **양수**다 (lx,ly 가 왼쪽 벡터라서). 그래서 −side.
+//    처음에 그냥 side 로 뒀더니 판에 칠해지는 자리와 실제 조준이 좌우 반대였다
+//    (Node 검증에서 잡았다 — thickNow 는 −1=왼쪽, setThickness 는 +1=왼쪽이었다).
+function setThickness(f, side){
+  const cue = S.balls.cue, o1 = S.balls.obj1;
+  if (!cue || !o1) return false;
+  const [cx,cy] = toPx(...cue.p), [ox,oy] = toPx(...o1.p);
+  const dist = Math.hypot(ox-cx, oy-cy);
+  if (dist < 1e-6) return false;
+  const ux = (ox-cx)/dist, uy = (oy-cy)/dist;
+  const b = T.ball_diameter * L.sc * (1 - f);       // 중심선까지 거리 (픽셀)
+  const th = Math.asin(Math.min(1, b / dist)) * -(side || 0);
+  const lx = uy, ly = -ux;                          // 진행 방향의 왼쪽 (화면)
+  const c = Math.cos(th), si = Math.sin(th);
+  const vx = ux*c + lx*si, vy = uy*c + ly*si;       // 왼쪽으로 th 만큼 돌린다
+  const len = dist + Math.max(L.cloth.w, L.cloth.h);
+  S.aim = S.lastAim = toMm(cx + vx*len, cy + vy*len);
+  S.dirSet = 1;                                     // 손으로 정한 방향이다
+  S.snapA = null; S.aimSnapped = 0;
+  ROUTES = {key: null, list: null};
+  return true;
+}
+// 지금 조준이 1적구를 어느 두께로 맞히고 있나 — 판에 표시만 한다
+function thickNow(){
+  const cue = S.balls.cue, o1 = S.balls.obj1;
+  if (!cue || !o1 || !S.aim) return null;
+  const [cx,cy] = toPx(...cue.p), [ox,oy] = toPx(...o1.p), [ax,ay] = toPx(...S.aim);
+  const L2 = Math.hypot(ax-cx, ay-cy); if (L2 < 1e-6) return null;
+  const ux = (ax-cx)/L2, uy = (ay-cy)/L2;
+  const cr = ux*(oy-cy) - uy*(ox-cx);               // + 면 적구가 오른쪽(화면)
+  const D = T.ball_diameter * L.sc;
+  const f = (D - Math.abs(cr)) / D;
+  if (f <= 0.02) return null;                       // 안 맞는다
+  return {f, side: f >= 0.995 ? 0 : (cr > 0 ? -1 : 1)};   // 적구가 오른쪽이면 수구는 왼쪽
+}
+
 // ---------------------------------------------------------------- 입력
 // 조준 미세조정 — 한 번에 이만큼(도) 안쪽으로 움직이면 그 몫을 GAIN 만큼만 준다
 // ★ 2026-08-17 두 번째 — 사장님: 경로 미세조정 여전히 힘들어요. 더 좁혀보세요.
@@ -1912,6 +1972,7 @@ function down(px,py){
   // ★ 뿌리는 중이면 어디를 눌러도 끝까지 굴려 확정한다 (기다리기 싫을 때)
   if (S.scatter){ scatterFinish(); blink(); return; }
   if (S.tipPanel){ tapTipPanel(px,py); return; }
+  if (S.thickPanel){ tapThickPanel(px,py); return; }
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
   // ★ 상·중·하 — 다이 안 막대 (사용자 2026-08-14)
   // ★ 요청 목록이 열려 있으면 그것부터 (밀기와 고르기를 뗄 때 가른다)
@@ -1999,7 +2060,8 @@ function down(px,py){
     return;
   }
   const gb = ballAt(px,py);
-  if (gb){ S.drag = gb; blink(S.balls[gb].color); return; }   // 잡은 공만 깜박인다
+  if (gb){ S.drag = gb; S.dragAt = [px,py]; S.dragMoved = 0;
+           blink(S.balls[gb].color); return; }   // 잡은 공만 깜박인다
   // 작은 시계판을 탭하면 크게 띄운다.
   // ⚠️ 탭 영역을 그림 크기(clockR)로 두면 못 누른다 — 폰에서 반경이 21 CSS px 밖에
   //    안 되는데 손가락 접촉은 40~50 px 다 (사용자: 'v90 안되는데요'). 넉넉히 잡는다.
@@ -2015,7 +2077,7 @@ function down(px,py){
   if (f){ S.aim = S.lastAim = f; S.aiming = true; }
 }
 function move(px,py){
-  if (S.tipPanel) return;
+  if (S.tipPanel || S.thickPanel) return;
   if (S.verDrag){ S.verDrag.v = verValueAt(px); blink(); return; }   // 점수 슬라이더
   if (S.listDrag){ S.listDrag.dx = px - S.listDrag.x; return; }   // 목록에서 미는 중
   if (S.pal){                                    // 색 버튼에서 끌어오는 중
@@ -2024,6 +2086,8 @@ function move(px,py){
     return;
   }
   if (S.drag){
+    // ★ 손가락이 이만큼 못 움직였으면 **끈 것이 아니라 탭**이다 (아래 up 의 두께판)
+    if (S.dragAt && Math.hypot(px-S.dragAt[0], py-S.dragAt[1]) > BW*0.22) S.dragMoved = 1;
     const [x,y] = toMm(px,py);
     S.balls[S.drag].p = separate(S.drag,
       [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)]);
@@ -2178,7 +2242,24 @@ function up(px, py){
   // ⚠️ 여기서 S.snapA 를 지우면 **다음에 손댈 때마다 다시 한가운데로 끌려간다**
   //    (사용자 2026-08-14: '클릭을 하면 위치가 지맘대로 위 또는 아래로 변경됩니다').
   //    붙은 각은 그대로 들고 있는다. 그 각에서 1.5도 넘게 벗어나면 저절로 풀린다.
-  S.drag = null; S.aiming = false;
+  // ★★★★ 1적구를 **탭하면 두께판**이 뜬다 (위 THICK_OPTS 의 ★★★★ 주석).
+  //   끌면 공이 움직이고, 안 끌고 떼면 판이 뜬다.
+  if (S.drag === 'obj1' && !S.dragMoved && !previewOn()) S.thickPanel = true;
+  S.drag = null; S.dragMoved = 0; S.dragAt = null; S.aiming = false;
+}
+
+// 두께판을 탭했을 때
+function tapThickPanel(px,py){
+  const q = thickGeom();
+  for (const b of q.btn)
+    if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
+      if (b.done){ S.thickPanel = false; return; }
+      // ★ 고르면 **바로 닫는다.** 외길이 정해졌으니 궤적을 봐야 한다
+      //   (당점판은 오른쪽 안내를 읽어야 해서 안 닫지만, 여기는 볼 것이 다이에 있다)
+      if (setThickness(b.f, b.side)) S.thickPanel = false;
+      return;
+    }
+  S.thickPanel = false;                    // 바깥을 탭하면 나간다
 }
 
 // ---------------------------------------------------------------- 그리기
@@ -2272,7 +2353,7 @@ function draw(){
     drawClock();
   }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList();
-  drawNoteList(); drawTipPanel();
+  drawNoteList(); drawTipPanel(); drawThickPanel();
   drawDebugXY();
   requestAnimationFrame(draw);
 }
@@ -7259,6 +7340,107 @@ function tipGeom(){
   btn.push({...rows[rows.length-1],                   // 조정 완료 — 한 줄 전체
       x: x0, y: y0 + (nRow-1) * (bh + gap), w: bw, h: bh});
   return {R, cx, cy, x0, bw, y0, btn, dots: tipDots(), unit: R*TIP_R};
+}
+
+// 두께판 배치 — 당점판과 같은 짜임새다 (왼쪽 그림 · 오른쪽 버튼)
+function thickGeom(){
+  const w = L.w, h = L.h;
+  const R  = Math.min(w*0.088, h*0.165);       // 1적구 반지름 (그림)
+  const cx = Math.round(w*0.27), cy = Math.round(h*0.36);
+  const x0 = Math.round(w*0.56), bw = Math.round(w*0.40);
+  const band = h*0.80, gap = Math.round(h*0.018);
+  const nRow = 5;                              // 8/2 · 8/4 · 8/6 (좌우) + 정면 + 닫기
+  const bh = Math.round((band - gap*(nRow-1)) / nRow);
+  const y0 = Math.round(h*0.10);
+  const hw = Math.round((bw - gap) / 2);
+  const btn = [];
+  THICK_OPTS.slice(0,3).forEach((o,i) => {
+    btn.push({...o, side:-1, x:x0,           y:y0+i*(bh+gap), w:hw, h:bh});
+    btn.push({...o, side:+1, x:x0+hw+gap,    y:y0+i*(bh+gap), w:hw, h:bh});
+  });
+  btn.push({...THICK_OPTS[3], side:0, x:x0, y:y0+3*(bh+gap), w:bw, h:bh});
+  btn.push({lb:'닫 기', done:true,   x:x0, y:y0+4*(bh+gap), w:bw, h:bh});
+  // 그림 속 수구 자리 — 닿는 순간의 중심 (엔진 정의 그대로)
+  const gh = [];
+  for (const o of THICK_OPTS){
+    const b = 2*R*(1-o.f), back = Math.sqrt(Math.max(0, 4*R*R - b*b));
+    for (const sd of (o.f >= 1 ? [0] : [-1,1]))
+      gh.push({f:o.f, lb:o.lb, side:sd, x:cx + sd*b, y:cy + back});
+  }
+  return {R, cx, cy, btn, gh, bh};
+}
+
+function drawThickPanel(){
+  if (!S.thickPanel) return;
+  const q = thickGeom(), o1 = S.balls.obj1, cue = S.balls.cue;
+  const now = thickNow();
+  g.save();
+  g.fillStyle = '#0a0b0d'; g.fillRect(0,0,L.w,L.h);
+
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#e8eaf0';
+  g.font = '800 ' + Math.round(L.h*0.052) + 'px system-ui, sans-serif';
+  g.fillText('1적구 두께', q.cx, L.h*0.055);
+  g.fillStyle = 'rgba(190,196,210,0.80)';
+  g.font = '600 ' + Math.round(L.h*0.036) + 'px system-ui, sans-serif';
+  g.fillText('아래쪽이 수구가 오는 쪽', q.cx, L.h*0.105);
+
+  // 수구가 오는 쪽 화살표
+  const ay = q.cy + q.R*3.15;
+  g.strokeStyle = 'rgba(120,128,145,0.65)'; g.lineWidth = Math.max(2, q.R*0.07);
+  g.beginPath(); g.moveTo(q.cx, ay + q.R*0.55); g.lineTo(q.cx, ay - q.R*0.35); g.stroke();
+  g.beginPath(); g.moveTo(q.cx - q.R*0.20, ay - q.R*0.12);
+  g.lineTo(q.cx, ay - q.R*0.42); g.lineTo(q.cx + q.R*0.20, ay - q.R*0.12); g.stroke();
+
+  // 수구 자리들 — 테두리만. 겹쳐도 어느 것이 어느 두께인지 글자로 읽는다
+  for (const t of q.gh){
+    const on = now && Math.abs(now.f - t.f) < 0.09 && now.side === t.side;
+    g.strokeStyle = on ? '#b388ff' : 'rgba(150,158,175,0.42)';
+    g.lineWidth = Math.max(1.5, q.R * (on ? 0.13 : 0.055));
+    g.beginPath(); g.arc(t.x, t.y, q.R, 0, 7); g.stroke();
+    const dx = t.x - q.cx, dy = t.y - q.cy, dl = Math.hypot(dx,dy) || 1;
+    g.fillStyle = on ? '#d7bcff' : 'rgba(170,178,196,0.85)';
+    g.font = (on ? '800 ' : '700 ') + Math.round(q.R*0.42) + 'px system-ui, sans-serif';
+    g.fillText(t.lb, q.cx + dx/dl*q.R*3.05, q.cy + dy/dl*q.R*3.05);
+  }
+
+  // 1적구 — 실제 색으로 크게
+  const base = TONE[(o1 && o1.color) || 'red'] || '#d6342c';
+  const sph = g.createRadialGradient(q.cx-q.R*0.34, q.cy-q.R*0.38, q.R*0.05,
+                                     q.cx, q.cy, q.R*1.06);
+  sph.addColorStop(0,'#ffffff'); sph.addColorStop(0.30, base);
+  sph.addColorStop(1, shade(base, 0.42));
+  g.fillStyle = sph; g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7); g.fill();
+  g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, q.R*0.10); g.stroke();
+
+  // 버튼
+  for (const b of q.btn){
+    const on = !b.done && now && Math.abs(now.f - b.f) < 0.09 && now.side === b.side;
+    g.fillStyle = b.done ? 'rgba(58,62,72,0.95)'
+               : on      ? 'rgba(120,80,200,0.55)'
+                         : 'rgba(30,33,40,0.95)';
+    g.strokeStyle = on ? '#b388ff' : 'rgba(96,102,118,0.75)';
+    g.lineWidth = on ? 3 : 1.5;
+    g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
+    g.fillStyle = '#e8eaf0';
+    if (b.done){
+      g.font = '800 ' + Math.round(b.h*0.40) + 'px system-ui, sans-serif';
+      g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
+    } else {
+      const tag = b.side === 0 ? '정면' : (b.side < 0 ? '왼쪽' : '오른쪽');
+      g.font = '800 ' + Math.round(b.h*0.38) + 'px system-ui, sans-serif';
+      g.fillText(b.lb, b.x + b.w/2, b.y + b.h*0.36);
+      g.fillStyle = 'rgba(186,192,206,0.88)';
+      g.font = '600 ' + Math.round(b.h*0.26) + 'px system-ui, sans-serif';
+      g.fillText(b.side === 0 ? b.sub : (tag + ' · ' + b.sub), b.x + b.w/2, b.y + b.h*0.72);
+    }
+  }
+  if (!cue || !o1){
+    g.fillStyle = '#ff7b6b';
+    g.font = '700 ' + Math.round(L.h*0.036) + 'px system-ui, sans-serif';
+    g.fillText('수구·1적구가 있어야 합니다', q.cx, L.h*0.94);
+  }
+  g.restore();
 }
 
 function drawTipPanel(){
