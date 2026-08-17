@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 387;
+const MOBILE_VER = 388;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1849,17 +1849,14 @@ function tapTipPanel(px,py){
       else if (b.scope){                   // ★ 360° ↔ 5° (위 PRESET 주석)
         S.aimScope = (S.aimScope === 5) ? 360 : 5;
         ROUTES = {key: null, list: null};  // 범위가 바뀌면 다시 찾는다
-        say(S.aimScope === 5 ? '내가 잡은 방향 좌우 5도만 찾습니다'
-                             : '360도 전부 찾습니다', 2400);
       }
       else if (b.auto){                    // ★ 자동조정을 다시 켠다 (위 PRESET 주석)
-        // ⚠️ autoTipSide 는 **이미 그 값이면** false 를 준다 (바꿀 게 없어서다).
-        //   그걸 '못 잡았다' 로 읽고 안내를 띄웠더니 제대로 켜졌는데도 떴다
-        //   (사용자 2026-08-18: '도는 방향을 아직 못잡았습니다 안내가 필요할까요').
-        //   → 성패를 말하지 말고 **잡은 당점**을 알려 준다.
+        // ⚠️ 안내(say)를 안 띄운다 — **당점판이 화면을 덮고 있어 뒤에 깔린다**
+        //   (사용자 2026-08-18: '어차피 핸드폰에서 보이지도 않아요').
+        //   버튼 글씨가 '자동조정 켜짐' 으로 바로 바뀌는 것이 곧 확인이다.
+        //   또 autoTipSide 는 이미 그 값이면 false 를 주므로 성패로 말하면 안 된다.
         S.tipLock = 0;
         autoTipSide();
-        say('자동조정 — ' + tipName(S.tipH, S.tipV), 2200);
       }
       else setTip(b.dir, b.r);             // 프리셋도 값만 바꾸고 남는다
       return;
