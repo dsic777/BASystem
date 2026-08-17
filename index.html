@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 381;
+const MOBILE_VER = 382;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6822,18 +6822,25 @@ function drawClock(){
         g.fillStyle = '#ffffff'; g.fillText(t, cl.nam[0], yy);
         return;
       }
-      const parts = [[t.slice(0, t.indexOf('(')+1), '#ffffff'],
-                     [fc.txt, fc.col], [')', '#ffffff']];
+      // ★ 1쿠션 숫자만 **두 단계 크게** (사용자 2026-08-17: '원쿠션수만 2단계 올려주세요')
+      //   글자 크기가 다르므로 폭도 그 크기로 재야 가운데가 맞는다.
+      const F1 = '900 ' + Math.round(fs) + 'px system-ui, -apple-system, sans-serif';
+      const F2 = '900 ' + Math.round(fs*1.44) + 'px system-ui, -apple-system, sans-serif';
+      const parts = [[t.slice(0, t.indexOf('(')+1), '#ffffff', F1],
+                     [fc.txt, fc.col, F2], [')', '#ffffff', F1]];
       let wSum = 0;
-      for (const [q] of parts) wSum += g.measureText(q).width;
+      for (const [q, , f] of parts){ g.font = f; wSum += g.measureText(q).width; }
       let x2 = cl.nam[0] - wSum/2;
       g.textAlign = 'left';
-      for (const [q, col] of parts){
+      for (const [q, col, f] of parts){
+        g.font = f;
+        g.lineWidth = Math.max(2.5, (f === F2 ? fs*1.44 : fs) * 0.34);
+        g.strokeStyle = 'rgba(10,12,16,0.90)';
         g.strokeText(q, x2, yy);
         g.fillStyle = col; g.fillText(q, x2, yy);
         x2 += g.measureText(q).width;
       }
-      g.textAlign = 'center';
+      g.font = F1; g.textAlign = 'center';
     });
     g.restore();
   }
