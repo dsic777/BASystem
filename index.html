@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 365;
+const MOBILE_VER = 366;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4470,9 +4470,17 @@ function noteDraw(){
   const el = document.getElementById('noteList');
   if (!el) return;
   const esc = t => String(t || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  // ★ **이 배치에 달린 글만** — 오래된 것이 위, 새 것이 아래 (대화 순서)
+  // ★ **이 배치 · 이 경로에 달린 글만** — 오래된 것이 위, 새 것이 아래 (대화 순서)
+  // ★★ 경로까지 본다 (사용자 2026-08-17, 27.jpg: '새로운 경로에서 의견을 눌렀는데
+  //   지난번 다른 경로 것이 지워지지 않았음'). 배치(공 위치)로만 걸렀더니 같은 배치에서
+  //   경로만 바꿔도 지난 글이 그대로 붙어 있었다.
+  //   사용자 2026-08-16 원문도 '해당 **화면**에 대한 내용' 이었다 — 화면은 배치+경로다.
+  //   ⚠️ 경로 없이 쓴 옛 글(route_key 가 빈 것)은 배치만 맞으면 보여준다. 지우지 않는다.
   const pk = placeKey();
-  const rows = NOTE.rows.filter(n => pk && n.place_key === pk).slice().reverse();
+  let rk = null;
+  try { const r0 = curRoute(); rk = r0 ? r0.key : null; } catch(e){ rk = null; }
+  const rows = NOTE.rows.filter(n => pk && n.place_key === pk &&
+                (!rk || !n.route_key || n.route_key === rk)).slice().reverse();
   if (!rows.length){ el.innerHTML = ''; return; }
   // ★ 사용자 2026-08-16 —
   //   '내용을 클릭하면 수정이 가능하게 해 주세요. 내용을 입력창으로 넘기면 될것 같은데.'
@@ -4548,13 +4556,15 @@ function noteSave(){
       // ★ 평가는 답을 기다리는 자리가 아니다 — 저장하면 바로 전 화면으로 (사용자 2026-08-16)
       if (NOTE.kind === '평가'){
         NOTE.rows = [{id: j.id, at: new Date().toISOString(), kind: '평가',
-                      text: txt, reply: null, place_key: body.place_key}].concat(NOTE.rows);
+                      text: txt, reply: null, place_key: body.place_key,
+                    route_key: body.route_key}].concat(NOTE.rows);
         say('평가 #' + j.id + ' 저장했습니다');
         noteClose(); return;
       }
       NOTE.wait = j.id;
       NOTE.rows = [{id: j.id, at: new Date().toISOString(), kind: NOTE.kind,
-                    text: txt, reply: null, place_key: body.place_key}].concat(NOTE.rows);
+                    text: txt, reply: null, place_key: body.place_key,
+                    route_key: body.route_key}].concat(NOTE.rows);
       const t2 = document.getElementById('noteTxt'); if (t2) t2.value = '';
       noteMode();
       // 답이 올 때까지 8초마다 본다 (60초 주기와 따로 돈다)
