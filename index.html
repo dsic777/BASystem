@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 385;
+const MOBILE_VER = 386;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1846,6 +1846,16 @@ function tapTipPanel(px,py){
   for (const b of q.btn)
     if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
       if (b.done) S.tipPanel = false;      // 이것만 나간다
+      else if (b.scope){                   // ★ 360° ↔ 5° (위 PRESET 주석)
+        S.aimScope = (S.aimScope === 5) ? 360 : 5;
+        ROUTES = {key: null, list: null};  // 범위가 바뀌면 다시 찾는다
+        say(S.aimScope === 5 ? '내가 잡은 방향 좌우 5도만 찾습니다'
+                             : '360도 전부 찾습니다', 2400);
+      }
+      else if (b.auto){                    // ★ 자동조정을 다시 켠다 (위 PRESET 주석)
+        S.tipLock = 0;
+        if (!autoTipSide()) say('도는 방향을 아직 못 잡았습니다', 2200);
+      }
       else setTip(b.dir, b.r);             // 프리셋도 값만 바꾸고 남는다
       return;
     }
@@ -2014,6 +2024,7 @@ function move(px,py){
         const q = frameAt(...toPx(cue.p[0] + Math.cos(a2)*len,
                                  cue.p[1] + Math.sin(a2)*len));
         S.aim = S.lastAim = q || [cue.p[0] + Math.cos(a2)*len, cue.p[1] + Math.sin(a2)*len];
+        S.dirSet = 1;              // ★ 손으로 방향을 정했다 (아래 findRoutes 의 ★★★★)
       }
     }
     // 방금 붙었던 각에서 충분히 벗어나야 다시 붙는다.
@@ -2777,6 +2788,9 @@ let TIP_NOW = 0, TIPV_NOW = 0; // 지금 훑고 있는 당점 좌우·상하 (fi
 // ★★ 사용자 2026-08-13: '추천을 확장합시다. 두 페이지로, 빠르게 고를 수 있게
 //   **페이지 스와이프**를 넣읍시다. 1페이지에서 좌로 밀면 2페이지, 거기서 우로 밀면 1페이지.'
 //   '한 페이지에 6개니 모두 11개입니다. 12(마지막)는 직접조준.'
+// 방향을 정했을 때 그 좌우로 훑는 각 (위 findRoutes 의 ★★★★ 주석)
+// ★ ±5도 (사용자 2026-08-18: 5도면 충분할것 같은데요). 15 로 시작했다가 좁혔다.
+const AIM_WINDOW_DEG = 5;
 const GATE_TOP = 12;          // 엔진으로 걸러 볼 상위 개수 (위 findRoutes 의 ★★★★ 주석)
 const ROUTE_SHOW = 11;        // 목록에 내놓는 경로 수 (두 페이지에 나눠 담는다)
 // ★ 2026-08-11 파이썬으로 같은 계산을 돌려 보고 정한 값들.
@@ -3317,7 +3331,13 @@ function placeKey(){
 // ⚠️ v193 부터 훑기가 좌우·상하 당점을 **둘 다 돌아 보므로** 당점은 키에 안 넣는다.
 function routeKey(){
   const pk = placeKey();
-  return pk === null ? null : S.corr + '|' + pk;
+  if (pk === null) return null;
+  // ★ 찾는 범위가 5° 면 **방향까지 열쇠**다. 안 넣으면 캐시가 360° 결과를 그대로 준다.
+  const cue = S.balls.cue;
+  const d = (S.aimScope === 5 && S.dirSet && S.aim && cue)
+    ? '|D' + Math.round(Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]) * 180/Math.PI)
+    : '';
+  return S.corr + '|' + pk + '|' + (S.aimScope || 360) + d;
 }
 // ★ 추천 순서. 폭(허용오차)만으로 줄을 세우면 실전 순위와 안 맞는다 —
 //   두껍게 맞히는 길은 과녁이 커서 폭이 넓게 나오는데 실제로는 안 친다
@@ -3475,7 +3495,30 @@ function findRoutes(){
   //      조준 74.8도. 훑기가 그 각을 안 봤을 뿐이다.
   //   → 각 적구를 네 쿠션에 비친 **거울상**으로도 창을 연다. 거울상을 겨누면 그 쿠션을
   //     맞고 적구로 간다 — 원뱅크가 제대로 후보에 들어온다.
+  // ★★★★ **방향을 정해 놓고 추천을 누르면 그 좌우만 찾는다** (사용자 2026-08-18)
+  //   '수구 진행방향을 다이에 직접 지정하면 그 방향 좌우 우리가 설정하는 각도에
+  //    한하여 추천경로를 찾는다' · '쿠션을 칠 경우 어렵게 지정할 것이 아니라
+  //    대충 방향만 다이에 누른다'
+  //   ★ 새 버튼이 없다 — **직접지정으로 조준하는 것이 곧 방향 지정**이다.
+  //   왜 이 방식인가 (사용자 2026-08-18) —
+  //     '고수와 하수의 차이에서 길을 보는 것은 20% 내외다. 길을 보는 능력은
+  //      10점·20점·25점이 대동소이하다. 초급자는 기준선만 어렴풋이 알 뿐이고
+  //      고점자는 허공에 뜬 공까지 계산한다. 앱이 그것을 보정해 주면 차이가 준다.'
+  //     → 앱이 할 일은 **길을 골라 주는 것이 아니라 숫자를 정확히 내는 것**이다.
+  //       고르는 문제(순위)는 오늘 재 보니 폭 상관 0.07 로 사실상 못 풀고 있었다.
+  //       사장님이 방향을 짚으면 그 문제 자체가 없어진다.
+  //   ⚠️ 처음엔 **자동으로** 좁혔다가 사장님이 짚었다 — '추천은 2가지가 필요하다.
+  //      최소 추천, 그리고 나도 몰랐던 기상천외한 경로.' 자동으로 좁히면 뒤엣것이 사라진다.
+  //   → **설정으로 고른다** (S.aimScope · 당점판에서 바꾼다).
+  //        360°  지금까지대로 전부 훑는다        몰랐던 길 · 학습
+  //          5°  내가 잡은 방향 좌우만            지금 치려는 것
+  //   ⚠️ 5° 는 **방향을 손으로 잡아 놓았을 때만** 걸린다 (S.dirSet). 안 잡았으면 360°.
   const WINDOWS = [];
+  if (S.aimScope === 5 && S.dirSet && S.aim){
+    const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
+    const half = AIM_WINDOW_DEG * Math.PI/180;
+    WINDOWS.push([a0 - half, 2*half]);
+  } else {
   const addWin = (q) => {
     const d = Math.hypot(q[0]-cue.p[0], q[1]-cue.p[1]);
     if (d < 1e-6) return;
@@ -3491,6 +3534,7 @@ function findRoutes(){
     addWin([2*T.width - q[0], q[1]]); // 우
     addWin([q[0], -q[1]]);            // 하
     addWin([q[0], 2*T.height - q[1]]);// 상
+  }
   }
   // ★★ 사용자 2026-08-13 승인: '네 상·하 당점까지 가 봅시다.'
   //   상하 당점이 **분리각**을 바꾼다 (separation.json 7칸 표) —
@@ -4743,7 +4787,7 @@ const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Da
 //    지워졌다** — 그래서 궤적이 전혀 안 깜빡였다 (사용자 2026-08-12).
 function blinking(){ return !!S.rblink && nowMs() - S.rblink < BLINK_MS; }
 // 자동완성을 다시 살린다 — 새 배치 · 새 추천경로 (setTip 의 ★★★ 주석)
-function tipAuto(){ S.tipLock = 0; S.aimSnapped = 0; }
+function tipAuto(){ S.tipLock = 0; S.aimSnapped = 0; S.dirSet = 0; }
 function pickRoute(r){
   tipAuto();                               // 추천을 고르면 그 경로의 당점이 주인이다
   const cue = S.balls.cue;
@@ -7003,7 +7047,17 @@ const PRESET = [
   {lb:'파이브앤하프', dir: 5, r: 3, src:'★ 사용자 확정 2026-08-10 — 2시30분 3팁 (2단과 3단 가운데)'},
   {lb:'무회전 뱅크',  dir: 0, r: 3, src:'systems.json  12시 2~3팁 · 좌우 회전 0'},
   {lb:'끌어치기',     dir:10, r: 3, src:'kiss.json  일자배치 5시 (하단 3팁)'},
-  {lb:'중단 기준',    dir: 0, r: 0, src:'separation.json  자연 분리각 45도'}
+  {lb:'중단 기준',    dir: 0, r: 0, src:'separation.json  자연 분리각 45도'},
+  // ★★★★ 자동조정 — 손으로 당점을 만지면 꺼진다(v336). **다시 켜는 자리**가 없었다.
+  //   사용자 2026-08-18: '팁수를 임의로 조종하면 그것도 인정을 해야 합니다.
+  //   그러려면 44에 자동조정 활성이라고 해야 하나 이런 버튼도 필요하네요.
+  //   그러면 임의조정을 해지하고 자동조정 모드로 전환을 해야 하니.'
+  //   ★ 자동이 잡는 값은 **9시30분 3팁 · 2시30분 3팁** (사용자 2026-08-18 확인) —
+  //     autoTipSide 가 이미 그렇게 한다. 동작은 그대로 두고 켜는 버튼만 단다.
+  {lb:'자동조정',     auto: true, src:'2026-08-18 — 도는 쪽으로 순회전 3팁을 자동으로'},
+  // ★★★★ 추천을 어디까지 찾을까 (사용자 2026-08-18: '추천의 범위를 좁히는 방법으로
+  //   5도 경로지정은 두고 설정을 하나 더 둡시다. 360도와 5도 고려해 보세요.')
+  {lb:'찾는 범위',    scope: true, src:'2026-08-18 — 360° 전부 · 5° 내가 잡은 방향만'}
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
@@ -7133,7 +7187,11 @@ function tipGeom(){
   const band = h*(TIP_BOT - 0.30), gap = Math.round(h*0.016);
   const bh = Math.round((band - gap*4) / 5);
   const y0 = Math.round(h*0.30);
-  const rows = PRESET.concat([{lb:'조정 완료', done:true}]);
+  // ★ 설정 줄은 지금 값을 글씨에 붙여 보여준다 (2026-08-18)
+  const rows = PRESET.map(q => q.scope ? {...q, lb: '찾는 범위  ' +
+                    ((S.aimScope === 5) ? '5°' : '360°')}
+                   : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
+                   : q).concat([{lb:'조정 완료', done:true}]);
   const btn = rows.map((p,i) => ({...p, x:x0, y:y0 + i*(bh+gap), w:bw, h:bh}));
   return {R, cx, cy, x0, bw, y0, btn, dots: tipDots(), unit: R*TIP_R};
 }
