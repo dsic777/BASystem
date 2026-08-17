@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 362;
+const MOBILE_VER = 363;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2750,6 +2750,7 @@ let TIP_NOW = 0, TIPV_NOW = 0; // 지금 훑고 있는 당점 좌우·상하 (fi
 // ★★ 사용자 2026-08-13: '추천을 확장합시다. 두 페이지로, 빠르게 고를 수 있게
 //   **페이지 스와이프**를 넣읍시다. 1페이지에서 좌로 밀면 2페이지, 거기서 우로 밀면 1페이지.'
 //   '한 페이지에 6개니 모두 11개입니다. 12(마지막)는 직접조준.'
+const GATE_TOP = 12;          // 엔진으로 걸러 볼 상위 개수 (위 findRoutes 의 ★★★★ 주석)
 const ROUTE_SHOW = 11;        // 목록에 내놓는 경로 수 (두 페이지에 나눠 담는다)
 // ★ 2026-08-11 파이썬으로 같은 계산을 돌려 보고 정한 값들.
 //   허용오차는 실제로 0.2~0.6도로 좁다 — 3쿠션이 원래 그렇다. 1적구 두께가 조금만
@@ -3509,6 +3510,26 @@ function findRoutes(){
     if (ke !== null) r.kiss = ke;
   }
   list.sort((a, b) => rank(b) - rank(a));                   // 넓은 것부터 = 쉬운 것부터
+  // ★★★★ **엔진으로 그려서 2적구에 안 닿으면 뺀다** (사용자 요청 #14, 2026-08-17:
+  //   '키스도 아니면서 3쿠션 자체가 성립이 안되는 것은 추천하지 마세요').
+  //   위 routeSettle 은 **그리는 기하 계산**으로 본 것이고, 화면에 그려지는 선은
+  //   v323 부터 **엔진**이 낸다. 둘이 갈리는 길이 남아 있었다 —
+  //   무작위 14배치 상위 112개 중 19개(17%)가 키스도 아닌데 2적구를 못 맞혔다.
+  //   ★ 키스는 안 뺀다. 당점으로 피할 수 있고 사용자가 그렇게 정했다.
+  //   ⚠️ **정렬 뒤** 상위 몇 개만 본다 — 앞서 정렬 전에 걸었더니
+  //      위로 올라오는 길을 못 보고 지나쳤다. 상위 몇 개만 보는 것은 폰 때문이다. enginePath 로 보면 배치당 600ms 라 폰이 멈춘다 —
+  //      engineScores 는 한 번만 굴려 열 배 빠르다.
+  {
+    const keep = [], look = Math.min(list.length, GATE_TOP);
+    for (let i = 0; i < list.length; i++){
+      const r = list[i];
+      if (i >= look || r.kiss){ keep.push(r); continue; }
+      let ok = null;
+      try { pickRoute(r); ok = engineScores(S.balls.cue.p, S.aim); } catch(e){ ok = null; }
+      if (ok !== false) keep.push(r);      // 판정을 못 하면(null) 남긴다
+    }
+    if (keep.length) list = keep;
+  }
   ROUTES = {key, list};
   return list;
 }
@@ -3675,6 +3696,26 @@ function engineRun(dir, V0, kk, E){
   return {cue: rec.cue, obj: rec[hitObj] || null, hitIdx, hitObj, scoreIdx,
           scored: scoreIdx > 0, hitAt,
           keepC: (spIn > 1 && spOut > 0) ? Math.max(0.05, Math.min(0.98, spOut/spIn)) : null};
+}
+// ★★★ **엔진으로 한 번만 굴려** 2적구에 닿는지 본다 (추천을 거르는 데 쓴다).
+//   enginePath 는 세기를 이분탐색하느라 한 번에 70ms 가 넘는다 — 추천 여덟 개를 그렇게
+//   보면 폰에서 몇 초가 걸린다. 거르는 데는 '닿나 안 닿나' 만 있으면 되므로 한 번만 굴린다.
+let ESC_CACHE = {key: null, val: null};
+function engineScores(cueP, aim){
+  const key = cueP + '|' + aim + '|' + S.tipH + '|' + S.tipV + '|' + S.corr + '|' +
+              Object.keys(S.balls).map(k => S.balls[k].p).join(';');
+  if (ESC_CACHE.key === key) return ESC_CACHE.val;
+  let v = null;
+  try {
+    const pl = planShot(cueP, aim);
+    if (pl){
+      const r = engineRun(pl.dir, pl.V0 * SIM_PLAY_BOOST, pl.kk,
+                          englishSideFor(cueP, pl.dir));
+      v = r ? !!r.scored : null;
+    }
+  } catch(e){ v = null; }
+  ESC_CACHE = {key, val: v};
+  return v;
 }
 function enginePath(cueP, aim){
   const key = cueP + '|' + aim + '|' + S.tipH + '|' + S.tipV + '|' + S.corr + '|' +
