@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 389;
+const MOBILE_VER = 390;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -157,6 +157,8 @@ function shade(hex, k){
   return 'rgb(' + f(n>>16 & 255) + ',' + f(n>>8 & 255) + ',' + f(n & 255) + ')';
 }
 const TONE = {white:'#f6f5ee', yellow:'#f0be28', red:'#d6342c'};
+// 수구 링 — 보라. 노란 링은 노란 공과 헷갈렸다 (사용자 2026-08-18)
+const CUE_RING = '#b388ff';
 
 // ---------------------------------------------------------------- 실측 반사표
 // 입사각 → 반사각. 표는 **좌우 2팁**으로 잰 것이다 (data/measured_bounce.json 의 by_tip).
@@ -1791,9 +1793,37 @@ function scatterLayout(){
   return null;
 }
 
+// ★★★★ 1적구를 **손으로 정한다** (사용자 2026-08-18):
+//   '1적구 지정방법 — 우측 공버튼 2번 탭. 빨간공 2번 탭하면 빨간공이 1적구.
+//    노란공이든 흰공이든 탭하는 쪽이 1적구. 아닌 쪽은 자동으로 수구.
+//    수구 변환 버튼은 유지.'
+//   ⚠️ 전에는 **빨강이 늘 2적구**로 못 박혀 있었다 (red → obj2). 그래서 빨강을 먼저
+//      맞히는 길에서도 두께·기울기가 엉뚱한 공으로 잡혔다 (43.jpg 가 그 예다).
+//   ★ 작은 공을 탭하는 것보다 **큰 색 버튼**이 훨씬 잡기 쉽다 —
+//      '1적구 탭이 잘 안돼요. 모바일에서 공 이동할라면 정말 힘들어요.'
+function cueColor(){ return S.cueWhite ? 'white' : 'yellow'; }
 function roleOf(c){
-  if (c === 'red') return 'obj2';
-  return c === (S.cueWhite ? 'white' : 'yellow') ? 'cue' : 'obj1';
+  const cc = cueColor();
+  if (c === cc) return 'cue';
+  const o1 = (S.obj1c && S.obj1c !== cc) ? S.obj1c
+           : (S.cueWhite ? 'yellow' : 'white');     // 안 정했으면 지금까지대로
+  return c === o1 ? 'obj1' : 'obj2';
+}
+// 역할이 바뀌면 S.balls 의 열쇠도 다시 붙인다 (공은 색으로 따라간다)
+function reassignRoles(){
+  const byColor = {};
+  for (const k in S.balls) if (S.balls[k]) byColor[S.balls[k].color] = S.balls[k];
+  const nb = {};
+  for (const c in byColor) nb[roleOf(c)] = byColor[c];
+  S.balls = nb;
+}
+// 색 버튼을 두 번 탭 — 그 공을 1적구로. 흰·노랑이면 나머지가 수구가 된다
+function setFirstObject(c){
+  if (c === 'white' || c === 'yellow') S.cueWhite = (c !== 'white');
+  S.obj1c = c;
+  reassignRoles();
+  ROUTES = {key: null, list: null};
+  tipAuto();
 }
 
 // ---------------------------------------------------------------- 입력
@@ -2049,6 +2079,7 @@ function move(px,py){
     snapAimMark();                                 // 닿으면 알려만 준다 (안 끌어당긴다)
   }
 }
+const DOUBLE_MS = 450;               // 두 번 탭으로 치는 사이 (1적구 지정)
 const LONG_MS = 450;                 // 이만큼 누르고 있으면 '길게'
 const LONG_MOVE = 14;                // 그 사이 이만큼 넘게 움직이면 끌기로 본다
 function up(px, py){
@@ -2119,6 +2150,14 @@ function up(px, py){
   //    놓는 순간에만 separate() 로 겹침을 푼다.
   if (S.pal){
     const q = S.pal; S.pal = null;
+    // ★ 안 끌고 **두 번 탭**하면 그 공이 1적구다 (위 setFirstObject 주석)
+    if (!q.moved){
+      const t = nowMs();
+      if (S.palTap && S.palTap.c === q.c && t - S.palTap.t < DOUBLE_MS){
+        S.palTap = null; setFirstObject(q.c); blink(); return;
+      }
+      S.palTap = {c: q.c, t};
+    }
     if (q.moved && px !== undefined){
       const [x,y] = toMm(px,py);
       if (x >= 0 && x <= T.width && y >= 0 && y <= T.height){
@@ -6239,7 +6278,7 @@ function simBall(p, color, R, isCue){
     //   굵은 링이 공 바깥에 붙으니 공이 그만큼 커 보였다. 놓인 공(drawBalls)의 링은
     //   **어느 것이 내 공인지** 알려 주는 표시라 그대로 두고, 굴러갈 때만 줄인다.
     g.save();
-    g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(1, R*0.14);
+    g.strokeStyle = CUE_RING; g.lineWidth = Math.max(1, R*0.14);
     g.beginPath(); g.arc(x, y, R + g.lineWidth*0.7, 0, 7); g.stroke();
     g.restore();
   }
@@ -6618,7 +6657,10 @@ function drawBalls(){
     if (on > 0){
       g.save();
       g.globalAlpha = on;
-      g.strokeStyle = '#ffdd33';
+      // ★ 노란 링은 **노란 공과 헷갈린다** (사용자 2026-08-18: '수구에 노란 테두리를
+      //   씌우니 흰공이 수구일 때 혼란스러워요. 다른 컬러로 씌워 보세요').
+      //   보라는 다이의 어느 색과도 안 겹친다 (흰·하늘·연두·오렌지·핑크·빨강·노랑).
+      g.strokeStyle = CUE_RING;
       g.lineWidth = Math.max(3, r * 0.42);
       g.beginPath(); g.arc(x, y, r + g.lineWidth*0.7, 0, 7); g.stroke();
       g.restore();
