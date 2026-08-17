@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 383;
+const MOBILE_VER = 384;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2534,6 +2534,17 @@ function slopePts(a, b){
   //    8칸을 넘으면 그 선은 **장쿠션 두 개를 다 못 지나는** 것이다 = 이 시스템의 배치가 아니다.
   //    억지로 숫자를 내지 않고 비운다.
   return v > 8.05 ? null : v;
+}
+// ★ 이 조준이 **먼저 맞히는 공**까지의 기울기 (위 drawReadout 의 ★★ 주석)
+function slopeToFirstBall(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return null;
+  let hits = null;
+  try { hits = pathFromAim(cue.p, S.aim, S.corr); } catch(e){ return null; }
+  if (!hits || !hits.length) return null;
+  const cut = cutAtBall([cue.p, ...hits.map(h => h.p)]);
+  if (!cut.hit || !cut.obj) return null;
+  return slopePts(cue.p, cut.obj);
 }
 // 지금 배치의 기울기들. 없으면 null.
 // ★ 사용자 2026-08-12: '두께는 너무 세분하면 힘든데 공을 8등분 해서 2 4 6 정도만.'
@@ -7545,7 +7556,11 @@ function drawReadout(){
     //   '포인트도 수구와 1적구 간에 기울기가 몇칸인지를 알려줘야 합니다')
     //   파이브앤하프 수구수는 이 시스템과 관계없으므로 그 자리를 기울기로 바꾼다.
     cross = curShotName() === '횡단&더블시스템';
-    const sl = cross ? slopes() : null;
+    // ★★ 기울기는 **이 길이 실제로 먼저 맞히는 공**까지 잰다 (사용자 2026-08-17, 43.jpg:
+    //   '기울기도 안나왔어요'). 전에는 고정된 obj1 로 쟀는데, 그 배치는 빨간 공을
+    //   먼저 맞히는 길이었고 수구와 obj1(노란 공)이 거의 가로로 나란해서 8칸을 넘었다
+    //   (slopePts 는 그런 선을 비운다) — 그래서 빈칸이 됐다.
+    const sl = cross ? {cue1: slopeToFirstBall()} : null;
     const ft = cross ? null : foreTurn();
     // ★★★ 이 시스템의 1쿠션·3쿠션은 **레일 포인트의 칸수**다 (사용자 2026-08-17,
     //   18.jpg): '상단과 하단의 포인트는 0~8 까지로 하고 좌측 단다이는 0~4.
