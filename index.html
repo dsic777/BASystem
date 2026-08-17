@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 375;
+const MOBILE_VER = 376;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2853,7 +2853,10 @@ const ONLY_NAME = '';
 //   → 쿠션을 시계 순서로 번호 매기고(상0·우1·하2·좌3), 다음 쿠션이 **늘 +1 이거나
 //     늘 −1** 이어야 한다. 마주 보는 쿠션(±2)이나 같은 쿠션이 한 번이라도 나오면 아니다.
 const RAIL_ORDER = {top:0, right:1, bottom:2, left:3};
-const BIG_ROUND_C = 5;                   // 최소 쿠션 수
+// ★ 5 → 4 (사용자 2026-08-17, 39.jpg: 이것도 4쿠션만 사용을 햇지만 대회전입니다).
+//   그 화면은 우→하→좌→상 으로 **한 바퀴를 다 돈다**. 네 방향을 이어서 썼으면
+//   접점이 넷이어도 대회전이다 — 도느냐 아니냐가 기준이지 몇 번 맞았느냐가 아니다.
+const BIG_ROUND_C = 4;                   // 최소 쿠션 수 = 한 바퀴
 function isBigRound(rails){
   if (!rails || rails.length < BIG_ROUND_C) return false;
   let turn = 0;
