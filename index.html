@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 393;
+const MOBILE_VER = 394;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1290,7 +1290,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
-           thickPanel:false, dragAt:null, dragMoved:0,
+           thickPanel:false, dragAt:null, dragMoved:0, aimFree:0,
            noteList:false, notePage:0, verDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
@@ -1827,6 +1827,34 @@ function setFirstObject(c){
   tipAuto();
 }
 
+// ─────────────────────────────── 다이 안 직접 방향 지정 (아이디어 ② · 2026-08-18)
+// '수구 진행방향을 다이에 직접 지정하면 … 대충 방향만 다이에 누른다'
+// '원쿠션 … 다이에서 직접 찍고 좌우로 음직이면 경로가 따라가는 방식도 좋을것 같아요'
+//
+// ★ 지금까지는 **테두리(프레임) 안에서만** 조준이 잡혔다 — frameAt() 이 천 위를
+//   누르면 null 을 준다. 그래서 '대충 방향' 을 찍을 데가 없었다.
+// ★ 두 방식은 쓰임이 다르다. 섞지 않는다 —
+//     테두리   손가락 각의 3% 만 따라온다 (AIM_FINE_GAIN). **미세조정**
+//     다이 안  찍은 곳을 그대로 본다.                      **대충 방향**
+//   그래서 여기는 미세조정 감쇠를 안 건다. 대충 잡고 테두리에서 다듬는 순서다.
+// ⚠️ 수구에 너무 붙으면 방향이 튄다 — 공 두 개 거리 안쪽은 안 받는다.
+// ⚠️ 3초 깜빡임 잠금은 테두리 조준과 **같은 규칙**을 쓴다 (사용자 2026-08-12:
+//    '블링크 중에는 탭을 움직여도 무시').
+function aimAtPx(px, py){
+  const cue = S.balls.cue;
+  if (!cue) return false;
+  if (blinking()) return false;
+  const [cx,cy] = toPx(...cue.p);
+  const dx = px-cx, dy = py-cy, d = Math.hypot(dx,dy);
+  if (d < ballR()*2.2) return false;
+  const len = d + Math.max(L.cloth.w, L.cloth.h);
+  S.aim = S.lastAim = toMm(cx + dx/d*len, cy + dy/d*len);
+  S.dirSet = 1;                     // 손으로 정한 방향이다 (찾는 범위 5° 가 이걸 본다)
+  S.snapA = null; S.aimSnapped = 0;
+  autoTipSide();                    // ★ 도는 쪽으로 순회전 3팁 — 자동조정이 켜져 있을 때만
+  return true;
+}
+
 // ─────────────────────────────── 두께판 (사용자 아이디어 ④ · 2026-08-18)
 // '1적구를 직접 칠 경우 1적구를 탭하면 공이 많이 커지고 8/2 · 8/4 · 8/6 을 고른다'
 // '1적구 두께와 당점을 결정한다는 것은 외길만 남습니다. 딱 1길'
@@ -2074,7 +2102,16 @@ function down(px,py){
     if (Math.hypot(px-cx, py-cy) <= CRr*1.6){ S.tipPanel = true; return; }
   }
   const f = frameAt(px,py);
-  if (f){ S.aim = S.lastAim = f; S.aiming = true; }
+  if (f){ S.aim = S.lastAim = f; S.aiming = true; return; }
+  // ★★★★ 다이 안(천 위)을 눌러도 방향이 잡힌다 (위 aimAtPx 의 ★ 주석).
+  //   공·버튼·판독창·당점은 모두 위에서 걸러졌으니 여기 남은 것은 빈 천뿐이다.
+  if (!previewOn() && S.balls.cue){
+    const c = L.cloth;
+    if (px >= c.x && px <= c.x+c.w && py >= c.y && py <= c.y+c.h){
+      S.aimFree = 1;               // 끌면 따라온다
+      aimAtPx(px,py);              // 깜빡임 중이면 안 먹는다 — 그래도 끌기는 시작해 둔다
+    }
+  }
 }
 function move(px,py){
   if (S.tipPanel || S.thickPanel) return;
@@ -2085,6 +2122,7 @@ function move(px,py){
     S.pal.x = px; S.pal.y = py;
     return;
   }
+  if (S.aimFree){ aimAtPx(px,py); return; }        // ★ 다이 안 직접 지정 — 찍은 곳 그대로
   if (S.drag){
     // ★ 손가락이 이만큼 못 움직였으면 **끈 것이 아니라 탭**이다 (아래 up 의 두께판)
     if (S.dragAt && Math.hypot(px-S.dragAt[0], py-S.dragAt[1]) > BW*0.22) S.dragMoved = 1;
@@ -2262,7 +2300,7 @@ function up(px, py){
     if (c0 && S.drag !== 'obj1') setFirstObject(c0);
     if (c0) S.thickPanel = true;
   }
-  S.drag = null; S.dragMoved = 0; S.dragAt = null; S.aiming = false;
+  S.drag = null; S.dragMoved = 0; S.dragAt = null; S.aiming = false; S.aimFree = 0;
 }
 
 // 두께판을 탭했을 때
@@ -8423,7 +8461,7 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => { move(...pos(e)); });
 addEventListener('pointerup', e => up(...pos(e)));
 // 브라우저가 가로채면 놓지 말고 **그냥 취소**한다 (엉뚱한 자리에 공이 놓이면 안 된다)
-function cancelTouch(){ S.pal = null; S.drag = null; S.aiming = false; }
+function cancelTouch(){ S.pal = null; S.drag = null; S.aiming = false; S.aimFree = 0; }
 cv.addEventListener('pointercancel', cancelTouch);
 addEventListener('pointercancel', cancelTouch);
 
