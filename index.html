@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 394;
+const MOBILE_VER = 395;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1840,19 +1840,53 @@ function setFirstObject(c){
 // ⚠️ 수구에 너무 붙으면 방향이 튄다 — 공 두 개 거리 안쪽은 안 받는다.
 // ⚠️ 3초 깜빡임 잠금은 테두리 조준과 **같은 규칙**을 쓴다 (사용자 2026-08-12:
 //    '블링크 중에는 탭을 움직여도 무시').
+// ★★ 사용자 2026-08-18: '화살표 방향이동 20%로 줄여주세요'
+//   눌러서 **찍는 것은 그대로** (대충 방향), 그 뒤 **끄는 동안만** 20% 로 준다.
+//     누를 때  찍은 곳으로 한 번에 간다        — 멀리 옮기는 것이 느려지면 안 된다
+//     끌 때    손가락이 돈 각의 20% 만 따라온다 — 세우고 싶은 자리에 세운다
+//   ⚠️ 기준각을 **누른 순간에 붙잡아 둔다.** 매번 직전 각에 더하면 오차가 쌓여
+//      손을 떼고 다시 잡을 때마다 조준이 슬금슬금 밀린다.
+const AIM_TABLE_GAIN = 0.20;
+// 화면 좌표에서 수구→어디까지의 각. mm 는 y 가 뒤집혀 있어 섞으면 부호가 틀린다.
+function pxAngleTo(px, py){
+  const cue = S.balls.cue; if (!cue) return null;
+  const [cx,cy] = toPx(...cue.p);
+  const d = Math.hypot(px-cx, py-cy);
+  return d < 1e-6 ? null : Math.atan2(py-cy, px-cx);
+}
+function curAimPxAngle(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return null;
+  const [ax,ay] = toPx(...S.aim);
+  return pxAngleTo(ax, ay);
+}
+function setAimPxAngle(a){
+  const cue = S.balls.cue; if (!cue) return false;
+  const [cx,cy] = toPx(...cue.p);
+  const len = Math.max(L.cloth.w, L.cloth.h) * 1.5;
+  S.aim = S.lastAim = toMm(cx + Math.cos(a)*len, cy + Math.sin(a)*len);
+  S.dirSet = 1;                     // 손으로 정한 방향이다 (찾는 범위 5° 가 이걸 본다)
+  S.snapA = null; S.aimSnapped = 0;
+  autoTipSide();                    // ★ 도는 쪽으로 순회전 3팁 — 자동조정이 켜져 있을 때만
+  return true;
+}
+// 누를 때 — 찍은 쪽으로 바로 간다
 function aimAtPx(px, py){
   const cue = S.balls.cue;
   if (!cue) return false;
   if (blinking()) return false;
   const [cx,cy] = toPx(...cue.p);
-  const dx = px-cx, dy = py-cy, d = Math.hypot(dx,dy);
-  if (d < ballR()*2.2) return false;
-  const len = d + Math.max(L.cloth.w, L.cloth.h);
-  S.aim = S.lastAim = toMm(cx + dx/d*len, cy + dy/d*len);
-  S.dirSet = 1;                     // 손으로 정한 방향이다 (찾는 범위 5° 가 이걸 본다)
-  S.snapA = null; S.aimSnapped = 0;
-  autoTipSide();                    // ★ 도는 쪽으로 순회전 3팁 — 자동조정이 켜져 있을 때만
-  return true;
+  if (Math.hypot(px-cx, py-cy) < ballR()*2.2) return false;
+  const a = pxAngleTo(px, py);
+  return a === null ? false : setAimPxAngle(a);
+}
+// 끄는 동안 — 누른 자리를 기준으로 20% 만
+function aimDragPx(px, py){
+  if (blinking() || !S.aimFree) return false;
+  const a = pxAngleTo(px, py);
+  if (a === null) return false;
+  let d = ((a - S.aimFree.f + Math.PI*3) % (Math.PI*2)) - Math.PI;   // −π..π
+  return setAimPxAngle(S.aimFree.a + d * AIM_TABLE_GAIN);
 }
 
 // ─────────────────────────────── 두께판 (사용자 아이디어 ④ · 2026-08-18)
@@ -2108,8 +2142,10 @@ function down(px,py){
   if (!previewOn() && S.balls.cue){
     const c = L.cloth;
     if (px >= c.x && px <= c.x+c.w && py >= c.y && py <= c.y+c.h){
-      S.aimFree = 1;               // 끌면 따라온다
-      aimAtPx(px,py);              // 깜빡임 중이면 안 먹는다 — 그래도 끌기는 시작해 둔다
+      aimAtPx(px,py);              // 찍은 쪽으로 한 번에 (깜빡임 중이면 안 먹는다)
+      const f = pxAngleTo(px,py), a = curAimPxAngle();
+      // 끌기 기준 — 누른 순간의 손가락 각과 조준 각을 같이 붙잡아 둔다
+      if (f !== null && a !== null) S.aimFree = {f, a};
     }
   }
 }
@@ -2122,7 +2158,7 @@ function move(px,py){
     S.pal.x = px; S.pal.y = py;
     return;
   }
-  if (S.aimFree){ aimAtPx(px,py); return; }        // ★ 다이 안 직접 지정 — 찍은 곳 그대로
+  if (S.aimFree){ aimDragPx(px,py); return; }      // ★ 다이 안 직접 지정 — 손가락의 20%
   if (S.drag){
     // ★ 손가락이 이만큼 못 움직였으면 **끈 것이 아니라 탭**이다 (아래 up 의 두께판)
     if (S.dragAt && Math.hypot(px-S.dragAt[0], py-S.dragAt[1]) > BW*0.22) S.dragMoved = 1;
