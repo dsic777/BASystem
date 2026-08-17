@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 390;
+const MOBILE_VER = 391;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1289,7 +1289,7 @@ function drawAnswer(){
 const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:null,
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
-           blink:0, pal:null, routePage:0, listDrag:null,
+           blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
            noteList:false, notePage:0, verDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
@@ -1999,7 +1999,7 @@ function down(px,py){
     return;
   }
   const gb = ballAt(px,py);
-  if (gb){ S.drag = gb; blink(); return; }
+  if (gb){ S.drag = gb; blink(S.balls[gb].color); return; }   // 잡은 공만 깜박인다
   // 작은 시계판을 탭하면 크게 띄운다.
   // ⚠️ 탭 영역을 그림 크기(clockR)로 두면 못 누른다 — 폰에서 반경이 21 CSS px 밖에
   //    안 되는데 손가락 접촉은 40~50 px 다 (사용자: 'v90 안되는데요'). 넉넉히 잡는다.
@@ -2027,7 +2027,7 @@ function move(px,py){
     const [x,y] = toMm(px,py);
     S.balls[S.drag].p = separate(S.drag,
       [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)]);
-    blink();
+    blink(S.balls[S.drag].color);              // 끌고 있는 공만
   } else if (S.aiming){
     // ★★ 사용자 2026-08-12 —
     //   '탭 이동 중 3쿠션이 완성이 되면 **바로 블링크**. 이때는 탭을 누르고 있는 상태.
@@ -2154,7 +2154,7 @@ function up(px, py){
     if (!q.moved){
       const t = nowMs();
       if (S.palTap && S.palTap.c === q.c && t - S.palTap.t < DOUBLE_MS){
-        S.palTap = null; setFirstObject(q.c); blink(); return;
+        S.palTap = null; setFirstObject(q.c); blink(q.c); return;   // 1적구가 된 공만
       }
       S.palTap = {c: q.c, t};
     }
@@ -2164,7 +2164,7 @@ function up(px, py){
         const role = roleOf(q.c);
         S.balls[role] = {p: separate(role, [x,y]), color: q.c};
         S.place = null;
-        blink();
+        blink(q.c);                            // 방금 놓은 공만
       }
     }
   }
@@ -6653,7 +6653,9 @@ function drawBalls(){
     g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, r*0.12); g.stroke();
     // 수구는 금색 링을 **계속** 유지한다. 나머지는 방금 놓였을 때만 잠깐 깜박인다
     // (사용자 지시: 3초간 금색 테두리 블링크 후 지우기).
-    const on = k === 'cue' ? 1 : blinkAlpha();
+    const on = k === 'cue' ? 1
+             : (S.blinkC && S.blinkC !== b.color) ? 0    // 딴 공을 움직였다
+             : blinkAlpha();
     if (on > 0){
       g.save();
       g.globalAlpha = on;
@@ -6677,7 +6679,12 @@ function blinkAlpha(){
 }
 // ⚠️ const 화살표로 두면 선언 전에 불릴 때 화면이 통째로 죽는다 (전에 겪었다).
 //    함수 선언으로 둬서 끌어올려지게 한다.
-function blink(){ S.blink = Date.now() + 3000; }
+// ★★ 사용자 2026-08-18: '공 두번탭 전에 한개의 공을 이동하면 나머지도 깜박이는데
+//    해당되는 공만 깜박이면 됩니다.'
+//   → blink(색) 이면 **그 공만**, 그냥 blink() 면 전부 (섞기·판정 같은 전체 사건).
+//   ⚠️ 역할(cue/obj1/obj2)이 아니라 **색**으로 들고 있는다. 색 버튼 두 번 탭으로
+//      1적구를 바꾸면 역할 열쇠가 통째로 다시 붙기 때문이다 (setFirstObject).
+function blink(c){ S.blink = Date.now() + 3000; S.blinkC = c || null; }
 // ─────────────────────────────── 경로 리스트 (사용자 UI 안 · 2026-08-11)
 // '3칸 세로 2칸 해서 6개를 보여주면 어떨까요 (직접조준도 있으니 5개네요)'
 // '리스트 마지막에 직접조준'
