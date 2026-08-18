@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 406;
+const MOBILE_VER = 407;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2054,7 +2054,7 @@ function openTipPanel(){
               lastAim: S.lastAim ? S.lastAim.slice() : null,
               snapA:S.snapA, aimSnapped:S.aimSnapped, dirSet:S.dirSet,
               lockRails:S.lockRails, sysMode:S.sysMode,
-              aimScope:S.aimScope, magnet:S.magnet};
+              magnet:S.magnet};
   S.tipPanel = true;
 }
 function closeTipPanel(cancel){
@@ -2069,10 +2069,6 @@ function tapTipPanel(px,py){
       if (b.done){ closeTipPanel(!!b.cancel); return; }   // 이 둘만 나간다
       else if (b.magnet){                  // ★ 자석 켜기/끄기 (위 magnetPull 주석)
         S.magnet = S.magnet ? 0 : 1;
-      }
-      else if (b.scope){                   // ★ 360° ↔ 5° (위 PRESET 주석)
-        S.aimScope = (S.aimScope === 5) ? 360 : 5;
-        ROUTES = {key: null, list: null};  // 범위가 바뀌면 다시 찾는다
       }
       else if (b.auto){                    // ★ 자동조정을 다시 켠다 (위 PRESET 주석)
         // ⚠️ 안내(say)를 안 띄운다 — **당점판이 화면을 덮고 있어 뒤에 깔린다**
@@ -3661,12 +3657,8 @@ function placeKey(){
 function routeKey(){
   const pk = placeKey();
   if (pk === null) return null;
-  // ★ 찾는 범위가 5° 면 **방향까지 열쇠**다. 안 넣으면 캐시가 360° 결과를 그대로 준다.
-  const cue = S.balls.cue;
-  const d = (S.aimScope === 5 && S.dirSet && S.aim && cue)
-    ? '|D' + Math.round(Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]) * 180/Math.PI)
-    : '';
-  return S.corr + '|' + pk + '|' + (S.aimScope || 360) + d;
+  // ★ 훑기는 늘 360° 라 방향은 열쇠에 안 들어간다 (찾는 범위를 없앴다 — findRoutes 주석)
+  return S.corr + '|' + pk;
 }
 // ★ 추천 순서. 폭(허용오차)만으로 줄을 세우면 실전 순위와 안 맞는다 —
 //   두껍게 맞히는 길은 과녁이 커서 폭이 넓게 나오는데 실제로는 안 친다
@@ -3838,16 +3830,19 @@ function findRoutes(){
   //       사장님이 방향을 짚으면 그 문제 자체가 없어진다.
   //   ⚠️ 처음엔 **자동으로** 좁혔다가 사장님이 짚었다 — '추천은 2가지가 필요하다.
   //      최소 추천, 그리고 나도 몰랐던 기상천외한 경로.' 자동으로 좁히면 뒤엣것이 사라진다.
-  //   → **설정으로 고른다** (S.aimScope · 당점판에서 바꾼다).
-  //        360°  지금까지대로 전부 훑는다        몰랐던 길 · 학습
-  //          5°  내가 잡은 방향 좌우만            지금 치려는 것
-  //   ⚠️ 5° 는 **방향을 손으로 잡아 놓았을 때만** 걸린다 (S.dirSet). 안 잡았으면 360°.
+  //   → 그래서 '찾는 범위 360°/5°' 설정을 뒀었다. **2026-08-18 사장님 결정으로 없앴다** —
+  //      '5도로 찾으면 추천경로도 없고 조금 애매하기는 합니다' · '없앤다'
+  //     까닭 셋 (다 재 보고 확인한 것) —
+  //       ① **설정이 안 붙어 있었다.** tipAuto() 가 S.dirSet 을 지우는데 그 함수가
+  //          새 배치 · 랜덤 초구 · 추천 고르기에서 다 불린다. 그 순간 5° 는 360° 가 된다.
+  //          (사장님: '더블클릭하면 360도 기준으로 변경되어 버리고')
+  //       ② 붙어 있을 때는 목록이 거의 빈다 — 네 배치에서 23~25개 → 2~6개.
+  //       ③ 하던 일을 **두께판 15자리 · 다이 직접 지정 · 자석**이 가져갔다.
+  //          남은 목록의 값은 정반대다 — '나도 몰랐던 기상천외한 경로'.
+  //   ⚠️ 다시 좁히고 싶어지면 **거르지 말고 순서만** 바꾸는 쪽을 먼저 검토할 것.
+  //      (2026-08-18 에 한 번 그렇게 해 봤다가 설정 방식으로 갈아탔던 자리다)
   const WINDOWS = [];
-  if (S.aimScope === 5 && S.dirSet && S.aim){
-    const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
-    const half = AIM_WINDOW_DEG * Math.PI/180;
-    WINDOWS.push([a0 - half, 2*half]);
-  } else {
+  {
   const addWin = (q) => {
     const d = Math.hypot(q[0]-cue.p[0], q[1]-cue.p[1]);
     if (d < 1e-6) return;
@@ -5133,6 +5128,8 @@ const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Da
 //    지워졌다** — 그래서 궤적이 전혀 안 깜빡였다 (사용자 2026-08-12).
 function blinking(){ return !!S.rblink && nowMs() - S.rblink < BLINK_MS; }
 // 자동완성을 다시 살린다 — 새 배치 · 새 추천경로 (setTip 의 ★★★ 주석)
+// ⚠️ S.dirSet 은 '손으로 방향을 정했다' 는 표시다. 찾는 범위를 없앤 뒤로 **읽는 데가
+//    없다.** 지우지 않고 둔다 — 방향으로 무엇을 가를 일이 또 생기면 그때 쓴다.
 function tipAuto(){ S.tipLock = 0; S.aimSnapped = 0; S.dirSet = 0; }
 function pickRoute(r){
   tipAuto();                               // 추천을 고르면 그 경로의 당점이 주인이다
@@ -7405,8 +7402,9 @@ const PRESET = [
   //      바꿔주세요'). 자동조정·자석이 둘 다 켜기/끄기라 한 줄에 나란히 놓는 것이 맞다.
   //        자동조정 켜짐  │  자석 켜짐
   //        찾는 범위 360° │
-  {lb:'자석',        magnet: true, src:'2026-08-18 — 다이에서 누를 때 득점 각에 붙는다'},
-  {lb:'찾는 범위',    scope: true, src:'2026-08-18 — 360° 전부 · 5° 내가 잡은 방향만'}
+  {lb:'자석',        magnet: true, src:'2026-08-18 — 다이에서 누를 때 득점 각에 붙는다'}
+  // ⚠️ 여기 '찾는 범위 360°/5°' 가 있었다. 2026-08-18 사장님 결정으로 뺐다 —
+  //    findRoutes 의 ⚠️ 주석에 까닭 셋을 적어 두었다.
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
@@ -7547,9 +7545,7 @@ function tipGeom(){
   const bh = Math.round((band - gap*(nRow-1)) / nRow);
   const y0 = Math.round(h*0.30);
   // ★ 설정 줄은 지금 값을 글씨에 붙여 보여준다 (2026-08-18)
-  const rows = PRESET.map(q => q.scope ? {...q, lb: '찾는 범위  ' +
-                    ((S.aimScope === 5) ? '5°' : '360°')}
-                   : q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
+  const rows = PRESET.map(q => q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
                    : q);
   const hw = Math.round((bw - gap) / 2);
