@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 411;
+const MOBILE_VER = 412;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1301,7 +1301,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
-           tipBak:null, aimMode:0, powDown:null, keepShot:0,
+           tipBak:null, aimMode:0, powDown:null, keepShot:0, cueSwap:0,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -1657,15 +1657,7 @@ function tapButton(px,py){
         setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2000);
       }, 300);
     }
-    else if (b.lb === 'swap'){
-      // ⚠️ S.cueWhite 만 뒤집으면 안 된다. 공은 역할(cue/obj1)로 담겨 있어서
-      //    깃발만 바꾸면 화면의 노란 링이 엉뚱한 공에 남는다 (사용자 지적).
-      //    흰공·노란공의 자리와 색을 통째로 맞바꾼다.
-      S.cueWhite = !S.cueWhite;
-      const a = S.balls.cue, b2 = S.balls.obj1;
-      if (a) S.balls.obj1 = a; else delete S.balls.obj1;
-      if (b2) S.balls.cue = b2; else delete S.balls.cue;
-    }
+    else if (b.lb === 'swap') swapCue();   // ★ 자동 전환과 같은 길로 (swapCue 주석)
     else if (['white','yellow','red'].includes(b.lb)){
       S.place = S.place === b.lb ? null : b.lb;
       // 손가락으로 끌어다 놓기도 된다 (사용자 지시). 탭 방식은 그대로 남긴다 —
@@ -1841,6 +1833,38 @@ function reassignRoles(){
   const nb = {};
   for (const c in byColor) nb[roleOf(c)] = byColor[c];
   S.balls = nb;
+}
+// ★★★★ 이 샷이 **득점인가** (사용자 2026-08-18: '지금 쿠션이 성공인지 실패인지
+//   알고 있나요'). 반만 알고 있었다 — 엔진은 '2적구를 맞았다'(scored)만 냈고
+//   쿠션 수는 세지 않았다. 여기서 규칙대로 센다.
+//
+//   3쿠션 규칙 — **수구가 두 번째 적구에 닿기 전에 쿠션을 3회 이상 맞는다.**
+//   어느 적구를 먼저 맞든 상관없다. 그래서 **뱅크샷도 이 셈 하나로 판정된다**
+//   (쿠션이 앞에 오는 것뿐이다). 사장님: '뱅크샷의 경우는 아직 해결방법을 못찾았어요'
+//   → 따로 풀 것이 없다. 규칙이 하나다.
+//
+//   ⚠️ 시뮬레이션은 근사다. 아슬아슬한 샷은 틀릴 수 있다 — 판정을 점수에 쓰지 말 것.
+//      여기서는 '수구를 넘길까 말까' 하나에만 쓴다.
+function shotScored(EP){
+  if (!EP || !EP.scored || EP.scoreIdx <= 0) return false;
+  let rails = 0;
+  for (let i = 0; i < EP.scoreIdx && i < EP.cue.k.length; i++)
+    if (EP.cue.k[i] === 'rail') rails++;
+  return rails >= 3;
+}
+// ★★★★ 공수전환 — 실패하면 수구를 상대 공으로 넘긴다 (사용자 2026-08-18):
+//   '배치를 보고 수구를 겨냥할 경우 한 번만 설정을 하고 무조건 시뮬레이션을 돌린다고
+//    가정하고, 실패시 자동으로 수구가 전환되는 기능입니다. 프로그램을 빨리 익히는
+//    방법도 되고 재미가 가중이 될 텐데'
+//   ⚠️ 색으로 다시 배정한다 (reassignRoles). 역할 열쇠를 손으로 맞바꾸면
+//      **빨강이 1적구일 때 빨강이 수구가 되어 버린다** (v390 이후 생긴 자리다).
+function swapCue(){
+  S.cueWhite = !S.cueWhite;
+  S.obj1c = null;                     // 넘어갔으니 1적구 지정은 뜻이 없다
+  reassignRoles();
+  ROUTES = {key: null, list: null};
+  S.routeIx = -1; S.lockRails = null; S.snapA = null;
+  tipAuto();
 }
 // 색 버튼을 두 번 탭 — 그 공을 1적구로. 흰·노랑이면 나머지가 수구가 된다
 function setFirstObject(c){
@@ -2070,7 +2094,7 @@ function openTipPanel(){
               lastAim: S.lastAim ? S.lastAim.slice() : null,
               snapA:S.snapA, aimSnapped:S.aimSnapped, dirSet:S.dirSet,
               lockRails:S.lockRails, sysMode:S.sysMode,
-              magnet:S.magnet, keepShot:S.keepShot};
+              magnet:S.magnet, keepShot:S.keepShot, cueSwap:S.cueSwap};
   S.tipPanel = true;
 }
 function closeTipPanel(cancel){
@@ -2088,6 +2112,9 @@ function tapTipPanel(px,py){
       }
       else if (b.keep){                    // ★ 이어치기 켜기/끄기 (위 PRESET 주석)
         S.keepShot = S.keepShot ? 0 : 1;
+      }
+      else if (b.swap){                    // ★ 수구전환 켜기/끄기 (위 PRESET 주석)
+        S.cueSwap = S.cueSwap ? 0 : 1;
       }
       else if (b.none){ /* 빈 칸 — 나중에 쓸 자리 */ }
       else if (b.auto){                    // ★ 자동조정을 다시 켠다 (위 PRESET 주석)
@@ -6897,6 +6924,8 @@ function drawPath(){
           tipAuto();
           blink();
         }
+        // ★★★★ 수구전환 — **실패했을 때만** 상대 공으로 넘긴다 (swapCue 주석)
+        if (S.cueSwap && !shotScored(EP)) swapCue();
         S.anim = 0; S.sim = null;
       }
     }
@@ -7470,7 +7499,9 @@ const PRESET = [
   //   '시뮬레이션 후 전 배치로 돌아가는데, 결과 후 계속 칠 수 있게 그대로 두는 기능입니다.'
   //   → 켜 두면 공이 선 자리를 **그대로 S.balls 에 옮겨 적는다.** 실제 경기처럼 이어진다.
   {lb:'이어치기',   keep: true,   src:'2026-08-18 — 굴린 자리에 공을 그대로 둔다'},
-  {lb:'미사용',    none: true},
+  // ★★★★ 수구전환 (사용자 2026-08-18) — 실패하면 수구가 상대 공으로 넘어간다.
+  //   꺼짐은 한 공으로 계속 치기, 켜짐은 자동 전환. **실패했을 때만** 넘긴다.
+  {lb:'수구전환',   swap: true,   src:'2026-08-18 — 실패하면 공수전환'},
   {lb:'미사용',    none: true},
   {lb:'미사용',    none: true}
 ];
@@ -7615,6 +7646,7 @@ function tipGeom(){
   // ★ 설정 줄은 지금 값을 글씨에 붙여 보여준다 (2026-08-18)
   const rows = PRESET.map(q => q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
                    : q.keep ? {...q, lb: '이어치기  ' + (S.keepShot ? '켜짐' : '꺼짐')}
+                   : q.swap ? {...q, lb: '수구전환  ' + (S.cueSwap ? '켜짐' : '꺼짐')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
                    : q);
   const hw = Math.round((bw - gap) / 2);
