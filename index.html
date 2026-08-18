@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 435;
+const MOBILE_VER = 436;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2281,6 +2281,16 @@ function tapTipPanel(px,py){
 function down(px,py){
   // ★ 뿌리는 중이면 어디를 눌러도 끝까지 굴려 확정한다 (기다리기 싫을 때)
   if (S.scatter){ scatterFinish(); blink(); return; }
+  // ★★ 시범경기 중에는 **아무 데나 탭하면 멈춘다** (사용자 2026-08-19:
+  //   '시범중 임의의 탭을 누르면 중지'). 이 탭은 멈추는 데만 쓴다 — 다른 것은 안 한다.
+  //   ⚠️ 굴러가는 중이면 그 샷은 **끝까지 굴린다.** 공이 도로 튀어 돌아가면 더 이상하다.
+  //      아직 안 굴렀으면(배치·큰 그림) 그 자리에서 접는다.
+  //   성적은 지우지 않는다 — '멈춤 12점 / 47이닝' 으로 그대로 남는다.
+  if (S.solo && !S.tipPanel && !S.thickPanel){
+    S.solo = 0;
+    if (S.card || S.showPlace){ S.card = 0; S.wantCard = 0; S.showPlace = 0; }
+    return;
+  }
   if (S.tipPanel){ tapTipPanel(px,py); return; }
   if (S.thickPanel){ tapThickPanel(px,py); return; }
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
