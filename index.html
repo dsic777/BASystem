@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 400;
+const MOBILE_VER = 401;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -150,13 +150,24 @@ const COL = {aim:'#fafafa', c12:'#ffd600', c23:'#6eeb5a', after:'#ebf0fa',
 //   ⚠️ 1쿠션 하늘색은 파란 천과 **같은 계열**이라 특히 안 보인다 (1.5:1).
 //      천을 파랑으로 다시 가려면 그 색부터 바꿔야 한다.
 const FELT = '#24272c', FELT_HI = '#31353c', FELT_EDGE = '#15171a';
+// #rrggbb 를 흰색 쪽으로 k 만큼 (0=그대로 · 1=흰색)
+function lighten(hex, k){
+  const n = parseInt(hex.slice(1), 16);
+  const f = v => Math.round(v + (255-v)*k);
+  return 'rgb(' + f(n>>16 & 255) + ',' + f(n>>8 & 255) + ',' + f(n & 255) + ')';
+}
 // #rrggbb 를 k 배로 어둡게
 function shade(hex, k){
   const n = parseInt(hex.slice(1), 16);
   const f = v => Math.round(v*k);
   return 'rgb(' + f(n>>16 & 255) + ',' + f(n>>8 & 255) + ',' + f(n & 255) + ')';
 }
-const TONE = {white:'#f6f5ee', yellow:'#f0be28', red:'#d6342c'};
+// ★★ 사용자 2026-08-18 (51.jpg): '공들이 좀 어두워졌어요. 빛나는 아주 노란공
+//   아주 흰공 아주 빨간공으로 부탁해요. 깨끗하게 닦은 공으로.'
+//   ⚠️ 어두워 보인 까닭이 색이 아니라 **칠하는 방식**에도 있었다 —
+//      테두리를 shade(base,0.42) 로 58% 나 깎고 그 위에 검은 선까지 둘렀다.
+//      그래서 공 둘레가 늘 거무스름했다. 아래 drawBallAt 에서 같이 고쳤다.
+const TONE = {white:'#fffef9', yellow:'#ffd016', red:'#f7392c'};
 // 수구 링 — 보라. 노란 링은 노란 공과 헷갈렸다 (사용자 2026-08-18)
 const CUE_RING = '#b388ff';
 
@@ -6530,18 +6541,7 @@ function playMoving(pl){
 //     수구의 금색 링도 그대로 달고 굴러간다 — 어느 것이 내 공인지 계속 보인다.
 function simBall(p, color, R, isCue){
   const [x,y] = toPx(...p);
-  g.save();
-  g.fillStyle = 'rgba(0,0,0,0.45)';
-  g.beginPath(); g.ellipse(x+R*0.12, y+R*0.30, R*0.95, R*0.42, 0, 0, 7); g.fill();
-  g.restore();
-  const base = TONE[color] || '#fff';
-  const sph = g.createRadialGradient(x-R*0.34, y-R*0.38, R*0.05, x, y, R*1.06);
-  sph.addColorStop(0,   '#ffffff');
-  sph.addColorStop(0.30, base);
-  sph.addColorStop(1,   shade(base, 0.42));
-  g.fillStyle = sph;
-  g.beginPath(); g.arc(x,y,R,0,7); g.fill();
-  g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, R*0.12); g.stroke();
+  drawBallAt(x, y, R, color);      // ★ 놓인 공과 같은 것으로 (drawBallAt 주석)
   if (isCue){
     // ★ 수구 금색 링을 **1/3로** 줄인다 (사용자 2026-08-17: '시뮬레이션시 수구 테두리
     //   3/1로 줄이세요. 너무 큰 공이 움직이는 것 같아서 현실감이 떨어져요').
@@ -6905,22 +6905,9 @@ function drawBalls(){
   if (S.anim) return;
   for (const k in S.balls){
     const b = S.balls[k], [x,y] = toPx(...b.p), rr = ballR();
-    // ⚠️ 검은 천에서는 검은 테두리가 안 보인다. 하이라이트와 접지 그림자로 띄운다.
-    g.save();
-    g.fillStyle = 'rgba(0,0,0,0.45)';
-    g.beginPath(); g.ellipse(x+rr*0.12, y+rr*0.30, rr*0.95, rr*0.42, 0, 0, 7); g.fill();
-    g.restore();
-    const base = TONE[b.color] || '#fff';
-    const sph = g.createRadialGradient(x-rr*0.34, y-rr*0.38, rr*0.05, x, y, rr*1.06);
-    sph.addColorStop(0,   '#ffffff');
-    sph.addColorStop(0.30, base);
-    sph.addColorStop(1,   shade(base, 0.42));
-    g.fillStyle = sph;
-    g.beginPath(); g.arc(x,y,rr,0,7); g.fill();
-    // ⚠️ 폰에서 공이 작아 얇은 테두리는 안 보인다. 수구는 **공 바깥에 굵은 링**을
-    //    따로 그려 확실히 구분한다 (사용자 지적: 수구 테두리가 안 보인다).
-    const r = ballR();
-    g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, r*0.12); g.stroke();
+    // ★ 그리는 일은 drawBallAt 하나가 한다 (위 ★★★★ 주석). 여기는 수구 링만.
+    drawBallAt(x, y, rr, b.color);
+    const r = rr;
     // 수구는 금색 링을 **계속** 유지한다. 나머지는 방금 놓였을 때만 잠깐 깜박인다
     // (사용자 지시: 3초간 금색 테두리 블링크 후 지우기).
     const on = k === 'cue' ? 1
@@ -7734,18 +7721,40 @@ function roundRect(x, y, w, h, r){
   g.closePath();
 }
 
-// 다이의 공과 같은 모양으로 하나 그린다 (drawBalls 와 같은 규칙)
+// ★★★★ 공은 **여기 하나**에서만 그린다 (다이 · 시뮬레이션 · 두께판이 다 부른다).
+//   전에는 세 군데에 같은 코드가 흩어져 있어 한 곳만 고치면 서로 달라졌다.
+//
+// ★ '깨끗하게 닦은 공' 으로 보이게 하는 것 네 가지 (사용자 2026-08-18) —
+//     ① 둘레를 덜 깎는다        shade 0.42 → 0.74. 58% 를 깎으니 늘 거무스름했다
+//        (사용자가 한 번 더 '좀 더 밝았으면' 하여 0.62 에서 0.74 로 올렸다)
+//     ② 반사광을 넣는다          아래 바깥쪽이 살짝 밝다. 이것이 광택의 핵심이다
+//     ③ 광점을 또렷하게          작고 하얀 점 하나
+//     ④ 검은 테두리를 줄인다     0.12r 검정 → 0.055r. 굵은 검정이 공을 먹고 있었다
 function drawBallAt(x, y, r, color){
   g.save();
-  g.fillStyle = 'rgba(0,0,0,0.45)';
+  g.fillStyle = 'rgba(0,0,0,0.38)';
   g.beginPath(); g.ellipse(x+r*0.12, y+r*0.30, r*0.95, r*0.42, 0, 0, 7); g.fill();
   g.restore();
   const base = TONE[color] || '#fff';
-  const sph = g.createRadialGradient(x-r*0.34, y-r*0.38, r*0.05, x, y, r*1.06);
-  sph.addColorStop(0,'#ffffff'); sph.addColorStop(0.30, base);
-  sph.addColorStop(1, shade(base, 0.42));
-  g.fillStyle = sph; g.beginPath(); g.arc(x,y,r,0,7); g.fill();
-  g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, r*0.10); g.stroke();
+  const sph = g.createRadialGradient(x-r*0.30, y-r*0.34, r*0.04, x, y, r*1.02);
+  sph.addColorStop(0,    '#ffffff');
+  sph.addColorStop(0.22, lighten(base, 0.62));
+  sph.addColorStop(0.58, base);
+  sph.addColorStop(1,    shade(base, 0.74));
+  g.fillStyle = sph;
+  g.beginPath(); g.arc(x,y,r,0,7); g.fill();
+  g.save();
+  g.beginPath(); g.arc(x,y,r,0,7); g.clip();
+  const rim = g.createRadialGradient(x+r*0.36, y+r*0.46, r*0.02,
+                                     x+r*0.30, y+r*0.40, r*0.95);
+  rim.addColorStop(0, 'rgba(255,255,255,0.38)');
+  rim.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rim; g.fillRect(x-r, y-r, r*2, r*2);
+  g.restore();
+  g.beginPath(); g.arc(x-r*0.31, y-r*0.35, r*0.135, 0, 7);
+  g.fillStyle = 'rgba(255,255,255,0.95)'; g.fill();
+  g.strokeStyle = 'rgba(14,16,20,0.60)'; g.lineWidth = Math.max(1, r*0.045);
+  g.beginPath(); g.arc(x,y,r,0,7); g.stroke();
 }
 
 // 당점 시계판 하나 (당점판의 공과 같은 눈금 — 값은 S 하나를 같이 쓴다)
