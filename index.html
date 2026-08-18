@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 401;
+const MOBILE_VER = 402;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7481,7 +7481,9 @@ function tipClock(dir, r){
 
 // ⚠️ 세로 자리를 0.10h ~ 0.84h 안에만 둔다. 폰 화면이 캔버스보다 짧게 보이는
 //    경우가 있어서(7.jpg — 공 아래와 마지막 버튼이 잘렸다) 위아래를 넉넉히 비운다.
-const TIP_TOP = 0.10, TIP_BOT = 0.84;
+// ⚠️ 0.84 → 0.828. 입체 그림자가 버튼 아래로 더 나가서, 맨 아랫줄('조정 완료')이
+//    안전선을 넘어 잘렸다 (46.jpg 에서 겪은 것과 같은 자리다).
+const TIP_TOP = 0.10, TIP_BOT = 0.828;
 function tipGeom(){
   const w = L.w, h = L.h;
   const R  = Math.min(h*0.37, w*0.24);
@@ -7684,22 +7686,8 @@ function drawThickPanel(){
   // ★ 입체감 (사용자 2026-08-18) — 눌리는 물건처럼 보이게.
   //   바닥 그림자 → 위아래 그러데이션 → 윗면 하이라이트 한 줄 → 테두리.
   for (const b of q.btn){
-    const rr = Math.round(b.h*0.22), dz = Math.max(3, b.h*0.09);
-    g.save();
-    g.fillStyle = 'rgba(0,0,0,0.55)';
-    roundRect(b.x, b.y + dz, b.w, b.h, rr); g.fill();
-    g.restore();
-    const gr = g.createLinearGradient(0, b.y, 0, b.y + b.h);
-    if (b.ok){ gr.addColorStop(0,'#6fe08a'); gr.addColorStop(0.5,'#2f9c50'); gr.addColorStop(1,'#14602f'); }
-    else     { gr.addColorStop(0,'#9aa2b4'); gr.addColorStop(0.5,'#5a6070'); gr.addColorStop(1,'#2c3038'); }
-    g.fillStyle = gr; roundRect(b.x, b.y, b.w, b.h, rr); g.fill();
-    g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = Math.max(1.5, b.h*0.035);
-    g.beginPath();
-    g.moveTo(b.x + rr, b.y + g.lineWidth*0.8);
-    g.lineTo(b.x + b.w - rr, b.y + g.lineWidth*0.8);
-    g.stroke();
-    g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(1.5, b.h*0.030);
-    roundRect(b.x, b.y, b.w, b.h, rr); g.stroke();
+    if (b.ok) btn3D(b, '#6fe08a', '#2f9c50', '#14602f');
+    else      btn3D(b, '#9aa2b4', '#5a6070', '#2c3038');
     g.fillStyle = '#ffffff';
     g.font = '800 ' + Math.round(b.h*0.42) + 'px system-ui, sans-serif';
     g.lineJoin = 'round'; g.strokeStyle = 'rgba(8,10,14,0.55)'; g.lineWidth = Math.max(2, b.h*0.05);
@@ -7707,6 +7695,29 @@ function drawThickPanel(){
     g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
   }
   g.restore();
+}
+
+// ★★ 입체 버튼 하나 — **두께판·당점판이 같이 쓴다** (사용자 2026-08-18: 53.jpg
+//   '버튼 입체감 넣어주세요'). 완료·취소에만 넣었더니 당점판만 납작하게 남았다.
+//   바닥 그림자 → 위아래 그러데이션 → 윗면 하이라이트 한 줄 → 어두운 테두리.
+//   ⚠️ 그림자가 아래로 dz 만큼 더 나간다. 맨 아랫줄이 안전선을 안 넘게 자리를 잡을 것.
+function btn3D(b, top, mid, bot, edge){
+  const rr = Math.round(b.h*0.22), dz = Math.max(3, b.h*0.09);
+  g.save();
+  g.fillStyle = 'rgba(0,0,0,0.55)';
+  roundRect(b.x, b.y + dz, b.w, b.h, rr); g.fill();
+  g.restore();
+  const gr = g.createLinearGradient(0, b.y, 0, b.y + b.h);
+  gr.addColorStop(0, top); gr.addColorStop(0.5, mid); gr.addColorStop(1, bot);
+  g.fillStyle = gr; roundRect(b.x, b.y, b.w, b.h, rr); g.fill();
+  let lw = Math.max(1.5, b.h*0.035);
+  g.strokeStyle = 'rgba(255,255,255,0.50)'; g.lineWidth = lw;
+  g.beginPath();
+  g.moveTo(b.x + rr, b.y + lw*0.8);
+  g.lineTo(b.x + b.w - rr, b.y + lw*0.8);
+  g.stroke();
+  g.strokeStyle = edge || 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(1.5, b.h*0.030);
+  roundRect(b.x, b.y, b.w, b.h, rr); g.stroke();
 }
 
 // 모서리 둥근 네모 — 입체 버튼용
@@ -7878,12 +7889,11 @@ function drawTipPanel(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   for (const b of q.btn){
     const on = !b.done && b.dir === S.tipDir && b.r === S.tipR;
-    // '조정 완료' 는 나가는 버튼이라 눈에 띄게 채운다
-    g.fillStyle   = b.done ? '#c8a23a' : (on ? '#3a4150' : '#22252b');
-    g.strokeStyle = b.done ? '#ffdd33' : (on ? '#ffdd33' : '#3a3e46');
-    g.lineWidth   = b.done ? 2.5 : (on ? 3 : 1.5);
-    g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
-    g.fillStyle = b.done ? '#1a1508' : (on ? '#ffe98a' : '#dfe3ea');
+    // '조정 완료' 는 나가는 버튼이라 눈에 띄게 채운다 (위 btn3D 주석)
+    if (b.done)   btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
+    else if (on)  btn3D(b, '#8b97b0', '#3a4150', '#171a21', '#ffdd33');
+    else          btn3D(b, '#5b626e', '#2b2f37', '#15171c');
+    g.fillStyle = b.done ? '#1a1508' : (on ? '#ffe98a' : '#eef1f6');
     // ★ 칸이 반으로 좁아졌다 — 글씨가 넘치면 줄인다 (2026-08-18)
     let bf = b.h*0.44;
     for (let k = 0; k < 10; k++){
