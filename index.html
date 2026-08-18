@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 405;
+const MOBILE_VER = 406;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7377,7 +7377,9 @@ const TIP_RING = [{r:3, step:1}, {r:2, step:2}, {r:1, step:6}];
 // ★ 사용자 데이터에 실제로 적혀 있는 당점만 넣는다. 내가 만든 조합은 없다.
 const PRESET = [
   {lb:'파이브앤하프', dir: 5, r: 3, src:'★ 사용자 확정 2026-08-10 — 2시30분 3팁 (2단과 3단 가운데)'},
-  {lb:'무회전 뱅크',  dir: 0, r: 3, src:'systems.json  12시 2~3팁 · 좌우 회전 0'},
+  // ★ 이름을 '무 회 전' 로 (사용자 2026-08-18: '무회전 뱅크는 뱅크만 되는 것 같잖아요').
+  //   좌우 회전 0 인 당점 그 자체다 — 뱅크에서만 쓰는 것이 아니다.
+  {lb:'무 회 전',   dir: 0, r: 3, src:'systems.json  12시 2~3팁 · 좌우 회전 0'},
   {lb:'끌어치기',     dir:10, r: 3, src:'kiss.json  일자배치 5시 (하단 3팁)'},
   {lb:'중단 기준',    dir: 0, r: 0, src:'separation.json  자연 분리각 45도'},
   // ★★★★ 자동조정 — 손으로 당점을 만지면 꺼진다(v336). **다시 켜는 자리**가 없었다.
@@ -7530,7 +7532,7 @@ function tipGeom(){
   const band = h*(TIP_BOT - 0.30), gap = Math.round(h*0.016);
   // ★ **한 줄에 두 개씩** (사용자 2026-08-18: '한줄에 두개씩 넣어도 되요').
   //   일곱 칸을 한 줄씩 넣으면 칸이 얇아진다. 둘씩 넣으면 네 줄이라 오히려 커진다.
-  //     파이브앤하프 · 무회전 뱅크 / 끌어치기 · 중단 기준 / 자동조정 · 찾는 범위
+  //     파이브앤하프 · 무 회 전 / 끌어치기 · 중단 기준 / 자동조정 · 자석 / 찾는 범위
   //     조정 완료는 한 줄 전체
   const nRow = Math.ceil(PRESET.length / 2) + 1;
   const bh = Math.round((band - gap*(nRow-1)) / nRow);
