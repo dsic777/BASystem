@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 402;
+const MOBILE_VER = 403;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1911,10 +1911,12 @@ function aimAtPx(px, py){
 //   두께는 각이 정해지면 따라온다 — 그래서 '두께와 당점도 자동' 이 이걸로 된다.
 //   1적구도 따로 안 고른다 — 두께·기울기는 **실제로 먼저 맞는 공**을 보고 적는다.
 // ⚠️ 다른 것 둘만 바꾼다 —
-//   ① **배치마다 한 번만** 규칙(S.aimSnapped)을 끄는 동안에는 안 쓴다.
-//      끌 때마다 붙어야 '붙여주는' 것이 된다. 싫으면 자석 자체를 끈다.
-//   ② **3초 깜빡임 잠금을 안 건다.** 끄는 도중에 3초씩 손이 묶이면 못 쓴다.
-// ⚠️ 다이 안에서 끌 때만 건다. 테두리(프레임)는 미세조정 자리라 그대로 둔다.
+//   ① **배치마다 한 번만** 규칙(S.aimSnapped)을 안 쓴다. 누를 때마다 새로 붙는다.
+//   ② **3초 깜빡임 잠금을 안 건다.** 붙을 때마다 3초씩 손이 묶이면 못 쓴다.
+// ⚠️⚠️ **누를 때 한 번만** 건다. 끄는 동안에는 절대 부르지 않는다 —
+//    끌면서 부르면 못 맞히는 각마다 끌어당겨 값이 하나에 고정된다 (aimDragPx 주석).
+//    이것 때문에 1쿠션 40 과 42 사이를 못 그렸다 (54·55.jpg).
+// ⚠️ 다이 안에서만. 테두리(프레임)는 미세조정 자리라 그대로 둔다.
 function magnetPull(){
   if (!S.magnet) return false;
   const sn = S.aimSnapped, rb = S.rblink;
@@ -1929,9 +1931,13 @@ function aimDragPx(px, py){
   const a = pxAngleTo(px, py);
   if (a === null) return false;
   let d = ((a - S.aimFree.f + Math.PI*3) % (Math.PI*2)) - Math.PI;   // −π..π
-  const ok = setAimPxAngle(S.aimFree.a + d * AIM_TABLE_GAIN);
-  if (ok) magnetPull();              // ★ 득점하는 각이면 거기에 붙는다 (위 주석)
-  return ok;
+  // ⚠️⚠️ 여기서 자석을 부르면 **끌기가 통째로 죽는다** (사용자 2026-08-18:
+  //   '54와 55 사이를 못그려요 조정이 않되요' — 1쿠션 40 과 42 사이 41 을 못 잡았다).
+  //   못 맞히는 각마다 가까운 득점 각으로 끌어가므로, 80도를 쓸어도 값이 **하나에
+  //   고정**된다. Node 로 재 보니 자석 켜고 끌면 멈춘 값이 1가지, 끄면 12가지였다.
+  //   → 자석은 **누를 때 한 번만** 건다 (aimAtPx 쪽). 끄는 동안은 손에 맡긴다.
+  //     '대충 눌러 길을 잡고, 끌어서 다듬는다' 가 된다.
+  return setAimPxAngle(S.aimFree.a + d * AIM_TABLE_GAIN);
 }
 
 // ─────────────────────────────── 두께판 (사용자 아이디어 ④ · 2026-08-18)
