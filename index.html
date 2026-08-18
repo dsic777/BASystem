@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 414;
+const MOBILE_VER = 415;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1302,6 +1302,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
            tipBak:null, aimMode:0, powDown:null, keepShot:0, cueSwap:0,
+           solo:0, soloStat:null,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -1868,6 +1869,37 @@ function swapCue(){
   S.routeIx = -1; S.lockRails = null; S.snapA = null;
   tipAuto();
 }
+// ★★★★ 혼자치기 (사용자 2026-08-18 승인: '네 이거 점점 재미있어 지네요') —
+//   추천 1번을 골라 굴리고, 공이 선 자리에서 다시 추천 1번을 골라 또 굴린다.
+//   성공하면 이어서, 실패하면 수구를 넘겨서. 실제 경기와 같은 순서다.
+//
+//   ★ 왜 만드나 — rank() 를 못 고치던 까닭이 '판정 자료가 300건은 있어야 한다' 였다.
+//     혼자치기는 **수백 이닝을 몇 분에** 쌓는다. 사람 판정과는 다른 자료지만
+//     '추천 1번으로 실제 득점이 나오나' 라는 그 질문에는 이것이 정답지다.
+//   ⚠️ 시뮬레이션은 근사다. 아슬아슬한 샷은 틀린다. 여기서 나오는 득점률은
+//      **이 엔진 안에서의 성공률**이지 실제 다이의 성공률이 아니다.
+//      추천 A와 B 중 어느 쪽이 나은지 **견주는 데만** 쓸 것.
+//   ⚠️ 자리를 안 옮기면 같은 배치를 영원히 반복한다. 그래서 혼자치기는
+//      이어치기·수구전환을 **강제로 켠다** (버튼도 같이 켜져 보인다).
+const SOLO_MAX = 300;                    // 이만큼 치면 스스로 멈춘다 (영영 도는 것 막기)
+function soloStart(){
+  S.solo = 1;
+  S.keepShot = 1; S.cueSwap = 1;         // 이 둘이 없으면 혼자치기가 성립 안 한다
+  S.soloStat = {shots:0, made:0, run:0, best:0};
+  soloNext();
+}
+function soloNext(){
+  if (!S.solo) return;
+  if (S.soloStat && S.soloStat.shots >= SOLO_MAX){ S.solo = 0; return; }
+  let list = null;
+  try { list = findRoutes(); } catch(e){ list = null; }
+  if (!list || !list.length){ S.solo = 0; return; }   // 칠 길이 없으면 멈춘다
+  pickRoute(list[0]);
+  S.routeIx = 0;                         // 추천 1번을 치는 중이다 (판독창·판정이 이걸 본다)
+  S.rblink = 0;                          // 3초 잠금은 안 건다 — 혼자 치는 중이다
+  // ⚠️ performance.now() 가 0 이면 깃발이 안 켜진다. 시각을 깃발로 쓰는 자리라 || 1 을 붙인다.
+  S.anim = performance.now() || 1; S.sim = null;
+}
 // 색 버튼을 두 번 탭 — 그 공을 1적구로. 흰·노랑이면 나머지가 수구가 된다
 function setFirstObject(c){
   if (c === 'white' || c === 'yellow') S.cueWhite = (c !== 'white');
@@ -2097,6 +2129,7 @@ function openTipPanel(){
               snapA:S.snapA, aimSnapped:S.aimSnapped, dirSet:S.dirSet,
               lockRails:S.lockRails, sysMode:S.sysMode,
               magnet:S.magnet, keepShot:S.keepShot, cueSwap:S.cueSwap};
+  // ⚠️ 혼자치기는 되돌리지 않는다 — 취소로 굴러가던 것이 멈추면 더 이상하다
   S.tipPanel = true;
 }
 function closeTipPanel(cancel){
@@ -2117,6 +2150,9 @@ function tapTipPanel(px,py){
       }
       else if (b.swap){                    // ★ 수구전환 켜기/끄기 (위 PRESET 주석)
         S.cueSwap = S.cueSwap ? 0 : 1;
+      }
+      else if (b.solo){                    // ★ 혼자치기 (위 soloStart 주석)
+        if (S.solo) S.solo = 0; else { closeTipPanel(false); soloStart(); return; }
       }
       else if (b.none){ /* 빈 칸 — 나중에 쓸 자리 */ }
       else if (b.auto){                    // ★ 자동조정을 다시 켠다 (위 PRESET 주석)
@@ -2263,7 +2299,7 @@ function down(px,py){
   if (!previewOn()){
     // 시뮬레이션 공을 먼저 본다 (당점 공보다 오른쪽에 붙어 있다)
     const [sx,sy] = simCenter(), CRr = clockR();
-    if (Math.hypot(px-sx, py-sy) <= CRr*1.25){ S.anim = performance.now(); S.sim = null; return; }
+    if (Math.hypot(px-sx, py-sy) <= CRr*1.25){ S.anim = performance.now() || 1; S.sim = null; return; }
     const [cx,cy] = tipCenter();
     if (Math.hypot(px-cx, py-cy) <= CRr*1.6){ openTipPanel(); return; }
   }
@@ -2632,6 +2668,7 @@ function draw(){
     drawClock();
   }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList();
+  drawSoloStat();
   drawNoteList(); drawTipPanel(); drawThickPanel();
   drawDebugXY();
   requestAnimationFrame(draw);
@@ -6935,7 +6972,15 @@ function drawPath(){
         //   사용자 2026-08-18: '시뮬레이션 후 전 배치로 돌아가는데, 결과 후 계속
         //   칠 수 있게 그대로 두는 기능입니다.'
         //   ⚠️ 배치가 바뀌었으니 추천·회로·자동완성을 새 배치 기준으로 되살린다.
-        if (S.keepShot){
+        const okShot = shotScored(EP);
+        // ★ 혼자치기는 이어치기·수구전환이 켜져 있어야 성립한다 (soloStart 주석)
+        if (S.solo && S.soloStat){
+          const st = S.soloStat;
+          st.shots++;
+          if (okShot){ st.made++; st.run++; if (st.run > st.best) st.best = st.run; }
+          else st.run = 0;
+        }
+        if (S.keepShot || S.solo){
           for (const b2 of S.sim.balls){
             const t2 = S.balls[b2.key];
             if (!t2) continue;
@@ -6948,8 +6993,9 @@ function drawPath(){
           blink();
         }
         // ★★★★ 수구전환 — **실패했을 때만** 상대 공으로 넘긴다 (swapCue 주석)
-        if (S.cueSwap && !shotScored(EP)) swapCue();
+        if ((S.cueSwap || S.solo) && !okShot) swapCue();
         S.anim = 0; S.sim = null;
+        if (S.solo) soloNext();            // ★ 다음 샷 (혼자치기)
       }
     }
     for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
@@ -7041,6 +7087,27 @@ function drawScatter(){
   return true;
 }
 
+// 혼자치기 성적 — 다이 왼쪽 위에 (사용자 2026-08-18)
+// ⚠️ 안 보이는 자리에는 안 적는다. 천 **안쪽**이라 폰에서 잘리지 않는다.
+function drawSoloStat(){
+  const st = S.soloStat;
+  if (!st || !st.shots) return;
+  const c = L.cloth, fs = Math.max(12, c.h*0.055);
+  const pct = st.shots ? Math.round(st.made*100/st.shots) : 0;
+  const t = (S.solo ? '혼자치기  ' : '멈춤  ')
+          + st.made + '점 / ' + st.shots + '이닝   ' + pct + '%'
+          + '   연속 ' + st.run + ' · 최고 ' + st.best;
+  g.save();
+  g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.lineJoin = 'round'; g.strokeStyle = 'rgba(8,10,14,0.92)';
+  g.lineWidth = Math.max(4, fs*0.30);
+  const x = c.x + c.w*0.02, y = c.y + c.h*0.09;
+  g.strokeText(t, x, y);
+  g.fillStyle = S.solo ? '#ffdd33' : '#9aa2b2';
+  g.fillText(t, x, y);
+  g.restore();
+}
 function drawBalls(){
   // ★ 사용자 2026-08-13: '시뮬레이션이 시작되면 **배치 전 공은 지워져야** 하고
   //   실제 시뮬레이션을 하고 있는 공만 보여져야 합니다. 둘 다 보이니 이상합니다.'
@@ -7525,7 +7592,8 @@ const PRESET = [
   // ★★★★ 수구전환 (사용자 2026-08-18) — 실패하면 수구가 상대 공으로 넘어간다.
   //   꺼짐은 한 공으로 계속 치기, 켜짐은 자동 전환. **실패했을 때만** 넘긴다.
   {lb:'수구전환',   swap: true,   src:'2026-08-18 — 실패하면 공수전환'},
-  {lb:'미사용',    none: true},
+  // ★★★★ 혼자치기 — 추천 1번으로 스스로 친다 (위 soloStart 주석)
+  {lb:'혼자치기',   solo: true,   src:'2026-08-18 — 추천 1번으로 스스로 친다'},
   {lb:'미사용',    none: true}
 ];
 
@@ -7670,6 +7738,7 @@ function tipGeom(){
   const rows = PRESET.map(q => q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
                    : q.keep ? {...q, lb: '이어치기  ' + (S.keepShot ? '켜짐' : '꺼짐')}
                    : q.swap ? {...q, lb: '수구전환  ' + (S.cueSwap ? '켜짐' : '꺼짐')}
+                   : q.solo ? {...q, lb: '혼자치기  ' + (S.solo ? '켜짐' : '꺼짐')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
                    : q);
   const hw = Math.round((bw - gap) / 2);
