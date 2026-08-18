@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 427;
+const MOBILE_VER = 428;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7801,7 +7801,7 @@ const PRESET = [
   {lb:'반복',      rep: true,     src:'2026-08-18 — 꺼짐 · 1 · 2회'},
   {lb:'시범경기',   solo: true,    src:'2026-08-18 — 추천 1번으로 앱이 스스로 친다'},
   // ★ 보는 시간 — 배치·두께·당점 화면이 얼마나 머무나 (위 viewMs 주석)
-  {lb:'보는 시간',  view: true,    src:'2026-08-19 — 2 · 3 · 5초'}
+  {lb:'배치안내',  view: true,    src:'2026-08-19 — 2 · 3 · 5초'}
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
@@ -7960,7 +7960,7 @@ function tipGeom(){
                    : q.keep ? {...q, lb: '이어치기  ' + (S.keepShot ? '켜짐' : '꺼짐')}
                    : q.swap ? {...q, lb: '수구전환  ' + (S.cueSwap ? '켜짐' : '꺼짐')}
                    : q.solo ? {...q, lb: '시범경기  ' + (S.solo ? '켜짐' : '꺼짐')}
-                   : q.view ? {...q, lb: '보는 시간  ' + (S.viewSec || 3) + '초'}
+                   : q.view ? {...q, lb: '배치안내  ' + (S.viewSec || 3) + '초'}
                    : q.rep ? {...q, lb: '반복  ' + (S.replayN ? S.replayN + '회' : '꺼짐')}
                    : q.repWhat ? {...q, lb: '되풀이  ' + (S.replayAll ? '모두' : '성공만')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
