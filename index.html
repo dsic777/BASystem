@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 438;
+const MOBILE_VER = 440;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3980,6 +3980,25 @@ function rank(r){
   //   ⚠️ r.thick 은 0~1 이고 자료에 담긴 값은 0~100 이다. 계수를 100배로 맞춘다.
   if (r.thick !== undefined) v -= 60 * r.thick;
   if (r.sep   !== undefined) v -= 0.5 * r.sep;
+  // ★★★★ **최단 경로가 제일 좋다** (사용자 2026-08-19, 시범경기를 보고):
+  //   '무리하게 쿠션을 많이 태우는 공들이 많아요. 최단경로가 가장 좋은 선택입니다.
+  //    3쿠션 또는 4쿠션 정도, 부득이할 경우 대회전을 치는 겁니다.'
+  //   3쿠션 규칙상 최소가 3이다. 그 위로 한 쿠션마다 깎는다.
+  //     4쿠션 −40 · 5쿠션 −80 · 7쿠션 −160
+  //   ★★ 이 40 은 **재서 나온 값이다.** 처음에 '자료에 총 쿠션 수가 없다' 고 했는데
+  //      틀렸다 — 사장님이 짚어 주셨다: '경로를 모두 저장하지 않았던가요?'
+  //      route_key 가 'obj2|1|R|top-right-bottom' 꼴이라 쿠션이 그 안에 다 있었다.
+  //   ★ 286건으로 재 보니 —
+  //       전체로는 총 쿠션 ↔ 판정 상관이 −0.051 로 거의 없다 (진로가 섞여 가려진다)
+  //       같은 진로 안에서는 분명하다
+  //         뒤돌리기 3쿠션 55.2 → 4쿠션 48.8    −6.4
+  //         옆돌리기 3쿠션 58.7 → 4쿠션 48.8    −9.9
+  //         원뱅크   3쿠션 30.0 → 4쿠션 27.1    −2.9
+  //         앞돌리기 3쿠션 38.0 → 4쿠션 37.9     0.0
+  //     벌점을 0~150 까지 바꿔 가며 교차검증하니 **−40 이 제일 좋았다** (+0.211).
+  //       −0 +0.198 · −20 +0.208 · −40 +0.211 · −70 +0.205 · −150 +0.185
+  const nCush = (r.rails || []).length;
+  if (nCush > 3) v -= 40 * (nCush - 3);
   if (r.kiss) v -= 70;
   // ★ 힘이 모자라 끝까지 못 가는 길은 **키스보다 더 뒤로** (위 routeReach 주석 참고).
   //   '성공 가능한 경로를 제시하는 앱' (사용자 2026-08-13) 의 첫 조각이다.
@@ -4850,7 +4869,10 @@ function verSet(r, val){
   const rec = VERDICTS[k];
   rec.v[r.key] = val;
   delete rec.s[r.key];                     // 다시 판정했으면 또 보낸다
+  // ★ rails(총 쿠션 수)를 같이 쌓는다 — '최단 경로가 제일 좋다' 를 나중에 재려면
+  //   이 값이 있어야 한다 (rank 의 nCush 주석 참고).
   rec.info[r.key] = {name:r.name, before:r.before, after:r.after,
+                     rails:(r.rails || []).length,
                      thick:r.thick === undefined ? null : Math.round(r.thick*100),
                      tip:r.tip, tipV:r.tipV, sep:r.sep === undefined ? null : Math.round(r.sep),
                      kiss:!!r.kiss, flips:r.flips, rev:r.rev,
