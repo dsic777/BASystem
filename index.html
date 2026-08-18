@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 421;
+const MOBILE_VER = 422;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1304,7 +1304,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            tipBak:null, aimMode:0, powDown:null, keepShot:0, cueSwap:0,
            solo:0, soloStat:null,
            replayN:0, replayAll:0, replayLeft:0, shotBak:null, shotInfo:null,
-           card:0, wantCard:0,
+           card:0, wantCard:0, showPlace:0,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -1896,8 +1896,24 @@ function swapCue(){
 //      성공만·모두, 다른 버튼은 반복 회수'). 기본은 '성공만' — 볼 것이 있는 쪽이다.
 //   ⚠️ 되풀이 중에는 **당점판을 다이에 띄운다.** 평소 재생 중에는 다이를 비우는 것이
 //      맞지만(2026-08-14 지시), 되풀이는 **배우려고 보는 것**이라 당점이 보여야 한다.
-// 두께·당점을 크게 보여주는 시간 (사용자 2026-08-18: '매번 보여주고 3초')
-const CARD_MS = 3000;
+// ★★★★ 한 샷을 **배우는 차례**로 나눈다 (사용자 2026-08-19):
+//   '턴이 넘어갈 때 배치를 먼저 3초간 보여주세요. 배치 보고 두께·당점 보고
+//    시뮬레이션 보면 1회 완성입니다. 꺼짐일 때이고, 1회면 위 2번 반복'
+//        ① 배치       3초   길은 안 그린다 — 스스로 어디로 칠지 생각하는 시간
+//        ② 두께·당점  3초   큰 그림
+//        ③ 시뮬레이션        굴러가는 것을 본다
+//   이 셋이 한 바퀴다. '반복 1회' 면 이 한 바퀴를 **두 번** 돈다.
+//   ⚠️ 손으로 치는 샷까지 6초를 기다리게 하면 안 된다 — **혼자치기나 반복이
+//      켜져 있을 때만** 이 차례를 쓴다. 그냥 치면 지금까지대로 바로 굴러간다.
+const CARD_MS = 3000;                    // 두께·당점을 크게 보여주는 시간
+const PLACE_MS = 3000;                   // 배치를 보여주는 시간
+function learnMode(){ return !!(S.solo || S.replayN); }
+// 배치 단계가 끝나면 두께·당점 차례로 넘긴다 (draw 가 매 프레임 부른다)
+function stepPhases(){
+  if (!S.showPlace) return;
+  if (((performance.now() || 1) - S.showPlace) < PLACE_MS) return;
+  S.showPlace = 0; S.wantCard = 1;
+}
 function shotSnap(){
   const b = {};
   for (const k in S.balls) b[k] = S.balls[k].p.slice();
@@ -1916,13 +1932,13 @@ function shotRestore(){
 // 한 샷을 시작한다 — 되풀이가 켜져 있으면 **큰 그림부터**
 function startShot(){
   shotSnap();
-  S.sim = null;
+  S.sim = null; S.card = 0; S.wantCard = 0; S.showPlace = 0;
   // ⚠️⚠️ 여기서 바로 S.card 를 켜면 **직전 샷의 두께·당점**이 뜬다.
   //    S.shotInfo 는 drawPath 가 매 프레임 새로 내는데, 혼자치기는 pickRoute 로
   //    조준을 방금 바꿔 놓고 곧장 시작하므로 아직 옛 값이다.
-  //    → 켜 두기만 하고, drawPath 가 새 값을 낸 다음 프레임에 띄운다.
-  if (S.replayN > 0){ S.card = 0; S.wantCard = 1; S.anim = 0; }
-  else { S.card = 0; S.wantCard = 0; S.anim = performance.now() || 1; }
+  //    → 배치 단계를 거치면서 새 값이 나오고, 그 다음에 큰 그림이 뜬다.
+  if (learnMode()){ S.showPlace = performance.now() || 1; S.anim = 0; }
+  else S.anim = performance.now() || 1;
 }
 // 지금 되풀이해서 보는 중인가 — 당점판을 띄울지 가른다
 function replaying(){ return !!(S.replayN > 0 && S.shotBak); }
@@ -2656,6 +2672,7 @@ function draw(){
   if (Math.abs(cv.width - box.width*devicePixelRatio) > 2 ||
       Math.abs(cv.height - box.height*devicePixelRatio) > 2) resize();
   layout(); BTN = buttonRects();
+  stepPhases();                          // ★ 배치 3초 → 두께·당점 (stepPhases 주석)
   g.setTransform(1,0,0,1,0,0);
   g.fillStyle = '#16181c'; g.fillRect(0,0,cv.width,cv.height);
   if (ROT){ g.translate(0, cv.height); g.rotate(-Math.PI/2); }
@@ -2741,7 +2758,7 @@ function draw(){
     drawClock();
   }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList();
-  drawSoloStat(); drawReplayInfo(); drawShotCard();
+  drawSoloStat(); drawReplayInfo(); drawPlaceTag(); drawShotCard();
   drawNoteList(); drawTipPanel(); drawThickPanel();
   drawDebugXY();
   requestAnimationFrame(draw);
@@ -6803,7 +6820,9 @@ function drawPath(){
   // ★ 사용자 2026-08-13: '궤적 20%는 유지합니다.'
   //   v214 에서 내가 45% 로 올렸다가 되돌린다 — 사용자가 보기에 20% 가 맞다.
   //   (영상에서 안 보였던 것은 다른 이유였다는 뜻이다)
-  const DIM = S.anim ? 0.20 : 1;
+  // ★ 배치만 보는 3초 동안에는 **길을 안 그린다** — 스스로 생각하는 시간이다.
+  //   DIM 을 0 으로 두면 seg·키스·접촉점이 한꺼번에 사라진다.
+  const DIM = S.showPlace ? 0 : (S.anim ? 0.20 : 1);
   const seg = (a, b, w, alpha, col) => {
     g.strokeStyle = col; g.globalAlpha = alpha * BK * DIM; g.lineWidth = w; g.lineCap = 'round';
     g.beginPath(); g.moveTo(...toPx(...a)); g.lineTo(...toPx(...b)); g.stroke();
@@ -6844,7 +6863,7 @@ function drawPath(){
   const a = afterHit(EP && EP.hitIdx > 0 ? EP.cue.p[EP.hitIdx-1] : cut.from, P, cut.obj);
   drawCushionDots(before, before.length-2);
   const [hx,hy] = toPx(...P);
-  g.save(); g.globalAlpha = S.anim ? 0.20 : 1;
+  g.save(); g.globalAlpha = DIM;
   g.fillStyle = COL.hit; g.beginPath(); g.arc(hx,hy,9,0,7); g.fill();
   g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   g.restore();
@@ -7059,9 +7078,10 @@ function drawPath(){
         //   다 보고 나서야 이어치기·수구전환·혼자치기로 넘어간다.
         if ((S.replayAll || okShot) && S.replayLeft > 0 && shotRestore()){
           S.replayLeft--;
-          // ★ 되풀이할 때도 **큰 그림부터** (사용자 2026-08-18: '매번 보여주고 3초').
-          //   전에는 첫 굴림 앞에만 띄웠다. 배우려고 보는 것이니 볼 때마다 같이 본다.
-          S.anim = 0; S.sim = null; S.wantCard = 1;
+          // ★ 되풀이는 **배치부터 다시** 돈다 (위 stepPhases 의 ★★★★ 주석).
+          //   배치 → 두께·당점 → 시뮬레이션 이 한 바퀴고, 그 바퀴를 통째로 되풀이한다.
+          S.anim = 0; S.sim = null; S.wantCard = 0;
+          S.showPlace = performance.now() || 1;
           return;
         }
         // ★ 혼자치기는 이어치기·수구전환이 켜져 있어야 성립한다 (soloStart 주석)
@@ -7089,14 +7109,14 @@ function drawPath(){
         if (S.solo) soloNext();            // ★ 다음 샷 (혼자치기)
       }
     }
-    for (let i = 1; i < op.length - (oq.hit ? 1 : 0); i++){
+    for (let i = 1; !S.showPlace && i < op.length - (oq.hit ? 1 : 0); i++){
       const [x,y] = toPx(...op[i]);
       g.fillStyle = COL.obj; g.beginPath(); g.arc(x,y,4,0,7); g.fill();
       g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
     }
   }
 
-  if (scoreHit){                                  // 다음 공에 맞은 자리 = 득점
+  if (scoreHit && !S.showPlace){                  // 다음 공에 맞은 자리 = 득점
     const [x,y] = toPx(...pts2[pts2.length-1]);
     g.fillStyle = '#6eeb5a'; g.beginPath(); g.arc(x,y,11,0,7); g.fill();
     g.strokeStyle = '#14141a'; g.lineWidth = 3; g.stroke();
@@ -7106,6 +7126,7 @@ function drawPath(){
   //    draw() 가 경로를 먼저 그리고 공을 나중에 그려서 글자가 공 밑으로 들어간다.
   //    '32%  35°' 의 가운데가 가려져 각도 두 개처럼 보였다.
   //    → 1적구 **반대쪽**으로 민다. 공이 어디 있든 자동으로 반대편에 붙는다.
+  if (S.showPlace) return;                        // 배치만 보는 중 — 두께도 안 알려준다
   g.save();
   g.textAlign = 'center'; g.textBaseline = 'middle';
   const fs = Math.max(11, L.cloth.h*0.045);
@@ -7128,6 +7149,7 @@ function drawPath(){
 }
 
 function drawCushionDots(pts, upto){
+  if (S.showPlace) return;               // 배치만 보는 중 (drawPath 의 DIM 주석)
   for (let i = 1; i <= upto; i++){
     const [x,y] = toPx(...pts[i]);
     g.fillStyle = COL.c23; g.beginPath(); g.arc(x,y,6,0,7); g.fill();
@@ -7178,7 +7200,19 @@ function drawScatter(){
   return true;
 }
 
-// 혼자치기 성적 — 다이 왼쪽 위에 (사용자 2026-08-18)
+// ★★ 안내 글자 자리 — **보정판을 피한다** (사용자 2026-08-19, 52: '안내가 보정박스를
+//   가립니다'). 보정판은 빈 모서리를 찾아 다니는데 안내는 왼쪽 위 붙박이라 겹쳤다.
+//   → 보정판이 왼쪽에 있으면 안내를 오른쪽 끝에 붙인다. 한 방향만 보므로 서로 안 민다.
+function infoAnchor(){
+  const c = L.cloth;
+  let left = true;
+  try {
+    const b = clusterBox(tipCenter());
+    if ((b[0]+b[2])/2 < c.x + c.w/2) left = false;   // 보정판이 왼쪽 → 안내는 오른쪽
+  } catch(e){}
+  return {x: left ? c.x + c.w*0.02 : c.x + c.w*0.98, align: left ? 'left' : 'right'};
+}
+// 혼자치기 성적 — 다이 위에 (사용자 2026-08-18)
 // ⚠️ 안 보이는 자리에는 안 적는다. 천 **안쪽**이라 폰에서 잘리지 않는다.
 // ★★★★ 샷 전에 **두께·당점을 크게** 한 번 (사용자 2026-08-18). CARD_MS 뒤 저절로
 //   시뮬레이션으로 넘어간다. 안전 띠(0.10h~0.84h) 안에만 그린다.
@@ -7225,12 +7259,29 @@ function drawReplayInfo(){
           + '    두께 8/' + e8 + '    ' + tipClock(q.dir, q.r);
   g.save();
   g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
-  g.textAlign = 'left'; g.textBaseline = 'middle';
+  const an = infoAnchor();
+  g.textAlign = an.align; g.textBaseline = 'middle';
   g.lineJoin = 'round'; g.strokeStyle = 'rgba(8,10,14,0.92)';
   g.lineWidth = Math.max(4, fs*0.30);
-  const x = c.x + c.w*0.02, y = c.y + c.h*0.18;
+  const x = an.x, y = c.y + c.h*0.18;
   g.strokeText(t, x, y);
   g.fillStyle = '#6eeb5a'; g.fillText(t, x, y);
+  g.restore();
+}
+// 배치만 보는 3초 — 무슨 시간인지 알려 준다
+function drawPlaceTag(){
+  if (!S.showPlace) return;
+  const c = L.cloth, fs = Math.max(14, c.h*0.075), an = infoAnchor();
+  const left = Math.max(0, PLACE_MS - ((performance.now()||1) - S.showPlace));
+  const t = '배치를 보세요   ' + (Math.ceil(left/1000)) ;
+  g.save();
+  g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
+  g.textAlign = an.align; g.textBaseline = 'middle';
+  g.lineJoin = 'round'; g.strokeStyle = 'rgba(8,10,14,0.92)';
+  g.lineWidth = Math.max(4, fs*0.30);
+  const y = c.y + c.h*0.30;
+  g.strokeText(t, an.x, y);
+  g.fillStyle = '#7fe3ff'; g.fillText(t, an.x, y);
   g.restore();
 }
 function drawSoloStat(){
@@ -7243,10 +7294,11 @@ function drawSoloStat(){
           + '   연속 ' + st.run + ' · 최고 ' + st.best;
   g.save();
   g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
-  g.textAlign = 'left'; g.textBaseline = 'middle';
+  const an = infoAnchor();
+  g.textAlign = an.align; g.textBaseline = 'middle';
   g.lineJoin = 'round'; g.strokeStyle = 'rgba(8,10,14,0.92)';
   g.lineWidth = Math.max(4, fs*0.30);
-  const x = c.x + c.w*0.02, y = c.y + c.h*0.09;
+  const x = an.x, y = c.y + c.h*0.09;
   g.strokeText(t, x, y);
   g.fillStyle = S.solo ? '#ffdd33' : '#9aa2b2';
   g.fillText(t, x, y);
