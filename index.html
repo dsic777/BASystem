@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 431;
+const MOBILE_VER = 432;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -8840,8 +8840,11 @@ const CORR_ALPHA = 0.22;
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   // 보정(- 0 +) 은 한 덩어리 금속 바로 보이게 뒤판을 먼저 깐다 (design.png 방향)
+  // ★ 배치만 보는 3초 동안에는 **보정을 지운다** (사용자 2026-08-19).
+  //   생각하는 시간이라 다이 위에 얹힌 것을 비운다 — 길·두께 글자는 이미 안 그린다.
+  const hideCorr = !!S.showPlace;
   const cb = BTN.filter(b => ['-','0','+'].includes(b.lb));
-  if (cb.length === 3){
+  if (cb.length === 3 && !hideCorr){
     g.save();
     const x0 = Math.min(...cb.map(b => b.x)), x1 = Math.max(...cb.map(b => b.x+b.w));
     const y0 = cb[0].y, hh = cb[0].h, pad = hh*0.14;
@@ -8868,6 +8871,7 @@ function drawButtons(){
   for (const b of BTN){
     // ★ 경로설정 중에는 **천 위에 얹힌 버튼만** 흐리게 — 꺼졌다는 것이 보여야 한다.
     //   오른쪽 칸은 다이 바깥이라 그대로 둔다 (btnOnCloth 주석).
+    if (hideCorr && btnOnCloth(b)) continue;     // 배치 보는 중 — 보정을 지운다
     g.globalAlpha = (S.aimMode && btnOnCloth(b)) ? 0.30 : 1;
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
     const armed = S.place === b.lb || (b.lb === 'power' && S.aimMode);
