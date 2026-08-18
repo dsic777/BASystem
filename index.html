@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 399;
+const MOBILE_VER = 400;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7570,20 +7570,17 @@ function thickName(st){
   const t = st.f*8;
   return (st.side === 0 ? '정면' : st.side < 0 ? '왼쪽' : '오른쪽') + '  8/' + t;
 }
-function thickWord(st){
-  if (st.side === 0) return '정면';
-  const t = st.f*8;
-  return t <= 2 ? '얇게' : t <= 5 ? '반' : '두껍게';
-}
 
 function thickGeom(){
   const w = L.w, h = L.h;
   // 왼쪽 = 두께 그림 · 오른쪽 = 당점. 완료·취소는 아래 한 줄.
   const R  = Math.min(w*0.085, h*0.107);        // 1적구 반지름
   const cx = Math.round(w*0.27), cy = Math.round(h*0.13 + R);
-  const TR = Math.min(w*0.105, h*0.225);        // 당점 공 반지름
-  const tx = Math.round(w*0.72), ty = Math.round(h*0.40);
-  const by = Math.round(h*0.73), bh = Math.round(h*0.11);
+  // ★ 사용자 2026-08-18: '당점변경 공 조금 올려서 20% 키워주세요'
+  const TR = Math.min(w*0.105, h*0.225) * 1.20;   // 당점 공 반지름
+  const tx = Math.round(w*0.72), ty = Math.round(h*0.36);
+  // ⚠️ 입체 그림자까지 안전선(0.84h) 안에 들어와야 한다 — 0.11h 면 7px 넘쳤다
+  const by = Math.round(h*0.73), bh = Math.round(h*0.10);
   const gap = Math.round(w*0.02), bw = Math.round((w*0.86 - gap) / 2);
   const bx = Math.round(w*0.07);
   const btn = [{lb:'완 료', ok:1,     x:bx,             y:by, w:bw, h:bh},
@@ -7639,10 +7636,10 @@ function drawThickPanel(){
   // ── 수구가 오는 쪽 — 넓은 화살표 셋 (사용자 2026-08-18)
   //   '수구 8/8 아래에 위로 향하는 넓은 화살표 3개 (수구의 진행방향 표시)'
   {
-    const ay = q.cy + q.R*3.35, aw = q.R*0.52, ah = q.R*0.46, sp = q.R*0.78;
-    g.fillStyle = 'rgba(110,235,90,0.55)';
-    for (let k = -1; k <= 1; k++){
-      const x = q.cx + k*sp;
+    // ★ 입체감 (사용자 2026-08-18: '화살표와 완료 취소 버튼 입체감 넣어주고')
+    //   위는 밝고 아래는 어둡게 + 바닥 그림자. 검은 천에서 떠 보인다.
+    const ay = q.cy + q.R*3.22, aw = q.R*0.52, ah = q.R*0.46, sp = q.R*0.78;
+    const path = (x) => {
       g.beginPath();
       g.moveTo(x, ay - ah);
       g.lineTo(x + aw, ay);
@@ -7651,7 +7648,21 @@ function drawThickPanel(){
       g.lineTo(x - aw*0.42, ay + ah*0.62);
       g.lineTo(x - aw*0.42, ay);
       g.lineTo(x - aw, ay);
-      g.closePath(); g.fill();
+      g.closePath();
+    };
+    for (let k = -1; k <= 1; k++){
+      const x = q.cx + k*sp;
+      g.save();
+      g.translate(0, Math.max(2, q.R*0.06));          // 바닥 그림자
+      g.fillStyle = 'rgba(0,0,0,0.55)'; path(x); g.fill();
+      g.restore();
+      const gr = g.createLinearGradient(0, ay - ah, 0, ay + ah*0.62);
+      gr.addColorStop(0,   '#b6ffa4');
+      gr.addColorStop(0.45,'#5ed24a');
+      gr.addColorStop(1,   '#2b7a22');
+      g.fillStyle = gr; path(x); g.fill();
+      g.strokeStyle = 'rgba(12,40,10,0.85)';
+      g.lineWidth = Math.max(1.5, q.R*0.045); path(x); g.stroke();
     }
   }
 
@@ -7668,12 +7679,12 @@ function drawThickPanel(){
   drawBallAt(q.cx, q.cy, q.R, (o1 && o1.color) || 'red');
 
   // ── 고른 두께 하나만 크게 (흩어진 숫자 일곱 개를 지웠다 — 간소화)
+  //   ⚠️ 사용자 2026-08-18: '완료 위 반 지우고 / 오른쪽 8/4 화살표와 겹치지 않게
+  //      조금 내리고'. 얇게·반·두껍게 줄은 뺐다 — 8/4 라는 숫자가 이미 그 말이다.
+  //      비운 자리만큼 큰 글씨를 내려 화살표와 안 겹치게 했다.
   g.fillStyle = '#ffdd33';
-  g.font = '800 ' + Math.round(L.h*0.075) + 'px system-ui, sans-serif';
-  g.fillText(thickName(st), q.cx, L.h*0.655);
-  g.fillStyle = 'rgba(190,196,210,0.85)';
-  g.font = '600 ' + Math.round(L.h*0.038) + 'px system-ui, sans-serif';
-  g.fillText(thickWord(st), q.cx, L.h*0.705);
+  g.font = '800 ' + Math.round(L.h*0.070) + 'px system-ui, sans-serif';
+  g.fillText(thickName(st), q.cx, L.h*0.681);
 
   // ── 당점 — 당점판의 그 공만 가져왔다 (사용자 2026-08-18)
   drawTipDial(q.tx, q.ty, q.TR, (cue && cue.color) || 'white');
@@ -7683,16 +7694,44 @@ function drawThickPanel(){
   g.fillText(tipClock(S.tipDir, S.tipR), q.tx, L.h*0.665);
 
   // ── 완료 · 취소
+  // ★ 입체감 (사용자 2026-08-18) — 눌리는 물건처럼 보이게.
+  //   바닥 그림자 → 위아래 그러데이션 → 윗면 하이라이트 한 줄 → 테두리.
   for (const b of q.btn){
-    g.fillStyle   = b.ok ? 'rgba(40,120,64,0.95)' : 'rgba(58,62,72,0.95)';
-    g.strokeStyle = b.ok ? '#5fd07a' : 'rgba(96,102,118,0.75)';
-    g.lineWidth = 2;
-    g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
-    g.fillStyle = '#e8eaf0';
+    const rr = Math.round(b.h*0.22), dz = Math.max(3, b.h*0.09);
+    g.save();
+    g.fillStyle = 'rgba(0,0,0,0.55)';
+    roundRect(b.x, b.y + dz, b.w, b.h, rr); g.fill();
+    g.restore();
+    const gr = g.createLinearGradient(0, b.y, 0, b.y + b.h);
+    if (b.ok){ gr.addColorStop(0,'#6fe08a'); gr.addColorStop(0.5,'#2f9c50'); gr.addColorStop(1,'#14602f'); }
+    else     { gr.addColorStop(0,'#9aa2b4'); gr.addColorStop(0.5,'#5a6070'); gr.addColorStop(1,'#2c3038'); }
+    g.fillStyle = gr; roundRect(b.x, b.y, b.w, b.h, rr); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = Math.max(1.5, b.h*0.035);
+    g.beginPath();
+    g.moveTo(b.x + rr, b.y + g.lineWidth*0.8);
+    g.lineTo(b.x + b.w - rr, b.y + g.lineWidth*0.8);
+    g.stroke();
+    g.strokeStyle = 'rgba(10,12,16,0.85)'; g.lineWidth = Math.max(1.5, b.h*0.030);
+    roundRect(b.x, b.y, b.w, b.h, rr); g.stroke();
+    g.fillStyle = '#ffffff';
     g.font = '800 ' + Math.round(b.h*0.42) + 'px system-ui, sans-serif';
+    g.lineJoin = 'round'; g.strokeStyle = 'rgba(8,10,14,0.55)'; g.lineWidth = Math.max(2, b.h*0.05);
+    g.strokeText(b.lb, b.x + b.w/2, b.y + b.h/2);
     g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
   }
   g.restore();
+}
+
+// 모서리 둥근 네모 — 입체 버튼용
+function roundRect(x, y, w, h, r){
+  const k = Math.min(r, w/2, h/2);
+  g.beginPath();
+  g.moveTo(x+k, y);
+  g.lineTo(x+w-k, y); g.quadraticCurveTo(x+w, y, x+w, y+k);
+  g.lineTo(x+w, y+h-k); g.quadraticCurveTo(x+w, y+h, x+w-k, y+h);
+  g.lineTo(x+k, y+h); g.quadraticCurveTo(x, y+h, x, y+h-k);
+  g.lineTo(x, y+k); g.quadraticCurveTo(x, y, x+k, y);
+  g.closePath();
 }
 
 // 다이의 공과 같은 모양으로 하나 그린다 (drawBalls 와 같은 규칙)
