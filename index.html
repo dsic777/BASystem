@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 416;
+const MOBILE_VER = 417;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2166,14 +2166,21 @@ function openTipPanel(){
               lastAim: S.lastAim ? S.lastAim.slice() : null,
               snapA:S.snapA, aimSnapped:S.aimSnapped, dirSet:S.dirSet,
               lockRails:S.lockRails, sysMode:S.sysMode,
-              magnet:S.magnet, keepShot:S.keepShot, cueSwap:S.cueSwap};
-  // ⚠️ 혼자치기는 되돌리지 않는다 — 취소로 굴러가던 것이 멈추면 더 이상하다
+              magnet:S.magnet, keepShot:S.keepShot, cueSwap:S.cueSwap,
+              // ★ 사용자 2026-08-18: '취소시 모든 설정 취소입니다. 화면 진입 전으로.
+              //   그러니 이 화면 진입시 초기 설정값 모두 알고 있어야 합니다.'
+              //   → 이 판에서 바뀌는 것은 **하나도 빼지 않고** 여기 적는다.
+              solo:S.solo, replayN:S.replayN, replayAll:S.replayAll};
   S.tipPanel = true;
 }
 function closeTipPanel(cancel){
-  if (cancel && S.tipBak) Object.assign(S, S.tipBak);
+  const was = S.tipBak;
+  if (cancel && was) Object.assign(S, was);
   S.tipBak = null; S.tipPanel = false;
-  ROUTES = {key: null, list: null};        // 찾는 범위가 바뀌었을 수 있다
+  ROUTES = {key: null, list: null};
+  // ★ 완료로 나가면서 혼자치기를 **새로 켰으면** 그때 시작한다 (위 b.solo 주석).
+  //   이미 돌고 있었으면 건드리지 않는다 — 성적이 0 으로 지워지면 안 된다.
+  if (!cancel && S.solo && !(was && was.solo)) soloStart();
 }
 function tapTipPanel(px,py){
   const q = tipGeom();
@@ -2195,17 +2202,26 @@ function tapTipPanel(px,py){
       else if (b.repWhat){                 // ★ 되풀이 대상 성공만 ↔ 모두
         S.replayAll = S.replayAll ? 0 : 1;
       }
-      else if (b.solo){                    // ★ 혼자치기 (위 soloStart 주석)
-        if (S.solo) S.solo = 0; else { closeTipPanel(false); soloStart(); return; }
+      else if (b.solo){                    // ★ 혼자치기 켜기/끄기 (위 soloStart 주석)
+        // ⚠️ 여기서 바로 시작하고 판을 닫았더니 사장님이 짚었다 (2026-08-18):
+        //    '혼자치기 설정 누르니 바로 전화면으로 복귀합니다. **완료·취소만** 전화면
+        //     복귀가 가능합니다.' → 이 판은 설정판이다. 켜 두기만 하고 완료에서 시작한다.
+        S.solo = S.solo ? 0 : 1;
       }
       else if (b.none){ /* 빈 칸 — 나중에 쓸 자리 */ }
-      else if (b.auto){                    // ★ 자동조정을 다시 켠다 (위 PRESET 주석)
+      else if (b.auto){                    // ★ 자동조정 켜고 끄기 (위 PRESET 주석)
+        // ⚠️⚠️ 여기가 **한 방향뿐이었다** — 늘 켜기만 해서, 이미 켜져 있으면 눌러도
+        //    아무 일이 없었다 (사용자 2026-08-18: '자동조정 버튼 안 먹어요').
+        //    기본이 켜짐이라 사실상 죽은 버튼이었다. 이제 끄기도 된다.
+        if (!S.tipLock){ S.tipLock = 1; }
+        else {
         // ⚠️ 안내(say)를 안 띄운다 — **당점판이 화면을 덮고 있어 뒤에 깔린다**
         //   (사용자 2026-08-18: '어차피 핸드폰에서 보이지도 않아요').
         //   버튼 글씨가 '자동조정 켜짐' 으로 바로 바뀌는 것이 곧 확인이다.
         //   또 autoTipSide 는 이미 그 값이면 false 를 주므로 성패로 말하면 안 된다.
         S.tipLock = 0;
         autoTipSide();
+        }
       }
       else setTip(b.dir, b.r);             // 프리셋도 값만 바꾸고 남는다
       return;
