@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 417;
+const MOBILE_VER = 418;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1303,7 +1303,8 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
            tipBak:null, aimMode:0, powDown:null, keepShot:0, cueSwap:0,
            solo:0, soloStat:null,
-           replayN:0, replayAll:0, replayLeft:0, shotBak:null, shotInfo:null, card:0,
+           replayN:0, replayAll:0, replayLeft:0, shotBak:null, shotInfo:null,
+           card:0, wantCard:0,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -1915,8 +1916,12 @@ function shotRestore(){
 function startShot(){
   shotSnap();
   S.sim = null;
-  if (S.replayN > 0 && S.shotInfo){ S.card = performance.now() || 1; S.anim = 0; }
-  else { S.card = 0; S.anim = performance.now() || 1; }
+  // ⚠️⚠️ 여기서 바로 S.card 를 켜면 **직전 샷의 두께·당점**이 뜬다.
+  //    S.shotInfo 는 drawPath 가 매 프레임 새로 내는데, 혼자치기는 pickRoute 로
+  //    조준을 방금 바꿔 놓고 곧장 시작하므로 아직 옛 값이다.
+  //    → 켜 두기만 하고, drawPath 가 새 값을 낸 다음 프레임에 띄운다.
+  if (S.replayN > 0){ S.card = 0; S.wantCard = 1; S.anim = 0; }
+  else { S.card = 0; S.wantCard = 0; S.anim = performance.now() || 1; }
 }
 // 지금 되풀이해서 보는 중인가 — 당점판을 띄울지 가른다
 function replaying(){ return !!(S.replayN > 0 && S.shotBak); }
@@ -6770,7 +6775,7 @@ function simBall(p, color, R, isCue){
 //   그리기를 건너뛴다. 공수교대 뒤에는 조준이 옛 수구 것 그대로라 어느 적구도 안 맞고,
 //   그러면 drawPath 가 중간에 빠져나가는데 거기서 S.anim 을 안 껐다. 영원히 켜진 채였다.
 //   → 빠져나가는 자리마다 끈다. 재생할 길이 없으면 깃발도 없어야 한다.
-function stopAnim(){ if (S.anim){ S.anim = 0; S.sim = null; } }
+function stopAnim(){ if (S.anim){ S.anim = 0; S.sim = null; } S.wantCard = 0; }
 function drawPath(){
   const cue = S.balls.cue;
   if (!cue || !S.aim){ stopAnim(); return; }
@@ -6842,6 +6847,8 @@ function drawPath(){
     const [fx,fy] = toPx(...F0), [tx2,ty2] = toPx(...P), [ox2,oy2] = toPx(...cut.obj);
     const cr2 = (tx2-fx)*(oy2-ty2) - (ty2-fy)*(ox2-tx2);
     S.shotInfo = {thick: a.thick, dir: S.tipDir, r: S.tipR, side: cr2 > 0 ? -1 : 1};
+    // ★ 새 값이 나왔으니 이제 큰 그림을 띄운다 (위 startShot 의 ⚠️⚠️ 주석)
+    if (S.wantCard){ S.wantCard = 0; S.card = performance.now() || 1; }
   }
 
   // ★ 사용자 확정 2026-08-11: '충돌 뒤 쿠션 보정이 걸립니다.'
