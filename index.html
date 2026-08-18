@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 397;
+const MOBILE_VER = 398;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1290,7 +1290,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
-           thickPanel:false, dragAt:null, dragMoved:0, aimFree:0,
+           thickPanel:false, dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
@@ -1870,7 +1870,16 @@ function setAimPxAngle(a){
   autoTipSide();                    // ★ 도는 쪽으로 순회전 3팁 — 자동조정이 켜져 있을 때만
   return true;
 }
-// 누를 때 — 찍은 쪽으로 바로 간다
+// ★★★★ **뒤에서 총 쏘듯** 겨냥한다 (사용자 2026-08-18):
+//   '다이에서 조정을 할때 지금의 경우 공과 1쿠션 사이에서 손가락으로 방향을
+//    설정하려니 경로가 가립니다. 쿠션과 수구의 반대 방향에서 겨냥을 하는 방식으로
+//    변경하면 좋겠어요 뒤에서 총을쏘듯'
+//   → 손가락은 **수구 뒤**에 둔다. 공은 손가락 반대쪽으로 간다.
+//     보고 싶은 경로 위에 손가락이 없으니 가릴 일이 없다.
+//   ⚠️ 끌 때의 부호는 안 바뀐다 — 수구를 축으로 한 **한 덩어리 회전**이라
+//      손가락과 총구가 같은 쪽으로 돈다. 그래서 aimDragPx 는 그대로 둔다.
+const AIM_FROM_BEHIND = Math.PI;
+// 누를 때 — 찍은 쪽의 **반대**로 바로 간다
 function aimAtPx(px, py){
   const cue = S.balls.cue;
   if (!cue) return false;
@@ -1878,7 +1887,29 @@ function aimAtPx(px, py){
   const [cx,cy] = toPx(...cue.p);
   if (Math.hypot(px-cx, py-cy) < ballR()*2.2) return false;
   const a = pxAngleTo(px, py);
-  return a === null ? false : setAimPxAngle(a);
+  return a === null ? false : setAimPxAngle(a + AIM_FROM_BEHIND);
+}
+// ─────────────────────────────── 자석 (사용자 2026-08-18 다시 넣음)
+// '이럴경우 자석기능을 줘 봅시다. 따로 1적구를 선택하지 않아도 결정이 되었고
+//  두께와 당점도 자동으로 조정이 되면 좋겠어요'
+// '이미 어느 방향으로 칠것인지를 알수 있다는 얘기입니다'
+//
+// ★ 붙이는 일 자체는 snapAim() 이 이미 한다 (아래). 못 맞히는 각이면 가까운 **득점
+//   각**으로 옮기고, 그 자리에서 autoTipSide() 로 순회전 3팁을 잡는다.
+//   두께는 각이 정해지면 따라온다 — 그래서 '두께와 당점도 자동' 이 이걸로 된다.
+//   1적구도 따로 안 고른다 — 두께·기울기는 **실제로 먼저 맞는 공**을 보고 적는다.
+// ⚠️ 다른 것 둘만 바꾼다 —
+//   ① **배치마다 한 번만** 규칙(S.aimSnapped)을 끄는 동안에는 안 쓴다.
+//      끌 때마다 붙어야 '붙여주는' 것이 된다. 싫으면 자석 자체를 끈다.
+//   ② **3초 깜빡임 잠금을 안 건다.** 끄는 도중에 3초씩 손이 묶이면 못 쓴다.
+// ⚠️ 다이 안에서 끌 때만 건다. 테두리(프레임)는 미세조정 자리라 그대로 둔다.
+function magnetPull(){
+  if (!S.magnet) return false;
+  const sn = S.aimSnapped, rb = S.rblink;
+  S.aimSnapped = 0;
+  const ok = snapAim();
+  S.aimSnapped = sn; S.rblink = rb;
+  return ok;
 }
 // 끄는 동안 — 누른 자리를 기준으로 20% 만
 function aimDragPx(px, py){
@@ -1886,7 +1917,9 @@ function aimDragPx(px, py){
   const a = pxAngleTo(px, py);
   if (a === null) return false;
   let d = ((a - S.aimFree.f + Math.PI*3) % (Math.PI*2)) - Math.PI;   // −π..π
-  return setAimPxAngle(S.aimFree.a + d * AIM_TABLE_GAIN);
+  const ok = setAimPxAngle(S.aimFree.a + d * AIM_TABLE_GAIN);
+  if (ok) magnetPull();              // ★ 득점하는 각이면 거기에 붙는다 (위 주석)
+  return ok;
 }
 
 // ─────────────────────────────── 두께판 (사용자 아이디어 ④ · 2026-08-18)
@@ -1998,6 +2031,9 @@ function tapTipPanel(px,py){
   for (const b of q.btn)
     if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
       if (b.done) S.tipPanel = false;      // 이것만 나간다
+      else if (b.magnet){                  // ★ 자석 켜기/끄기 (위 magnetPull 주석)
+        S.magnet = S.magnet ? 0 : 1;
+      }
       else if (b.scope){                   // ★ 360° ↔ 5° (위 PRESET 주석)
         S.aimScope = (S.aimScope === 5) ? 360 : 5;
         ROUTES = {key: null, list: null};  // 범위가 바뀌면 다시 찾는다
@@ -2142,7 +2178,8 @@ function down(px,py){
   if (!previewOn() && S.balls.cue){
     const c = L.cloth;
     if (px >= c.x && px <= c.x+c.w && py >= c.y && py <= c.y+c.h){
-      aimAtPx(px,py);              // 찍은 쪽으로 한 번에 (깜빡임 중이면 안 먹는다)
+      // 찍은 쪽 **반대**로 한 번에 (깜빡임 중이면 안 먹는다) → 자석
+      if (aimAtPx(px,py)) magnetPull();
       const f = pxAngleTo(px,py), a = curAimPxAngle();
       // 끌기 기준 — 누른 순간의 손가락 각과 조준 각을 같이 붙잡아 둔다
       if (f !== null && a !== null) S.aimFree = {f, a};
@@ -2329,6 +2366,7 @@ function up(px, py){
   //   끌면 공이 움직이고, 안 끌고 떼면 판이 뜬다.
   //   ⚠️ 1적구일 때만 열지 않는다 — 사장님은 **치려는 공**을 탭한다. 그 공을
   //      1적구로 삼고 연다. 수구만 뺀다.
+  if (S.aimFree) snapAimMark();       // 닿았으면 그 회로를 붙잡아 둔다 (안 끌어당긴다)
   if (S.drag && S.drag !== 'cue' && !S.dragMoved && !previewOn()){
     const c0 = S.balls[S.drag] && S.balls[S.drag].color;
     // 이미 1적구면 setFirstObject 를 안 부른다 — 그 안의 tipAuto() 가 손으로 잡아 둔
@@ -7297,7 +7335,9 @@ const PRESET = [
   {lb:'자동조정',     auto: true, src:'2026-08-18 — 도는 쪽으로 순회전 3팁을 자동으로'},
   // ★★★★ 추천을 어디까지 찾을까 (사용자 2026-08-18: '추천의 범위를 좁히는 방법으로
   //   5도 경로지정은 두고 설정을 하나 더 둡시다. 360도와 5도 고려해 보세요.')
-  {lb:'찾는 범위',    scope: true, src:'2026-08-18 — 360° 전부 · 5° 내가 잡은 방향만'}
+  {lb:'찾는 범위',    scope: true, src:'2026-08-18 — 360° 전부 · 5° 내가 잡은 방향만'},
+  // ★ 자석 — 다이 안에서 끌 때 득점하는 각에 붙는다 (위 magnetPull 주석)
+  {lb:'자석',        magnet: true, src:'2026-08-18 — 다이에서 끌 때 득점 각에 붙는다'}
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
@@ -7438,6 +7478,7 @@ function tipGeom(){
   // ★ 설정 줄은 지금 값을 글씨에 붙여 보여준다 (2026-08-18)
   const rows = PRESET.map(q => q.scope ? {...q, lb: '찾는 범위  ' +
                     ((S.aimScope === 5) ? '5°' : '360°')}
+                   : q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
                    : q).concat([{lb:'조정 완료', done:true}]);
   const hw = Math.round((bw - gap) / 2);
