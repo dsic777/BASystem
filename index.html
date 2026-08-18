@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 413;
+const MOBILE_VER = 414;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6667,11 +6667,18 @@ function simBall(p, color, R, isCue){
     g.restore();
   }
 }
+// ★★★★ **재생할 것이 없으면 재생 깃발을 끈다** (사용자 2026-08-18, 58.jpg:
+//   '두 번을 실패하고 공수교대 했는데 시뮬레이션을 하니 죽어버리네요').
+//   죽은 것이 아니라 **공이 안 그려진 것**이다 — drawBalls·drawClock 이 S.anim 을 보고
+//   그리기를 건너뛴다. 공수교대 뒤에는 조준이 옛 수구 것 그대로라 어느 적구도 안 맞고,
+//   그러면 drawPath 가 중간에 빠져나가는데 거기서 S.anim 을 안 껐다. 영원히 켜진 채였다.
+//   → 빠져나가는 자리마다 끈다. 재생할 길이 없으면 깃발도 없어야 한다.
+function stopAnim(){ if (S.anim){ S.anim = 0; S.sim = null; } }
 function drawPath(){
   const cue = S.balls.cue;
-  if (!cue || !S.aim) return;
+  if (!cue || !S.aim){ stopAnim(); return; }
   const hits = pathFromAim(cue.p, S.aim, S.corr), kk = LAST_K;
-  if (!hits.length) return;
+  if (!hits.length){ stopAnim(); return; }
   const full = [cue.p, ...hits.map(h => h.p)];
   const cut = cutAtBall(full);
   const cols = [COL.aim, COL.c12, COL.c23, COL.after, COL.after, COL.after];
@@ -6714,6 +6721,7 @@ function drawPath(){
   }
 
   if (!cut.hit){                                  // 안 맞으면 끝까지 선만 (위 AIM_MAX_C 주석)
+    stopAnim();                                   // 맞는 공이 없다 — 재생할 것이 없다
     const last = Math.min(full.length-1, AIM_MAX_C);
     for (let i = before.length-1; i < last; i++)
       seg(full[i], full[i+1], thin, 1, cols[Math.min(i,cols.length-1)]);
@@ -6730,7 +6738,7 @@ function drawPath(){
   g.fillStyle = COL.hit; g.beginPath(); g.arc(hx,hy,9,0,7); g.fill();
   g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   g.restore();
-  if (!a) return;
+  if (!a){ stopAnim(); return; }
 
   // ★ 사용자 확정 2026-08-11: '충돌 뒤 쿠션 보정이 걸립니다.'
   //   조준선에서 풀린 k 를 그대로 이어 쓴다 (LAST_K). 보정은 **다이(쿠션)** 의 값이라
