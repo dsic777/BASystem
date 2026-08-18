@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 409;
+const MOBILE_VER = 410;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1858,9 +1858,9 @@ function setFirstObject(c){
 // ★ 지금까지는 **테두리(프레임) 안에서만** 조준이 잡혔다 — frameAt() 이 천 위를
 //   누르면 null 을 준다. 그래서 '대충 방향' 을 찍을 데가 없었다.
 // ★ 두 방식은 쓰임이 다르다. 섞지 않는다 —
-//     테두리   손가락 각의 3% 만 따라온다 (AIM_FINE_GAIN). **미세조정**
-//     다이 안  찍은 곳을 그대로 본다.                      **대충 방향**
-//   그래서 여기는 미세조정 감쇠를 안 건다. 대충 잡고 테두리에서 다듬는 순서다.
+//     누를 때  찍은 곳으로 한 번에 간다                      **대충 방향**
+//     끌 때    손가락 각의 8% 만 따라온다 (AIM_GAIN)         **미세조정**
+//   다이 안이든 테두리든 **같은 규칙**이다 (사용자 2026-08-18).
 // ⚠️ 수구에 너무 붙으면 방향이 튄다 — 공 두 개 거리 안쪽은 안 받는다.
 // ⚠️ 3초 깜빡임 잠금은 테두리 조준과 **같은 규칙**을 쓴다 (사용자 2026-08-12:
 //    '블링크 중에는 탭을 움직여도 무시').
@@ -1870,7 +1870,13 @@ function setFirstObject(c){
 //     끌 때    손가락이 돈 각의 20% 만 따라온다 — 세우고 싶은 자리에 세운다
 //   ⚠️ 기준각을 **누른 순간에 붙잡아 둔다.** 매번 직전 각에 더하면 오차가 쌓여
 //      손을 떼고 다시 잡을 때마다 조준이 슬금슬금 밀린다.
-const AIM_TABLE_GAIN = 0.20;
+// ★★ 조준을 끌 때 손가락 각의 **몇 할**만 따라오나 (사용자 2026-08-18:
+//   '여전히 경로설정 미세조정이 빠름이다. 더 천천히. 프레임에서도 같이 설정해 주세요').
+//   0.20 → **0.08**. 그리고 **다이 안과 테두리가 같은 값**을 쓴다.
+//   ⚠️ 전에는 테두리만 두 단계였다 — 2도 안이면 3%, 넘으면 1:1.
+//      크게 휘두를 때 1:1 이던 것은 '멀리 옮기려면 빨라야 한다' 는 이유였는데,
+//      지금은 **누르면 한 번에 그 자리로 간다.** 그래서 끌기는 다듬기 하나만 하면 된다.
+const AIM_GAIN = 0.08;
 // 화면 좌표에서 수구→어디까지의 각. mm 는 y 가 뒤집혀 있어 섞으면 부호가 틀린다.
 function pxAngleTo(px, py){
   const cue = S.balls.cue; if (!cue) return null;
@@ -1949,7 +1955,7 @@ function aimDragPx(px, py){
   //   고정**된다. Node 로 재 보니 자석 켜고 끌면 멈춘 값이 1가지, 끄면 12가지였다.
   //   → 자석은 **누를 때 한 번만** 건다 (aimAtPx 쪽). 끄는 동안은 손에 맡긴다.
   //     '대충 눌러 길을 잡고, 끌어서 다듬는다' 가 된다.
-  return setAimPxAngle(S.aimFree.a + d * AIM_TABLE_GAIN);
+  return setAimPxAngle(S.aimFree.a + d * AIM_GAIN);
 }
 
 // ─────────────────────────────── 두께판 (사용자 아이디어 ④ · 2026-08-18)
@@ -2019,7 +2025,6 @@ function thickNow(){
 //   ⚠️ 크게 휘두를 때는 그대로 1:1 이다. 멀리 옮기는 것이 느려지면 안 된다.
 // ★ 2026-08-17 세 번째 — '궤적잡기 더 내려 보세요' (더블 궤적 잡기가 힘들다)
 //   0.075 → 0.03. 살살 밀면 손가락이 움직인 각의 3% 만 따라온다.
-const AIM_FINE_DEG = 2.0, AIM_FINE_GAIN = 0.03;
 function frameAt(px,py){
   const c = L.cloth, r = L.rail;
   if (px > c.x && px < c.x+c.w && py > c.y && py < c.y+c.h) return null;
@@ -2141,7 +2146,10 @@ function down(px,py){
   //      겹쳐 앉는 배치가 있다 (3.jpg). 그러면 당점을 누르려 해도 슬라이더가 먼저
   //      가로채 값만 바뀌고 당점판이 안 열렸다.
   //      → 그 뭉치 안이면 슬라이더를 건너뛴다. 당점이 먼저다.
-  if (VER_HIT && px >= VER_HIT.x - VER_HIT.h*0.2 && px <= VER_HIT.x + VER_HIT.w + VER_HIT.h*0.2 &&
+  // ⚠️ 경로설정 중에는 점수판을 안 받는다 (사용자 2026-08-18: '경로설정이 ON이 되면
+  //    보정 · 점수판 2개만 사용금지'). 둘 다 **천 위에 얹혀** 있어 조준과 부딪힌다.
+  if (!S.aimMode &&
+      VER_HIT && px >= VER_HIT.x - VER_HIT.h*0.2 && px <= VER_HIT.x + VER_HIT.w + VER_HIT.h*0.2 &&
       py >= VER_HIT.y && py <= VER_HIT.y + VER_HIT.h){
     let box = null;
     try { box = clusterBox(tipCenter()); } catch(e){ box = null; }
@@ -2284,8 +2292,7 @@ function move(px,py){
       else {
         let d = ((aFin - aNow + Math.PI*3) % (Math.PI*2)) - Math.PI;   // −π..π
         const deg = Math.abs(d) * 180/Math.PI;
-        const gain = deg < AIM_FINE_DEG ? AIM_FINE_GAIN : 1;
-        const a2 = aNow + d*gain;
+        const a2 = aNow + d*AIM_GAIN;          // ★ 다이 안과 같은 값 (위 AIM_GAIN 주석)
         const len = Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) || 2000;
         const q = frameAt(...toPx(cue.p[0] + Math.cos(a2)*len,
                                  cue.p[1] + Math.sin(a2)*len));
