@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 415;
+const MOBILE_VER = 416;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1303,6 +1303,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
            tipBak:null, aimMode:0, powDown:null, keepShot:0, cueSwap:0,
            solo:0, soloStat:null,
+           replayN:0, replayAll:0, replayLeft:0, shotBak:null, shotInfo:null, card:0,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -1881,6 +1882,44 @@ function swapCue(){
 //      추천 A와 B 중 어느 쪽이 나은지 **견주는 데만** 쓸 것.
 //   ⚠️ 자리를 안 옮기면 같은 배치를 영원히 반복한다. 그래서 혼자치기는
 //      이어치기·수구전환을 **강제로 켠다** (버튼도 같이 켜져 보인다).
+// ★★★★ 되풀이 보기 (사용자 2026-08-18):
+//   '성공한 시뮬레이션 반복해서 N회를 볼 수 있으면 좋겠네요.
+//    당점 두께도 같이 보면 학습효과가 크겠네요.'
+//   '그때는 시뮬레이션 전에 먼저 두께·당점을 어느 정도 크게 보여준 후
+//    시뮬레이션 설정만큼 반복해서 보여주고 다음으로 넘어가기'
+//   → 한 샷의 차례가 이렇게 된다
+//        ① 두께·당점을 **크게** 한 번 (CARD_MS)
+//        ② 시뮬레이션을 N회 되풀이         ← 성공했을 때만
+//        ③ 다음으로 (이어치기·수구전환·혼자치기)
+//   ⚠️ 되풀이 **대상**은 버튼으로 고른다 (사용자 2026-08-18: '버튼을 두 개로 나누어
+//      성공만·모두, 다른 버튼은 반복 회수'). 기본은 '성공만' — 볼 것이 있는 쪽이다.
+//   ⚠️ 되풀이 중에는 **당점판을 다이에 띄운다.** 평소 재생 중에는 다이를 비우는 것이
+//      맞지만(2026-08-14 지시), 되풀이는 **배우려고 보는 것**이라 당점이 보여야 한다.
+const CARD_MS = 1500;                    // 두께·당점을 크게 보여주는 시간
+function shotSnap(){
+  const b = {};
+  for (const k in S.balls) b[k] = S.balls[k].p.slice();
+  S.shotBak = {p:b, aim: S.aim ? S.aim.slice() : null,
+               tipH:S.tipH, tipV:S.tipV, tipR:S.tipR, tipDir:S.tipDir, corr:S.corr};
+  S.replayLeft = S.replayN;
+}
+function shotRestore(){
+  const q = S.shotBak;
+  if (!q) return false;
+  for (const k in q.p) if (S.balls[k]) S.balls[k].p = q.p[k].slice();
+  S.aim = q.aim ? q.aim.slice() : null; S.lastAim = S.aim;
+  S.tipH = q.tipH; S.tipV = q.tipV; S.tipR = q.tipR; S.tipDir = q.tipDir; S.corr = q.corr;
+  return true;
+}
+// 한 샷을 시작한다 — 되풀이가 켜져 있으면 **큰 그림부터**
+function startShot(){
+  shotSnap();
+  S.sim = null;
+  if (S.replayN > 0 && S.shotInfo){ S.card = performance.now() || 1; S.anim = 0; }
+  else { S.card = 0; S.anim = performance.now() || 1; }
+}
+// 지금 되풀이해서 보는 중인가 — 당점판을 띄울지 가른다
+function replaying(){ return !!(S.replayN > 0 && S.shotBak); }
 const SOLO_MAX = 300;                    // 이만큼 치면 스스로 멈춘다 (영영 도는 것 막기)
 function soloStart(){
   S.solo = 1;
@@ -1897,8 +1936,7 @@ function soloNext(){
   pickRoute(list[0]);
   S.routeIx = 0;                         // 추천 1번을 치는 중이다 (판독창·판정이 이걸 본다)
   S.rblink = 0;                          // 3초 잠금은 안 건다 — 혼자 치는 중이다
-  // ⚠️ performance.now() 가 0 이면 깃발이 안 켜진다. 시각을 깃발로 쓰는 자리라 || 1 을 붙인다.
-  S.anim = performance.now() || 1; S.sim = null;
+  startShot();                           // ★ 되풀이가 켜져 있으면 큰 그림부터
 }
 // 색 버튼을 두 번 탭 — 그 공을 1적구로. 흰·노랑이면 나머지가 수구가 된다
 function setFirstObject(c){
@@ -2151,6 +2189,12 @@ function tapTipPanel(px,py){
       else if (b.swap){                    // ★ 수구전환 켜기/끄기 (위 PRESET 주석)
         S.cueSwap = S.cueSwap ? 0 : 1;
       }
+      else if (b.rep){                     // ★ 반복 회수 꺼짐 → 2 → 3 → 5 → 꺼짐
+        S.replayN = S.replayN === 0 ? 2 : S.replayN === 2 ? 3 : S.replayN === 3 ? 5 : 0;
+      }
+      else if (b.repWhat){                 // ★ 되풀이 대상 성공만 ↔ 모두
+        S.replayAll = S.replayAll ? 0 : 1;
+      }
       else if (b.solo){                    // ★ 혼자치기 (위 soloStart 주석)
         if (S.solo) S.solo = 0; else { closeTipPanel(false); soloStart(); return; }
       }
@@ -2299,7 +2343,7 @@ function down(px,py){
   if (!previewOn()){
     // 시뮬레이션 공을 먼저 본다 (당점 공보다 오른쪽에 붙어 있다)
     const [sx,sy] = simCenter(), CRr = clockR();
-    if (Math.hypot(px-sx, py-sy) <= CRr*1.25){ S.anim = performance.now() || 1; S.sim = null; return; }
+    if (Math.hypot(px-sx, py-sy) <= CRr*1.25){ startShot(); return; }
     const [cx,cy] = tipCenter();
     if (Math.hypot(px-cx, py-cy) <= CRr*1.6){ openTipPanel(); return; }
   }
@@ -2668,7 +2712,7 @@ function draw(){
     drawClock();
   }
   drawButtons(); drawReadout(); drawBrand(); drawPalDrag(); drawRouteList();
-  drawSoloStat();
+  drawSoloStat(); drawReplayInfo(); drawShotCard();
   drawNoteList(); drawTipPanel(); drawThickPanel();
   drawDebugXY();
   requestAnimationFrame(draw);
@@ -6776,6 +6820,13 @@ function drawPath(){
   g.strokeStyle = '#14141a'; g.lineWidth = 2; g.stroke();
   g.restore();
   if (!a){ stopAnim(); return; }
+  // ★ 되풀이 안내용 — 두께 · 당점 · 수구가 1적구의 어느 쪽으로 지나가나 (화면 기준)
+  {
+    const F0 = (EP && EP.hitIdx > 0) ? EP.cue.p[EP.hitIdx-1] : cut.from;
+    const [fx,fy] = toPx(...F0), [tx2,ty2] = toPx(...P), [ox2,oy2] = toPx(...cut.obj);
+    const cr2 = (tx2-fx)*(oy2-ty2) - (ty2-fy)*(ox2-tx2);
+    S.shotInfo = {thick: a.thick, dir: S.tipDir, r: S.tipR, side: cr2 > 0 ? -1 : 1};
+  }
 
   // ★ 사용자 확정 2026-08-11: '충돌 뒤 쿠션 보정이 걸립니다.'
   //   조준선에서 풀린 k 를 그대로 이어 쓴다 (LAST_K). 보정은 **다이(쿠션)** 의 값이라
@@ -6973,6 +7024,13 @@ function drawPath(){
         //   칠 수 있게 그대로 두는 기능입니다.'
         //   ⚠️ 배치가 바뀌었으니 추천·회로·자동완성을 새 배치 기준으로 되살린다.
         const okShot = shotScored(EP);
+        // ★★★★ 성공한 샷은 **N회 되풀이해서** 보여준다 (위 shotSnap 주석).
+        //   다 보고 나서야 이어치기·수구전환·혼자치기로 넘어간다.
+        if ((S.replayAll || okShot) && S.replayLeft > 0 && shotRestore()){
+          S.replayLeft--;
+          S.anim = performance.now() || 1; S.sim = null;
+          return;
+        }
         // ★ 혼자치기는 이어치기·수구전환이 켜져 있어야 성립한다 (soloStart 주석)
         if (S.solo && S.soloStat){
           const st = S.soloStat;
@@ -7089,6 +7147,59 @@ function drawScatter(){
 
 // 혼자치기 성적 — 다이 왼쪽 위에 (사용자 2026-08-18)
 // ⚠️ 안 보이는 자리에는 안 적는다. 천 **안쪽**이라 폰에서 잘리지 않는다.
+// ★★★★ 샷 전에 **두께·당점을 크게** 한 번 (사용자 2026-08-18). CARD_MS 뒤 저절로
+//   시뮬레이션으로 넘어간다. 안전 띠(0.10h~0.84h) 안에만 그린다.
+function drawShotCard(){
+  if (!S.card) return;
+  const q = S.shotInfo;
+  if (!q){ S.card = 0; S.anim = performance.now() || 1; S.sim = null; return; }
+  const el = (performance.now() || 1) - S.card;
+  if (el >= CARD_MS){ S.card = 0; S.anim = performance.now() || 1; S.sim = null; return; }
+  const w = L.w, h = L.h, cue = S.balls.cue, o1 = S.balls.obj1;
+  g.save();
+  g.fillStyle = 'rgba(8,9,12,0.90)'; g.fillRect(0,0,w,h);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  // 두께 그림 — 1적구와, 닿는 순간의 수구
+  const R = Math.min(w*0.075, h*0.115);
+  const cx = Math.round(w*0.30), cy = Math.round(h*0.36);
+  const off = 2*R*(1 - Math.max(0, Math.min(1, q.thick)));
+  const bx = cx + (q.side || 0)*off;
+  const by = cy + Math.sqrt(Math.max(0, 4*R*R - off*off));
+  drawBallAt(bx, by, R, (cue && cue.color) || 'white');
+  {                                        // 수구 위에 지금 당점을 빨간 점으로
+    const u = R * TIP_R, [ox,oy] = tipXY(q.dir, Math.min(3, q.r), u);
+    g.beginPath(); g.arc(bx+ox, by+oy, Math.max(2.5, u*0.95), 0, 7);
+    g.fillStyle = '#de342c'; g.fill();
+  }
+  drawBallAt(cx, cy, R, (o1 && o1.color) || 'red');
+  // 당점 시계판
+  drawTipDial(Math.round(w*0.70), Math.round(h*0.40),
+              Math.min(w*0.11, h*0.22), (cue && cue.color) || 'white');
+  // 글자
+  const e8 = Math.max(1, Math.min(8, Math.round(q.thick*8)));
+  g.fillStyle = '#ffdd33';
+  g.font = '800 ' + Math.round(h*0.070) + 'px system-ui, sans-serif';
+  g.fillText('두께 8/' + e8 + '  (' + Math.round(q.thick*100) + '%)', w*0.30, h*0.78);
+  g.fillText(tipClock(q.dir, q.r), w*0.70, h*0.78);
+  g.restore();
+}
+// 되풀이 중 — 두께와 당점을 글자로 (작은 당점판만으로는 폰에서 안 읽힌다)
+function drawReplayInfo(){
+  if (!S.anim || !replaying() || !S.shotInfo) return;
+  const c = L.cloth, fs = Math.max(12, c.h*0.055), q = S.shotInfo;
+  const e8 = Math.max(1, Math.min(8, Math.round(q.thick*8)));
+  const t = '되풀이 ' + Math.max(0, S.replayN - S.replayLeft) + '/' + S.replayN
+          + '    두께 8/' + e8 + '    ' + tipClock(q.dir, q.r);
+  g.save();
+  g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.lineJoin = 'round'; g.strokeStyle = 'rgba(8,10,14,0.92)';
+  g.lineWidth = Math.max(4, fs*0.30);
+  const x = c.x + c.w*0.02, y = c.y + c.h*0.18;
+  g.strokeText(t, x, y);
+  g.fillStyle = '#6eeb5a'; g.fillText(t, x, y);
+  g.restore();
+}
 function drawSoloStat(){
   const st = S.soloStat;
   if (!st || !st.shots) return;
@@ -7338,7 +7449,9 @@ function drawClock(){
   //   지워주세요. 종료 시 복원.'  → 굴러가는 동안 다이 위에는 공과 궤적만 남는다.
   //   S.anim 이 꺼지면 저절로 돌아온다 (상태 하나로 켜고 끈다).
   // ★ 초구 뿌리기도 같다 (사용자 2026-08-14) — 공이 날아다니는 동안 다이 위를 비운다.
-  if (S.anim || S.scatter) return;
+  // ⚠️ 되풀이해서 보는 중에는 **당점을 띄운다** (위 shotSnap 주석). 평소 재생 중에는
+  //    다이를 비우는 것이 맞지만(2026-08-14 지시), 되풀이는 배우려고 보는 것이다.
+  if (S.scatter || (S.anim && !replaying())) return;
   // ★ 시뮬레이션 공 — 수구 색 + 가운데 큰 화살표 (사용자 2026-08-13)
   {
     const [sx,sy] = simCenter(), sr = clockR();
@@ -7593,8 +7706,11 @@ const PRESET = [
   //   꺼짐은 한 공으로 계속 치기, 켜짐은 자동 전환. **실패했을 때만** 넘긴다.
   {lb:'수구전환',   swap: true,   src:'2026-08-18 — 실패하면 공수전환'},
   // ★★★★ 혼자치기 — 추천 1번으로 스스로 친다 (위 soloStart 주석)
-  {lb:'혼자치기',   solo: true,   src:'2026-08-18 — 추천 1번으로 스스로 친다'},
-  {lb:'미사용',    none: true}
+  // ★★★★ 되풀이 — 두께·당점을 크게 보여준 뒤 그 샷을 N회 다시 (위 shotSnap 주석)
+  //   버튼 둘로 나눴다 (사용자 2026-08-18) — 무엇을 되풀이할지 / 몇 번 되풀이할지
+  {lb:'되풀이',    repWhat: true, src:'2026-08-18 — 성공만 · 모두'},
+  {lb:'반복',      rep: true,     src:'2026-08-18 — 꺼짐 · 2 · 3 · 5회'},
+  {lb:'혼자치기',   solo: true,    src:'2026-08-18 — 추천 1번으로 스스로 친다'}
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
@@ -7739,6 +7855,8 @@ function tipGeom(){
                    : q.keep ? {...q, lb: '이어치기  ' + (S.keepShot ? '켜짐' : '꺼짐')}
                    : q.swap ? {...q, lb: '수구전환  ' + (S.cueSwap ? '켜짐' : '꺼짐')}
                    : q.solo ? {...q, lb: '혼자치기  ' + (S.solo ? '켜짐' : '꺼짐')}
+                   : q.rep ? {...q, lb: '반복  ' + (S.replayN ? S.replayN + '회' : '꺼짐')}
+                   : q.repWhat ? {...q, lb: '되풀이  ' + (S.replayAll ? '모두' : '성공만')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
                    : q);
   const hw = Math.round((bw - gap) / 2);
