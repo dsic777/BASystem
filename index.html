@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 407;
+const MOBILE_VER = 408;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1301,7 +1301,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
-           tipBak:null,
+           tipBak:null, aimMode:0, powDown:null,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -1626,6 +1626,10 @@ const POWER_ON  = '#e01f16';    // 고른 세기
 const POWER_OFF = '#f7f9fc';    // 나머지
 const POWER_TXT = '#ffd400';    // 글자
 function tapButton(px,py){
+  // ★ 경로설정 중에는 **다른 버튼이 모두 꺼진다** (위 힘조절 버튼 주석).
+  //   꺼진 자리를 눌러도 아무 일이 없고, 그 아래 다이 조준이 받는다 —
+  //   버튼이 다이 위에 얹혀 있어 부딪히던 것이 이걸로 없어진다.
+  if (S.aimMode) return false;
   for (const b of BTN){
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
     // ★ 보정을 바꿔도 같이 따라간다 (당점과 같은 이유 — reaimForTip 주석 참고)
@@ -1659,12 +1663,12 @@ function tapButton(px,py){
       S.place = S.place === b.lb ? null : b.lb;
       // 손가락으로 끌어다 놓기도 된다 (사용자 지시). 탭 방식은 그대로 남긴다 —
       // 움직이지 않고 떼면 지금처럼 '고른 상태' 로 남는다.
-      S.pal = {c: b.lb, x: px, y: py, moved: false};
+      S.pal = {c: b.lb, x: px, y: py, moved: false, t: nowMs()};
     }
     else if (b.lb === 'reset') doReset();
-    // ★ 세기 — 누를 때마다 약 → 중 → 강. 기본은 중 (사용자 확정).
+    // ★ 세기 — 약 → 중 → 강. **뗄 때** 가른다 (짧게는 세기, 길게는 경로설정 모드).
+    //   그래서 여기서는 아무것도 안 한다 — down() 이 S.powDown 으로 가로챈다.
     //   ⚠️ 아직 경로 길이에 연결하지 않았다. 자리와 눈에 보이는 상태만 만든 것이다.
-    else if (b.lb === 'power') S.power = (S.power + 1) % 3;
     // ★ 경로추천 — 누를 때마다 다음 경로로. 끝나면 직접조준 (사용자 승인 2026-08-11).
     else if (b.lb === 'suggest'){
       // ★ 사용자 2026-08-12 —
@@ -2155,9 +2159,21 @@ function down(px,py){
   // ★★ 추천만 **뗄 때** 판단한다 — 짧게는 다음 경로, 길게는 목록 (사용자 2026-08-14 ③).
   //   '추천 버튼을 길게 누르면 목록.' 윈도우 휴대폰연동에서는 왼쪽 버튼을 누른 채
   //   0.5초 가만히 있다가 떼면 된다.
+  // ★★★★ 힘조절 버튼을 **길게 누르면 경로설정 모드** (사용자 2026-08-18):
+  //   '다이 안에서 경로설정시 기존 버튼들과 충돌이 납니다. 힘조절 버튼을 활용합시다.
+  //    힘조절버튼 길게 누르면 경로설정 아이콘으로 버튼변경, 다시 길게 누르면 복귀.
+  //    경로설정시는 다른버튼 OFF, 해제시 경로설정 불가.'
+  //   ⚠️ 이 칸만은 경로설정 중에도 살아 있어야 한다 — 나올 문이 없어진다.
+  {
+    const b = BTN.find(q => q.lb === 'power');
+    if (b && px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h){
+      S.powDown = {t: nowMs(), x: px, y: py};
+      return;
+    }
+  }
   {
     const b = BTN.find(q => q.lb === 'suggest');
-    if (b && px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h){
+    if (!S.aimMode && b && px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h){
       S.sugDown = {t: nowMs(), x: px, y: py};
       blink(); return;
     }
@@ -2207,7 +2223,10 @@ function down(px,py){
   if (f){ S.aim = S.lastAim = f; S.aiming = true; return; }
   // ★★★★ 다이 안(천 위)을 눌러도 방향이 잡힌다 (위 aimAtPx 의 ★ 주석).
   //   공·버튼·판독창·당점은 모두 위에서 걸러졌으니 여기 남은 것은 빈 천뿐이다.
-  if (!previewOn() && S.balls.cue){
+  // ⚠️ **경로설정 모드일 때만** 받는다 (사용자 2026-08-18: '해제시 경로설정 불가').
+  //   테두리(프레임) 조준은 그대로 둔다 — 거기는 버튼이 없어 부딪힐 일이 없고,
+  //   미세조정에 쓰던 오래된 길이다.
+  if (S.aimMode && !previewOn() && S.balls.cue){
     const c = L.cloth;
     if (px >= c.x && px <= c.x+c.w && py >= c.y && py <= c.y+c.h){
       // 찍은 쪽 **반대**로 한 번에 (깜빡임 중이면 안 먹는다) → 자석
@@ -2287,7 +2306,6 @@ function move(px,py){
     snapAimMark();                                 // 닿으면 알려만 준다 (안 끌어당긴다)
   }
 }
-const DOUBLE_MS = 450;               // 두 번 탭으로 치는 사이 (1적구 지정)
 const LONG_MS = 450;                 // 이만큼 누르고 있으면 '길게'
 const LONG_MOVE = 14;                // 그 사이 이만큼 넘게 움직이면 끌기로 본다
 function up(px, py){
@@ -2297,6 +2315,15 @@ function up(px, py){
     const r0 = curRoute();
     if (r0 && v !== null) verSet(r0, String(v));
     blink(); return;
+  }
+  if (S.powDown){
+    const d = S.powDown; S.powDown = null;
+    const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
+    if (moved <= LONG_MOVE){
+      if (nowMs() - d.t >= LONG_MS) S.aimMode = S.aimMode ? 0 : 1;   // 길게 — 모드 바꾸기
+      else if (!S.aimMode) S.power = (S.power + 1) % 3;              // 짧게 — 약·중·강
+    }
+    return;
   }
   if (S.sugDown){
     const d = S.sugDown; S.sugDown = null;
@@ -2359,10 +2386,12 @@ function up(px, py){
   //    놓는 순간에만 separate() 로 겹침을 푼다.
   if (S.pal){
     const q = S.pal; S.pal = null;
-    // ★ 안 끌고 **두 번 탭**하면 그 공이 1적구다 (위 setFirstObject 주석)
+    // ★ 안 끌고 **길게 탭**하면 그 공이 1적구다 (위 setFirstObject 주석)
+    //   ⚠️ 두 번 탭에서 **길게 탭**으로 바꿨다 (사용자 2026-08-18:
+    //      '1적구 설정버튼이 더블클릭인데 길게 탭으로 변경합시다.
+    //       여러가지를 같이 쓰면 혼란스러워요').
     if (!q.moved){
-      const t = nowMs();
-      if (S.palTap && S.palTap.c === q.c && t - S.palTap.t < DOUBLE_MS){
+      if (nowMs() - q.t >= LONG_MS){
         // ★★★★ 사용자 2026-08-18: '방법을 모르겠네요 두번을 탭해도 변화가 없어요'
         //   두께판을 **1적구 탭**으로만 열게 했더니 못 열었다. 까닭이 둘이다 —
         //     ① 1적구는 (따로 안 정하면) **흰/노랑 중 수구가 아닌 쪽**이다.
@@ -2371,10 +2400,10 @@ function up(px, py){
         //        (반경을 넓히는 안은 사장님이 막았다 — '두 공이 붙어있으면 못잡아요')
         //   → **큰 색 버튼 두 번 탭 하나로 끝낸다.** 그 공을 1적구로 정하고 두께판까지 연다.
         //     '두께와 당점을 결정한다는 것은 외길만 남습니다' — 정하는 순서 그대로다.
-        S.palTap = null; setFirstObject(q.c); blink(q.c);
+        S.place = null;                    // 길게 누르는 동안 켜진 '놓기' 는 끈다
+        setFirstObject(q.c); blink(q.c);
         openThickPanel(); return;
       }
-      S.palTap = {c: q.c, t};
     }
     if (q.moved && px !== undefined){
       const [x,y] = toMm(px,py);
@@ -8433,9 +8462,12 @@ function drawButtons(){
     g.strokeText(txt, cx, cy);
     g.fillStyle = fill; g.fillText(txt, cx, cy);
   };
+  g.save();
   for (const b of BTN){
+    // ★ 경로설정 중에는 나머지 버튼을 흐리게 — 꺼져 있다는 것이 눈에 보여야 한다
+    g.globalAlpha = (S.aimMode && b.lb !== 'power') ? 0.30 : 1;
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
-    const armed = S.place === b.lb;
+    const armed = S.place === b.lb || (b.lb === 'power' && S.aimMode);
     const onBar = ['-','0','+'].includes(b.lb);
     const rnd = b.lb === 'cam' ? Math.max(b.w,b.h)*0.5 : u*0.22;   // 카메라는 원형
     if (onBar){                                    // 바 위 칸 — 채움만 옅게, 선은 선명
@@ -8486,6 +8518,33 @@ function drawButtons(){
     //   따라다니게**. 지금 핸드폰으로는 글자가 보이지도 않습니다.'
     //   → 단계별 색을 없앤다. 고른 칸만 빨강, 나머지는 흰색.
     //     글자는 고른 막대 **바로 아래**에 붙어 같이 움직인다.
+    // ★ 경로설정 켜짐 — 막대 대신 **꺾이는 길** 아이콘 (사용자 2026-08-18)
+    if (b.lb === 'power' && S.aimMode){
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      const pt = [[-0.34,0.14],[-0.05,-0.28],[0.24,0.06]];
+      const line = (col, w) => {
+        g.strokeStyle = col; g.lineWidth = w;
+        g.beginPath();
+        pt.forEach((q2,i) => i ? g.lineTo(cx+u*q2[0], cy+u*q2[1])
+                               : g.moveTo(cx+u*q2[0], cy+u*q2[1]));
+        g.stroke();
+      };
+      line('#14161a', Math.max(5, u*0.17));
+      line('#e01f16', Math.max(3, u*0.10));
+      // 화살촉 — 가는 쪽
+      const e = pt[2], d0 = [e[0]-pt[1][0], e[1]-pt[1][1]];
+      const dn = Math.hypot(d0[0], d0[1]) || 1;
+      const ux = d0[0]/dn, uy = d0[1]/dn, aw = u*0.13;
+      g.beginPath();
+      g.moveTo(cx+u*e[0]+ux*aw*1.5, cy+u*e[1]+uy*aw*1.5);
+      g.lineTo(cx+u*e[0]-uy*aw, cy+u*e[1]+ux*aw);
+      g.lineTo(cx+u*e[0]+uy*aw, cy+u*e[1]-ux*aw);
+      g.closePath();
+      g.fillStyle = '#e01f16'; g.fill();
+      g.strokeStyle = '#14161a'; g.lineWidth = Math.max(1.5, u*0.035); g.stroke();
+      heavy('경로', cx, cy + u*0.30, u*0.34, POWER_TXT);
+      continue;
+    }
     if (b.lb === 'power'){
       const n = S.power, bw2 = u*0.16, gap = u*0.09, hs = [0.20, 0.30, 0.40];
       const x0 = cx - (bw2*3 + gap*2)/2;
@@ -8555,6 +8614,7 @@ function drawButtons(){
       heavy(b.lb, cx, cy, u*0.62, '#f2f4f8');
     }
   }
+  g.restore();
   drawDsline();
 }
 
