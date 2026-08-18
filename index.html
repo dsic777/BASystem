@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 434;
+const MOBILE_VER = 435;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6885,7 +6885,16 @@ function drawPath(){
     const F0 = (EP && EP.hitIdx > 0) ? EP.cue.p[EP.hitIdx-1] : cut.from;
     const [fx,fy] = toPx(...F0), [tx2,ty2] = toPx(...P), [ox2,oy2] = toPx(...cut.obj);
     const cr2 = (tx2-fx)*(oy2-ty2) - (ty2-fy)*(ox2-tx2);
-    S.shotInfo = {thick: a.thick, dir: S.tipDir, r: S.tipR, side: cr2 > 0 ? -1 : 1};
+    // ★ 큰 그림이 **실제로 맞는 공**을 그려야 한다 (사용자 2026-08-19: '당점 두께에서
+    //   수구와 1적구 공 색깔이 안 맞아요'). 시범경기는 추천 경로를 그대로 치므로
+    //   먼저 맞는 공이 2적구일 수도 있다. obj1 을 그리면 색이 어긋난다.
+    let objC = null;
+    for (const k2 in S.balls){
+      const b2 = S.balls[k2];
+      if (Math.hypot(b2.p[0]-cut.obj[0], b2.p[1]-cut.obj[1]) < 1){ objC = b2.color; break; }
+    }
+    S.shotInfo = {thick: a.thick, dir: S.tipDir, r: S.tipR, side: cr2 > 0 ? -1 : 1,
+                  obj: objC, cue: cue.color};
     // ★ 새 값이 나왔으니 이제 큰 그림을 띄운다 (위 startShot 의 ⚠️⚠️ 주석)
     if (S.wantCard){ S.wantCard = 0; S.card = performance.now() || 1; }
   }
@@ -7234,7 +7243,9 @@ function drawShotCard(){
   if (!q){ S.card = 0; S.anim = performance.now() || 1; S.sim = null; return; }
   const el = (performance.now() || 1) - S.card;
   if (el >= viewMs()){ S.card = 0; S.anim = performance.now() || 1; S.sim = null; return; }
-  const w = L.w, h = L.h, cue = S.balls.cue, o1 = S.balls.obj1;
+  const w = L.w, h = L.h;
+  const cueC = q.cue || (S.balls.cue && S.balls.cue.color) || 'white';
+  const objC = q.obj || (S.balls.obj1 && S.balls.obj1.color) || 'red';
   g.save();
   g.fillStyle = 'rgba(8,9,12,0.90)'; g.fillRect(0,0,w,h);
   g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -7244,16 +7255,16 @@ function drawShotCard(){
   const off = 2*R*(1 - Math.max(0, Math.min(1, q.thick)));
   const bx = cx + (q.side || 0)*off;
   const by = cy + Math.sqrt(Math.max(0, 4*R*R - off*off));
-  drawBallAt(bx, by, R, (cue && cue.color) || 'white');
+  drawBallAt(bx, by, R, cueC);
   {                                        // 수구 위에 지금 당점을 빨간 점으로
     const u = R * TIP_R, [ox,oy] = tipXY(q.dir, Math.min(3, q.r), u);
     g.beginPath(); g.arc(bx+ox, by+oy, Math.max(2.5, u*0.95), 0, 7);
     g.fillStyle = '#de342c'; g.fill();
   }
-  drawBallAt(cx, cy, R, (o1 && o1.color) || 'red');
+  drawBallAt(cx, cy, R, objC);
   // 당점 시계판
   drawTipDial(Math.round(w*0.70), Math.round(h*0.40),
-              Math.min(w*0.11, h*0.22), (cue && cue.color) || 'white');
+              Math.min(w*0.11, h*0.22), cueC);
   // 글자
   const e8 = Math.max(1, Math.min(8, Math.round(q.thick*8)));
   g.fillStyle = '#ffdd33';
