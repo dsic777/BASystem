@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 418;
+const MOBILE_VER = 419;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2212,6 +2212,11 @@ function tapTipPanel(px,py){
         //    '혼자치기 설정 누르니 바로 전화면으로 복귀합니다. **완료·취소만** 전화면
         //     복귀가 가능합니다.' → 이 판은 설정판이다. 켜 두기만 하고 완료에서 시작한다.
         S.solo = S.solo ? 0 : 1;
+        // ★ 켜는 순간 이어치기·수구전환도 같이 켠다 — **버튼도 같이 켜져 보여야 한다**
+        //   (사용자 2026-08-18, 61: '혼자치기를 켜면 이어치기·수구전환이 같이 켜집니다
+        //    그러면 버튼도 같이 켜져야죠'). 전에는 soloStart 가 완료 뒤에 켜서,
+        //    판 안에서는 꺼짐으로 보였다. 말과 화면이 달랐다.
+        if (S.solo){ S.keepShot = 1; S.cueSwap = 1; }
       }
       else if (b.none){ /* 빈 칸 — 나중에 쓸 자리 */ }
       else if (b.auto){                    // ★ 자동조정 켜고 끄기 (위 PRESET 주석)
