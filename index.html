@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 422;
+const MOBILE_VER = 423;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1304,7 +1304,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            tipBak:null, aimMode:0, powDown:null, keepShot:0, cueSwap:0,
            solo:0, soloStat:null,
            replayN:0, replayAll:0, replayLeft:0, shotBak:null, shotInfo:null,
-           card:0, wantCard:0, showPlace:0,
+           card:0, wantCard:0, showPlace:0, viewSec:3,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -1905,13 +1905,14 @@ function swapCue(){
 //   이 셋이 한 바퀴다. '반복 1회' 면 이 한 바퀴를 **두 번** 돈다.
 //   ⚠️ 손으로 치는 샷까지 6초를 기다리게 하면 안 된다 — **혼자치기나 반복이
 //      켜져 있을 때만** 이 차례를 쓴다. 그냥 치면 지금까지대로 바로 굴러간다.
-const CARD_MS = 3000;                    // 두께·당점을 크게 보여주는 시간
-const PLACE_MS = 3000;                   // 배치를 보여주는 시간
+// ★ 보는 시간 — 배치 화면과 두께·당점 화면에 **같이** 걸린다 (사용자 2026-08-19:
+//   '경로와 당점/두께 보여주는 시간 2초/3초/5초를 설정하게 하고'). 기본 3초.
+function viewMs(){ return (S.viewSec || 3) * 1000; }
 function learnMode(){ return !!(S.solo || S.replayN); }
 // 배치 단계가 끝나면 두께·당점 차례로 넘긴다 (draw 가 매 프레임 부른다)
 function stepPhases(){
   if (!S.showPlace) return;
-  if (((performance.now() || 1) - S.showPlace) < PLACE_MS) return;
+  if (((performance.now() || 1) - S.showPlace) < viewMs()) return;
   S.showPlace = 0; S.wantCard = 1;
 }
 function shotSnap(){
@@ -2192,7 +2193,7 @@ function openTipPanel(){
               // ★ 사용자 2026-08-18: '취소시 모든 설정 취소입니다. 화면 진입 전으로.
               //   그러니 이 화면 진입시 초기 설정값 모두 알고 있어야 합니다.'
               //   → 이 판에서 바뀌는 것은 **하나도 빼지 않고** 여기 적는다.
-              solo:S.solo, replayN:S.replayN, replayAll:S.replayAll};
+              solo:S.solo, replayN:S.replayN, replayAll:S.replayAll, viewSec:S.viewSec};
   S.tipPanel = true;
 }
 function closeTipPanel(cancel){
@@ -2217,6 +2218,9 @@ function tapTipPanel(px,py){
       }
       else if (b.swap){                    // ★ 수구전환 켜기/끄기 (위 PRESET 주석)
         S.cueSwap = S.cueSwap ? 0 : 1;
+      }
+      else if (b.view){                    // ★ 보는 시간 2 → 3 → 5 → 2초
+        S.viewSec = S.viewSec === 2 ? 3 : S.viewSec === 3 ? 5 : 2;
       }
       else if (b.rep){                     // ★ 반복 회수 꺼짐 → 1 → 2 → 꺼짐
         // ⚠️ 2·3·5 였는데 사장님이 줄였다 (2026-08-18: '반복 꺼짐/1회/2회 만 넣으세요').
@@ -7221,7 +7225,7 @@ function drawShotCard(){
   const q = S.shotInfo;
   if (!q){ S.card = 0; S.anim = performance.now() || 1; S.sim = null; return; }
   const el = (performance.now() || 1) - S.card;
-  if (el >= CARD_MS){ S.card = 0; S.anim = performance.now() || 1; S.sim = null; return; }
+  if (el >= viewMs()){ S.card = 0; S.anim = performance.now() || 1; S.sim = null; return; }
   const w = L.w, h = L.h, cue = S.balls.cue, o1 = S.balls.obj1;
   g.save();
   g.fillStyle = 'rgba(8,9,12,0.90)'; g.fillRect(0,0,w,h);
@@ -7272,7 +7276,7 @@ function drawReplayInfo(){
 function drawPlaceTag(){
   if (!S.showPlace) return;
   const c = L.cloth, fs = Math.max(14, c.h*0.075), an = infoAnchor();
-  const left = Math.max(0, PLACE_MS - ((performance.now()||1) - S.showPlace));
+  const left = Math.max(0, viewMs() - ((performance.now()||1) - S.showPlace));
   const t = '배치를 보세요   ' + (Math.ceil(left/1000)) ;
   g.save();
   g.font = '800 ' + Math.round(fs) + 'px system-ui, sans-serif';
@@ -7289,7 +7293,7 @@ function drawSoloStat(){
   if (!st || !st.shots) return;
   const c = L.cloth, fs = Math.max(12, c.h*0.055);
   const pct = st.shots ? Math.round(st.made*100/st.shots) : 0;
-  const t = (S.solo ? '혼자치기  ' : '멈춤  ')
+  const t = (S.solo ? '시범경기  ' : '멈춤  ')
           + st.made + '점 / ' + st.shots + '이닝   ' + pct + '%'
           + '   연속 ' + st.run + ' · 최고 ' + st.best;
   g.save();
@@ -7795,7 +7799,9 @@ const PRESET = [
   //   버튼 둘로 나눴다 (사용자 2026-08-18) — 무엇을 되풀이할지 / 몇 번 되풀이할지
   {lb:'되풀이',    repWhat: true, src:'2026-08-18 — 성공만 · 모두'},
   {lb:'반복',      rep: true,     src:'2026-08-18 — 꺼짐 · 1 · 2회'},
-  {lb:'혼자치기',   solo: true,    src:'2026-08-18 — 추천 1번으로 스스로 친다'}
+  {lb:'시범경기',   solo: true,    src:'2026-08-18 — 추천 1번으로 앱이 스스로 친다'},
+  // ★ 보는 시간 — 배치·두께·당점 화면이 얼마나 머무나 (위 viewMs 주석)
+  {lb:'보는 시간',  view: true,    src:'2026-08-19 — 2 · 3 · 5초'}
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
@@ -7939,7 +7945,8 @@ function tipGeom(){
   const rows = PRESET.map(q => q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
                    : q.keep ? {...q, lb: '이어치기  ' + (S.keepShot ? '켜짐' : '꺼짐')}
                    : q.swap ? {...q, lb: '수구전환  ' + (S.cueSwap ? '켜짐' : '꺼짐')}
-                   : q.solo ? {...q, lb: '혼자치기  ' + (S.solo ? '켜짐' : '꺼짐')}
+                   : q.solo ? {...q, lb: '시범경기  ' + (S.solo ? '켜짐' : '꺼짐')}
+                   : q.view ? {...q, lb: '보는 시간  ' + (S.viewSec || 3) + '초'}
                    : q.rep ? {...q, lb: '반복  ' + (S.replayN ? S.replayN + '회' : '꺼짐')}
                    : q.repWhat ? {...q, lb: '되풀이  ' + (S.replayAll ? '모두' : '성공만')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
