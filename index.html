@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 408;
+const MOBILE_VER = 409;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1625,12 +1625,19 @@ const POWER_KR  = ['약', '중', '강'];
 const POWER_ON  = '#e01f16';    // 고른 세기
 const POWER_OFF = '#f7f9fc';    // 나머지
 const POWER_TXT = '#ffd400';    // 글자
+// 이 버튼이 **다이(천) 위에 얹혀** 있나. 경로설정과 부딪히는 것은 이것들뿐이다.
+// ⚠️ 오른쪽 칸 버튼들은 **다이 바깥**이라 안 건드린다 (사용자 2026-08-18:
+//    '경로설정 ON시 우측 버튼들은 다이 바깥입니다. 손대지 마세요').
+//    지금 천 위에 있는 것은 보정 바(− 0 +) 뿐이다.
+function btnOnCloth(b){
+  const c = L.cloth;
+  return b.x < c.x + c.w && c.x < b.x + b.w && b.y < c.y + c.h && c.y < b.y + b.h;
+}
 function tapButton(px,py){
-  // ★ 경로설정 중에는 **다른 버튼이 모두 꺼진다** (위 힘조절 버튼 주석).
-  //   꺼진 자리를 눌러도 아무 일이 없고, 그 아래 다이 조준이 받는다 —
-  //   버튼이 다이 위에 얹혀 있어 부딪히던 것이 이걸로 없어진다.
-  if (S.aimMode) return false;
   for (const b of BTN){
+    // ★ 경로설정 중에는 **천 위에 얹힌 버튼만** 꺼진다 (위 btnOnCloth 주석).
+    //   꺼진 자리를 눌러도 아무 일이 없고, 그 아래 다이 조준이 받는다.
+    if (S.aimMode && btnOnCloth(b)) continue;
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
     // ★ 보정을 바꿔도 같이 따라간다 (당점과 같은 이유 — reaimForTip 주석 참고)
     if (b.lb === '+'){ S.corr += 0.5; reaimForTip(); }
@@ -8464,8 +8471,9 @@ function drawButtons(){
   };
   g.save();
   for (const b of BTN){
-    // ★ 경로설정 중에는 나머지 버튼을 흐리게 — 꺼져 있다는 것이 눈에 보여야 한다
-    g.globalAlpha = (S.aimMode && b.lb !== 'power') ? 0.30 : 1;
+    // ★ 경로설정 중에는 **천 위에 얹힌 버튼만** 흐리게 — 꺼졌다는 것이 보여야 한다.
+    //   오른쪽 칸은 다이 바깥이라 그대로 둔다 (btnOnCloth 주석).
+    g.globalAlpha = (S.aimMode && btnOnCloth(b)) ? 0.30 : 1;
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
     const armed = S.place === b.lb || (b.lb === 'power' && S.aimMode);
     const onBar = ['-','0','+'].includes(b.lb);
