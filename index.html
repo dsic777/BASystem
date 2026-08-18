@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 403;
+const MOBILE_VER = 404;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1301,6 +1301,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
+           tipBak:null,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
            dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
@@ -2044,11 +2045,28 @@ function flash(t, ms){
 // 당점판이 열려 있을 때. **한 번 탭하면 그 자리로 정하고 바로 닫는다** (사용자 지시).
 // ★ 고르는 것만으로는 닫지 않는다. 오른쪽 안내(시계 자리·분리각·쿠션 보정)를
 //   보고 나서 '조정 완료' 를 눌러야 나간다 (사용자 지시 2026-08-10).
+// ★ 당점판도 되돌릴 수 있어야 한다 (사용자 2026-08-18, 56.jpg).
+//   여기서 바뀌는 것은 당점만이 아니다 — setTip 이 reaimForTip 으로 조준을 옮기고,
+//   자동조정·찾는 범위·자석도 이 판에서 바뀐다. 그래서 그것들을 통째로 붙잡아 둔다.
+function openTipPanel(){
+  S.tipBak = {tipH:S.tipH, tipV:S.tipV, tipR:S.tipR, tipDir:S.tipDir, tipLock:S.tipLock,
+              aim: S.aim ? S.aim.slice() : null,
+              lastAim: S.lastAim ? S.lastAim.slice() : null,
+              snapA:S.snapA, aimSnapped:S.aimSnapped, dirSet:S.dirSet,
+              lockRails:S.lockRails, sysMode:S.sysMode,
+              aimScope:S.aimScope, magnet:S.magnet};
+  S.tipPanel = true;
+}
+function closeTipPanel(cancel){
+  if (cancel && S.tipBak) Object.assign(S, S.tipBak);
+  S.tipBak = null; S.tipPanel = false;
+  ROUTES = {key: null, list: null};        // 찾는 범위가 바뀌었을 수 있다
+}
 function tapTipPanel(px,py){
   const q = tipGeom();
   for (const b of q.btn)
     if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
-      if (b.done) S.tipPanel = false;      // 이것만 나간다
+      if (b.done){ closeTipPanel(!!b.cancel); return; }   // 이 둘만 나간다
       else if (b.magnet){                  // ★ 자석 켜기/끄기 (위 magnetPull 주석)
         S.magnet = S.magnet ? 0 : 1;
       }
@@ -2081,7 +2099,7 @@ function tapTipPanel(px,py){
     setTip(best.dir, best.r);              // 값만 바꾸고 판은 그대로
     return;
   }
-  S.tipPanel = false;                      // 판 바깥을 탭하면 나간다
+  closeTipPanel(false);                    // 판 바깥을 탭하면 그대로 나간다
 }
 
 function down(px,py){
@@ -2187,7 +2205,7 @@ function down(px,py){
     const [sx,sy] = simCenter(), CRr = clockR();
     if (Math.hypot(px-sx, py-sy) <= CRr*1.25){ S.anim = performance.now(); S.sim = null; return; }
     const [cx,cy] = tipCenter();
-    if (Math.hypot(px-cx, py-cy) <= CRr*1.6){ S.tipPanel = true; return; }
+    if (Math.hypot(px-cx, py-cy) <= CRr*1.6){ openTipPanel(); return; }
   }
   const f = frameAt(px,py);
   if (f){ S.aim = S.lastAim = f; S.aiming = true; return; }
@@ -7518,14 +7536,17 @@ function tipGeom(){
                     ((S.aimScope === 5) ? '5°' : '360°')}
                    : q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
-                   : q).concat([{lb:'조정 완료', done:true}]);
+                   : q);
   const hw = Math.round((bw - gap) / 2);
-  const btn = rows.slice(0, -1).map((p,i) => ({...p,
+  const btn = rows.map((p,i) => ({...p,
       x: x0 + (i % 2) * (hw + gap),
       y: y0 + Math.floor(i/2) * (bh + gap),
       w: hw, h: bh}));
-  btn.push({...rows[rows.length-1],                   // 조정 완료 — 한 줄 전체
-      x: x0, y: y0 + (nRow-1) * (bh + gap), w: bw, h: bh});
+  // ★ 맨 줄은 **완료 · 취소** 둘 (사용자 2026-08-18, 56.jpg: '완료 취소 버튼으로 나눕시다').
+  //   두께판과 같은 규칙이다 — 만진 뒤 어느 쪽을 눌러도 전 화면으로 돌아간다.
+  const ly = y0 + (nRow-1) * (bh + gap);
+  btn.push({lb:'완 료', done:true,               x:x0,           y:ly, w:hw, h:bh});
+  btn.push({lb:'취 소', done:true, cancel:true,  x:x0+hw+gap,    y:ly, w:hw, h:bh});
   return {R, cx, cy, x0, bw, y0, btn, dots: tipDots(), unit: R*TIP_R};
 }
 
@@ -7861,10 +7882,10 @@ function drawTipPanel(){
     const [ox,oy] = tipXY(d, 3.62, q.unit);
     g.fillText(String(d === 0 ? 12 : d/2), q.cx + ox, q.cy + oy);
   }
-  // 위가 어디인지 알려 준다 — 당점판은 진행 방향에서 본 공이다
-  g.fillStyle = 'rgba(150,155,166,0.85)';
-  g.font = '700 ' + Math.round(q.unit*0.34) + 'px system-ui, sans-serif';
-  g.fillText('↑ 가는 방향', q.cx, q.cy - q.R - q.unit*1.15);
+  // ⚠️⚠️ 여기에 '↑ 가는 방향' 을 적었었다. **폰에서는 안 보인다** —
+  //    공 위 0.03h 자리라 안전선(TIP_TOP 0.10h) 밖이라 잘린다.
+  //    사용자 2026-08-18: '공 상단에 가는방향 등 모바일에서 보이지도 않는
+  //    메세지들 넣지 마세요.'  안 보이는 자리에는 아무것도 적지 않는다.
 
   // 지금 값
   // 글자 띠 — 버튼(0.30h 부터)과 안 겹치게 TIP_TOP ~ 0.27h 안에 넣는다.
@@ -7896,10 +7917,11 @@ function drawTipPanel(){
   for (const b of q.btn){
     const on = !b.done && b.dir === S.tipDir && b.r === S.tipR;
     // '조정 완료' 는 나가는 버튼이라 눈에 띄게 채운다 (위 btn3D 주석)
-    if (b.done)   btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
+    if (b.cancel) btn3D(b, '#9aa2b4', '#5a6070', '#2c3038');
+    else if (b.done) btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
     else if (on)  btn3D(b, '#8b97b0', '#3a4150', '#171a21', '#ffdd33');
     else          btn3D(b, '#5b626e', '#2b2f37', '#15171c');
-    g.fillStyle = b.done ? '#1a1508' : (on ? '#ffe98a' : '#eef1f6');
+    g.fillStyle = b.cancel ? '#ffffff' : b.done ? '#1a1508' : (on ? '#ffe98a' : '#eef1f6');
     // ★ 칸이 반으로 좁아졌다 — 글씨가 넘치면 줄인다 (2026-08-18)
     let bf = b.h*0.44;
     for (let k = 0; k < 10; k++){
