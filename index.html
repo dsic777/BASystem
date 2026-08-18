@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 430;
+const MOBILE_VER = 431;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7955,7 +7955,10 @@ function tipGeom(){
   //      그래서 '보이는 끝' 을 하나로 못 박을 수가 없다. 가운데를 잡는다 —
   //      위 여백 0.029h · 아래 여백 0.07h. 사장님이 보고 다시 조정한다.
   //      ★ 뿌리는 resize() 가 재는 크기다. 그것을 고치면 이 줄다리기가 끝난다.
-  const TIP_ROW0 = 0.206, TIP_END = 0.920;
+  //   ★ 사용자 2026-08-19 (66): '2시30분 위 여백 20px만 추가해 보세요'
+  //     글자 세 줄과 버튼 시작을 **통째로** 0.028h(≈20px) 내렸다. 줄 사이만 벌리면
+  //     제목 글씨가 커서 둘째 줄과 겹친다.
+  const TIP_ROW0 = 0.234, TIP_END = 0.920;
   const band = h*(TIP_END - TIP_ROW0), gap = Math.round(h*0.012);
   // ★ **한 줄에 두 개씩** (사용자 2026-08-18: '한줄에 두개씩 넣어도 되요').
   //   일곱 칸을 한 줄씩 넣으면 칸이 얇아진다. 둘씩 넣으면 네 줄이라 오히려 커진다.
@@ -8334,7 +8337,7 @@ function drawTipPanel(){
   g.textAlign = 'left'; g.textBaseline = 'alphabetic';
   g.fillStyle = '#f2f4f8';
   g.font = '800 ' + Math.round(fs*1.15) + 'px system-ui, sans-serif';
-  g.fillText(tipClock(S.tipDir, S.tipR), q.x0, Math.round(L.h*0.058));
+  g.fillText(tipClock(S.tipDir, S.tipR), q.x0, Math.round(L.h*0.086));
   const vn = Math.abs(S.tipV) < 0.05 ? '중단'
            : (S.tipV>0?'상단 ':'하단 ') + Math.abs(S.tipV).toFixed(1) + '팁';
   // ★★ 왼쪽 회전(음수)이 '회전 없음' 으로 나오던 것 (사용자 2026-08-17, 25.jpg:
@@ -8348,10 +8351,10 @@ function drawTipPanel(){
   const sa = separationAngle(0.5, S.tipV), rf = reflect(45, S.tipH) - 45;
   g.fillStyle = '#9aa2b2';
   g.font = '600 ' + Math.round(fs*0.76) + 'px system-ui, sans-serif';
-  g.fillText(vn + ' · ' + hn, q.x0, Math.round(L.h*0.113));
+  g.fillText(vn + ' · ' + hn, q.x0, Math.round(L.h*0.141));
   g.fillText('반두께 분리각 ' + (sa === null ? '-' : sa.toFixed(0) + '°')
              + '    쿠션 45° 입사 +' + rf.toFixed(1) + '°',
-             q.x0, Math.round(L.h*0.168));
+             q.x0, Math.round(L.h*0.196));
 
   // 자주 쓰는 당점 (전부 data/ 에 적혀 있는 것)
   g.textAlign = 'center'; g.textBaseline = 'middle';
