@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 432;
+const MOBILE_VER = 433;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1640,7 +1640,9 @@ function tapButton(px,py){
   for (const b of BTN){
     // ★ 경로설정 중에는 **천 위에 얹힌 버튼만** 꺼진다 (위 btnOnCloth 주석).
     //   꺼진 자리를 눌러도 아무 일이 없고, 그 아래 다이 조준이 받는다.
-    if (S.aimMode && btnOnCloth(b)) continue;
+    // ★ 시범경기·배치 중에는 보정을 안 그리므로 **눌러도 안 먹어야 한다** —
+    //   안 보이는데 눌리는 버튼은 없어야 한다.
+    if ((S.aimMode || S.solo || S.showPlace) && btnOnCloth(b)) continue;
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
     // ★ 보정을 바꿔도 같이 따라간다 (당점과 같은 이유 — reaimForTip 주석 참고)
     if (b.lb === '+'){ S.corr += 0.5; reaimForTip(); }
@@ -8840,9 +8842,10 @@ const CORR_ALPHA = 0.22;
 function drawButtons(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   // 보정(- 0 +) 은 한 덩어리 금속 바로 보이게 뒤판을 먼저 깐다 (design.png 방향)
-  // ★ 배치만 보는 3초 동안에는 **보정을 지운다** (사용자 2026-08-19).
-  //   생각하는 시간이라 다이 위에 얹힌 것을 비운다 — 길·두께 글자는 이미 안 그린다.
-  const hideCorr = !!S.showPlace;
+  // ★ **시범경기 내내** 보정을 지운다 (사용자 2026-08-19: '시범경기 전체에서
+  //   보정 지우세요'). 앱이 치는 동안 사람이 보정을 만질 일이 없다 — 다이만 비운다.
+  //   배치 3초도 같다 (그때는 길·두께 글자도 이미 안 그린다).
+  const hideCorr = !!(S.solo || S.showPlace);
   const cb = BTN.filter(b => ['-','0','+'].includes(b.lb));
   if (cb.length === 3 && !hideCorr){
     g.save();
@@ -8871,7 +8874,7 @@ function drawButtons(){
   for (const b of BTN){
     // ★ 경로설정 중에는 **천 위에 얹힌 버튼만** 흐리게 — 꺼졌다는 것이 보여야 한다.
     //   오른쪽 칸은 다이 바깥이라 그대로 둔다 (btnOnCloth 주석).
-    if (hideCorr && btnOnCloth(b)) continue;     // 배치 보는 중 — 보정을 지운다
+    if (hideCorr && btnOnCloth(b)) continue;     // 시범경기·배치 중 — 보정을 지운다
     g.globalAlpha = (S.aimMode && btnOnCloth(b)) ? 0.30 : 1;
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
     const armed = S.place === b.lb || (b.lb === 'power' && S.aimMode);
