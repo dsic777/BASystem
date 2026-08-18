@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 437;
+const MOBILE_VER = 438;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5662,7 +5662,12 @@ function curShotName(){
   return shotName(d.before, d.rails, cue ? cue.p : null, obj);
 }
 function drawSysName(){
-  if (previewOn() || S.routeList) return;
+  // ★ 배치만 보는 3초 동안에는 **진로 이름도 키스 안내도 안 띄운다**
+  //   (사용자 2026-08-19, 73: '배치를 보세요가 기존 안내들과 겹쳐요').
+  //   겹치는 것도 문제지만 더 큰 것은 **답을 미리 알려준다**는 점이다 —
+  //   '옆돌리기 · 파이브앤하프' 와 '키스 — 8/8 로 얇게' 는 그 배치의 답이다.
+  //   스스로 생각하는 시간이니 셋 다 비운다.
+  if (previewOn() || S.routeList || S.showPlace) return;
   const c = L.cloth, sys = curSystem();
   const rl = routesReady();
   const cur = (rl && S.routeIx >= 0) ? rl[S.routeIx] : null;
