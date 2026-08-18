@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 398;
+const MOBILE_VER = 399;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1290,7 +1290,8 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            sugDown:null, lapEnd:false, verdict:{},
            corr:0, rMode:0, backup:null, drag:null, lastAim:null, rotHinted:0,
            blink:0, blinkC:null, pal:null, routePage:0, listDrag:null,
-           thickPanel:false, dragAt:null, dragMoved:0, aimFree:0, magnet:1,
+           thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
+           dragAt:null, dragMoved:0, aimFree:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
@@ -2187,7 +2188,8 @@ function down(px,py){
   }
 }
 function move(px,py){
-  if (S.tipPanel || S.thickPanel) return;
+  if (S.thickPanel){ moveThickPanel(px,py); return; }
+  if (S.tipPanel) return;
   if (S.verDrag){ S.verDrag.v = verValueAt(px); blink(); return; }   // 점수 슬라이더
   if (S.listDrag){ S.listDrag.dx = px - S.listDrag.x; return; }   // 목록에서 미는 중
   if (S.pal){                                    // 색 버튼에서 끌어오는 중
@@ -2282,6 +2284,7 @@ function up(px, py){
     return;
   }
   if (S.tipPanel) return;
+  if (S.thickPanel){ S.thDrag = 0; S.tipDragP = 0; return; }
   // ★ 추천 목록 — 가로로 많이 밀었으면 쪽 넘김, 아니면 그 칸 선택 (사용자 2026-08-13)
   // ★ 요청 목록 — 밀면 쪽 넘김, 누르면 그 배치를 되살린다
   if (S.listDrag && S.listDrag.note){
@@ -2338,7 +2341,7 @@ function up(px, py){
         //   → **큰 색 버튼 두 번 탭 하나로 끝낸다.** 그 공을 1적구로 정하고 두께판까지 연다.
         //     '두께와 당점을 결정한다는 것은 외길만 남습니다' — 정하는 순서 그대로다.
         S.palTap = null; setFirstObject(q.c); blink(q.c);
-        S.thickPanel = true; return;
+        openThickPanel(); return;
       }
       S.palTap = {c: q.c, t};
     }
@@ -2372,23 +2375,63 @@ function up(px, py){
     // 이미 1적구면 setFirstObject 를 안 부른다 — 그 안의 tipAuto() 가 손으로 잡아 둔
     // 당점·방향을 지워 버린다. 판만 연다.
     if (c0 && S.drag !== 'obj1') setFirstObject(c0);
-    if (c0) S.thickPanel = true;
+    if (c0) openThickPanel();
   }
   S.drag = null; S.dragMoved = 0; S.dragAt = null; S.aiming = false; S.aimFree = 0;
 }
 
 // 두께판을 탭했을 때
+function openThickPanel(){
+  // ★ 취소로 되돌릴 값을 붙잡아 둔다 (사용자 2026-08-18:
+  //   '두께든 당점이든 변경을 하고 완료든 취소든 누르면 전화면 복귀')
+  S.thickBak = {aim: S.aim ? S.aim.slice() : null,
+                lastAim: S.lastAim ? S.lastAim.slice() : null,
+                tipH:S.tipH, tipV:S.tipV, tipR:S.tipR, tipDir:S.tipDir,
+                tipLock:S.tipLock, snapA:S.snapA, aimSnapped:S.aimSnapped,
+                dirSet:S.dirSet, lockRails:S.lockRails, sysMode:S.sysMode};
+  S.thickPanel = true; S.thDrag = 0; S.tipDragP = 0;
+}
+function closeThickPanel(cancel){
+  if (cancel && S.thickBak) Object.assign(S, S.thickBak);
+  S.thickBak = null; S.thickPanel = false; S.thDrag = 0; S.tipDragP = 0;
+  ROUTES = {key: null, list: null};
+}
+// ★ 여기서 당점을 바꿀 때는 **조준을 안 건드린다.** 두께를 방금 손으로 정했는데
+//   reaimForTip 이 회로를 지키려고 조준을 돌리면 그 두께가 도로 바뀐다.
+//   (당점판에서 바꿀 때는 지금까지대로 reaimForTip 이 걸린다 — 거기는 두께가 주인이 아니다)
+function setTipQuiet(dir, r){
+  S.tipLock = 1;
+  const a = dir * Math.PI / 12;
+  S.tipDir = dir; S.tipR = r;
+  S.tipV = r * Math.cos(a);
+  S.tipH = r * Math.sin(a);
+}
+// 당점 공을 짚었다 — 제일 가까운 자리로 (당점판과 같은 규칙: 사이는 안 받는다)
+function tapTipDial(px, py){
+  const q = thickGeom(), dx = px-q.tx, dy = py-q.ty;
+  if (Math.hypot(dx,dy) > q.TR*1.10) return false;
+  let best = null, bd = 1e9;
+  for (const d of tipDots()){
+    const [ox,oy] = tipXY(d.dir, d.r, q.unit);
+    const t = Math.hypot(dx-ox, dy-oy);
+    if (t < bd){ bd = t; best = d; }
+  }
+  if (best) setTipQuiet(best.dir, best.r);
+  return true;
+}
 function tapThickPanel(px,py){
   const q = thickGeom();
   for (const b of q.btn)
     if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
-      if (b.done){ S.thickPanel = false; return; }
-      // ★ 고르면 **바로 닫는다.** 외길이 정해졌으니 궤적을 봐야 한다
-      //   (당점판은 오른쪽 안내를 읽어야 해서 안 닫지만, 여기는 볼 것이 다이에 있다)
-      if (setThickness(b.f, b.side)) S.thickPanel = false;
-      return;
+      closeThickPanel(!!b.cancel); return;
     }
-  S.thickPanel = false;                    // 바깥을 탭하면 나간다
+  if (tapTipDial(px,py)){ S.tipDragP = 1; return; }
+  // 왼쪽 절반은 전부 두께 스와이프 자리다 — 공을 정확히 짚을 필요가 없다
+  if (px < L.w*0.5 && py < q.btn[0].y){ S.thDrag = 1; thickSwipe(px,py); }
+}
+function moveThickPanel(px,py){
+  if (S.thDrag) thickSwipe(px,py);
+  else if (S.tipDragP) tapTipDial(px,py);
 }
 
 // ---------------------------------------------------------------- 그리기
@@ -7494,112 +7537,207 @@ function tipGeom(){
 // 두께판 배치 — 당점판과 같은 짜임새다 (왼쪽 그림 · 오른쪽 버튼)
 // ⚠️⚠️ **화면이 캔버스보다 짧게 보인다.** 당점판이 이미 겪은 것과 같은 문제다
 //    (TIP_TOP · TIP_BOT 주석 참고). 0.90h 까지 그렸더니 '닫 기' 가 잘렸다
-//    (사용자 2026-08-18 46.jpg: '46 아래가 잘린듯').
-//    → 당점판과 **똑같은 띠** 0.10h ~ 0.84h 안에만 그린다.
-const TH_TOP = 0.10, TH_BOT = 0.84;
-// 그림 띠 — 제목 세 줄(0.055 · 0.105 · 0.152h) 아래에서 시작한다
-const PIC_TOP = 0.19, PIC_BOT = 0.84;
+//    (사용자 2026-08-18 46.jpg). → 0.84h 안에만 그린다.
+const TH_BOT = 0.84;
+
+// ★★★★ 두께를 **스와이프로 고른다** (사용자 2026-08-18, 50.jpg):
+//   '두께선택은 수구를 스와이프 하여 선택' · '15자리'
+//   버튼 일곱 개는 **연속인 것을 일곱 토막** 낸 것이었다. 그림 자체를 손잡이로 만든다.
+//
+// ★ 자리는 **15개** — 왼쪽 7 · 정면 1 · 오른쪽 7. 8등분에 딱딱 붙는다.
+//   사장님 확정: '15자리'. 당구에서 두께는 원래 8등분으로 부르므로 어디에 서든
+//   `8/3` 처럼 **부를 이름이 있다.** 손가락이 떨려도 값이 안 흔들린다.
+//
+// ★★ 스와이프 → 자리 계산이 딱 떨어진다.
+//   자리 i (−7..+7) 의 수구 중심은 1적구에서 지름(2R) 거리, 옆으로 2R·|i|/8 이다.
+//   그 각을 φ 라 하면 **cos φ = i/8** 이다. 그래서 손가락 각의 코사인에 8을 곱하고
+//   반올림하면 그것이 곧 자리다. 붙이는 계산이 따로 필요 없다.
+//     i = 0  정면 8/8   ·  |i| = 7  제일 얇게 8/1
+//     i < 0  수구가 1적구의 **왼쪽**으로 지나간다 (setThickness 의 side 와 같은 부호)
+const TH_STOPS = 7;
+function thickStop(i){
+  const k = Math.max(-TH_STOPS, Math.min(TH_STOPS, i));
+  return {i:k, f:(8-Math.abs(k))/8, side:Math.sign(k)};
+}
+// 지금 조준이 서 있는 자리
+function thickStopNow(){
+  const n = thickNow();
+  if (!n) return null;
+  return thickStop(Math.round((1-n.f)*8) * (n.side || 0));
+}
+// 두께 이름 — 사장님이 쓰시는 말 그대로
+function thickName(st){
+  const t = st.f*8;
+  return (st.side === 0 ? '정면' : st.side < 0 ? '왼쪽' : '오른쪽') + '  8/' + t;
+}
+function thickWord(st){
+  if (st.side === 0) return '정면';
+  const t = st.f*8;
+  return t <= 2 ? '얇게' : t <= 5 ? '반' : '두껍게';
+}
+
 function thickGeom(){
   const w = L.w, h = L.h;
-  // 세로로 드는 자리 = 공 위 R + 수구자리 2R + 글자 고리 1.05R + 글자 0.65R ≒ 4.7R
-  const R  = Math.min(w*0.088, h*(PIC_BOT-PIC_TOP)/4.7);
-  const cx = Math.round(w*0.27), cy = Math.round(h*PIC_TOP + R);
-  const x0 = Math.round(w*0.56), bw = Math.round(w*0.40);
-  const band = h*(TH_BOT-TH_TOP), gap = Math.round(h*0.018);
-  const nRow = 5;                              // 8/2 · 8/4 · 8/6 (좌우) + 정면 + 닫기
-  const bh = Math.round((band - gap*(nRow-1)) / nRow);
-  const y0 = Math.round(h*TH_TOP);
-  const hw = Math.round((bw - gap) / 2);
-  const btn = [];
-  THICK_OPTS.slice(0,3).forEach((o,i) => {
-    btn.push({...o, side:-1, x:x0,           y:y0+i*(bh+gap), w:hw, h:bh});
-    btn.push({...o, side:+1, x:x0+hw+gap,    y:y0+i*(bh+gap), w:hw, h:bh});
-  });
-  btn.push({...THICK_OPTS[3], side:0, x:x0, y:y0+3*(bh+gap), w:bw, h:bh});
-  btn.push({lb:'닫 기', done:true,   x:x0, y:y0+4*(bh+gap), w:bw, h:bh});
-  // 그림 속 수구 자리 — 닿는 순간의 중심 (엔진 정의 그대로)
-  const gh = [];
-  for (const o of THICK_OPTS){
-    const b = 2*R*(1-o.f), back = Math.sqrt(Math.max(0, 4*R*R - b*b));
-    for (const sd of (o.f >= 1 ? [0] : [-1,1]))
-      gh.push({f:o.f, lb:o.lb, side:sd, x:cx + sd*b, y:cy + back});
-  }
-  return {R, cx, cy, btn, gh, bh};
+  // 왼쪽 = 두께 그림 · 오른쪽 = 당점. 완료·취소는 아래 한 줄.
+  const R  = Math.min(w*0.085, h*0.107);        // 1적구 반지름
+  const cx = Math.round(w*0.27), cy = Math.round(h*0.13 + R);
+  const TR = Math.min(w*0.105, h*0.225);        // 당점 공 반지름
+  const tx = Math.round(w*0.72), ty = Math.round(h*0.40);
+  const by = Math.round(h*0.73), bh = Math.round(h*0.11);
+  const gap = Math.round(w*0.02), bw = Math.round((w*0.86 - gap) / 2);
+  const bx = Math.round(w*0.07);
+  const btn = [{lb:'완 료', ok:1,     x:bx,             y:by, w:bw, h:bh},
+               {lb:'취 소', cancel:1, x:bx + bw + gap,  y:by, w:bw, h:bh}];
+  return {R, cx, cy, TR, tx, ty, btn, unit: TR*TIP_R, now: thickStopNow()};
+}
+
+// 자리 i 의 수구 중심 (화면)
+function thickPos(q, i){
+  const st = thickStop(i), off = 2*q.R*Math.abs(st.i)/8;
+  return [q.cx + Math.sign(st.i)*off,
+          q.cy + Math.sqrt(Math.max(0, 4*q.R*q.R - off*off))];
+}
+
+// 손가락 → 자리.  cos φ = i/8 (위 ★★ 주석)
+function thickSwipe(px, py){
+  const q = thickGeom();
+  const dx = px-q.cx, dy = py-q.cy, d = Math.hypot(dx,dy);
+  if (d < 1e-6) return false;
+  const st = thickStop(Math.round(8 * dx/d));
+  return setThickness(st.f, st.side);
 }
 
 function drawThickPanel(){
   if (!S.thickPanel) return;
   const q = thickGeom(), o1 = S.balls.obj1, cue = S.balls.cue;
-  const now = thickNow();
+  const st = q.now || thickStop(0);
   g.save();
   g.fillStyle = '#0a0b0d'; g.fillRect(0,0,L.w,L.h);
-
   g.textAlign = 'center'; g.textBaseline = 'middle';
+
+  // ── 제목 둘 (사용자 2026-08-18: '위 설명 1적구 두께만 남기고 나머지 2줄은 삭제')
   g.fillStyle = '#e8eaf0';
   g.font = '800 ' + Math.round(L.h*0.052) + 'px system-ui, sans-serif';
   g.fillText('1적구 두께', q.cx, L.h*0.055);
-  g.fillStyle = 'rgba(190,196,210,0.80)';
-  g.font = '600 ' + Math.round(L.h*0.036) + 'px system-ui, sans-serif';
-  g.fillText('아래쪽이 수구가 오는 쪽', q.cx, L.h*0.105);
-  // ★ 어느 공의 두께인지 적는다 — 빨강인 줄 알고 노랑을 잡는 일이 없게
-  const nm = {white:'흰공', yellow:'노란공', red:'빨간공'};
-  g.fillStyle = 'rgba(150,158,175,0.75)';
-  g.font = '600 ' + Math.round(L.h*0.030) + 'px system-ui, sans-serif';
-  g.fillText('1적구 = ' + ((o1 && nm[o1.color]) || '?')
-           + '   ·   수구 = ' + ((cue && nm[cue.color]) || '?'), q.cx, L.h*0.152);
+  g.fillText('당점변경',   q.tx, L.h*0.055);
 
-  // ⚠️ 여기 '수구가 오는 쪽' 화살표가 있었다. **'8/8' 글자와 정확히 겹쳐** 지웠다
-  //    (46.jpg 아래 가운데). 같은 말을 위 두 번째 줄이 이미 하고 있다.
-
-  // 수구 자리들 — 테두리만. 겹쳐도 어느 것이 어느 두께인지 글자로 읽는다
-  for (const t of q.gh){
-    const on = now && Math.abs(now.f - t.f) < 0.09 && now.side === t.side;
-    g.strokeStyle = on ? '#b388ff' : 'rgba(150,158,175,0.42)';
-    g.lineWidth = Math.max(1.5, q.R * (on ? 0.13 : 0.055));
-    g.beginPath(); g.arc(t.x, t.y, q.R, 0, 7); g.stroke();
-    const dx = t.x - q.cx, dy = t.y - q.cy, dl = Math.hypot(dx,dy) || 1;
-    g.fillStyle = on ? '#d7bcff' : 'rgba(170,178,196,0.85)';
-    g.font = (on ? '800 ' : '700 ') + Math.round(q.R*0.42) + 'px system-ui, sans-serif';
-    g.fillText(t.lb, q.cx + dx/dl*q.R*3.05, q.cy + dy/dl*q.R*3.05);
+  // ── 수구가 지나는 길 (호) 와 15자리 눈금
+  g.strokeStyle = 'rgba(120,128,145,0.30)';
+  g.lineWidth = Math.max(1, q.R*0.05);
+  g.beginPath();
+  for (let i = -TH_STOPS; i <= TH_STOPS; i++){
+    const [x,y] = thickPos(q, i);
+    if (i === -TH_STOPS) g.moveTo(x,y); else g.lineTo(x,y);
+  }
+  g.stroke();
+  for (let i = -TH_STOPS; i <= TH_STOPS; i++){
+    const [x,y] = thickPos(q, i), on = i === st.i;
+    g.beginPath(); g.arc(x, y, on ? q.R*0.10 : q.R*0.06, 0, 7);
+    g.fillStyle = on ? '#ffdd33' : 'rgba(140,148,166,0.55)'; g.fill();
   }
 
-  // 1적구 — 실제 색으로 크게
-  const base = TONE[(o1 && o1.color) || 'red'] || '#d6342c';
-  const sph = g.createRadialGradient(q.cx-q.R*0.34, q.cy-q.R*0.38, q.R*0.05,
-                                     q.cx, q.cy, q.R*1.06);
-  sph.addColorStop(0,'#ffffff'); sph.addColorStop(0.30, base);
-  sph.addColorStop(1, shade(base, 0.42));
-  g.fillStyle = sph; g.beginPath(); g.arc(q.cx,q.cy,q.R,0,7); g.fill();
-  g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, q.R*0.10); g.stroke();
-
-  // 버튼
-  for (const b of q.btn){
-    const on = !b.done && now && Math.abs(now.f - b.f) < 0.09 && now.side === b.side;
-    g.fillStyle = b.done ? 'rgba(58,62,72,0.95)'
-               : on      ? 'rgba(120,80,200,0.55)'
-                         : 'rgba(30,33,40,0.95)';
-    g.strokeStyle = on ? '#b388ff' : 'rgba(96,102,118,0.75)';
-    g.lineWidth = on ? 3 : 1.5;
-    g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
-    g.fillStyle = '#e8eaf0';
-    if (b.done){
-      g.font = '800 ' + Math.round(b.h*0.40) + 'px system-ui, sans-serif';
-      g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
-    } else {
-      const tag = b.side === 0 ? '정면' : (b.side < 0 ? '왼쪽' : '오른쪽');
-      g.font = '800 ' + Math.round(b.h*0.38) + 'px system-ui, sans-serif';
-      g.fillText(b.lb, b.x + b.w/2, b.y + b.h*0.36);
-      g.fillStyle = 'rgba(186,192,206,0.88)';
-      g.font = '600 ' + Math.round(b.h*0.26) + 'px system-ui, sans-serif';
-      g.fillText(b.side === 0 ? b.sub : (tag + ' · ' + b.sub), b.x + b.w/2, b.y + b.h*0.72);
+  // ── 수구가 오는 쪽 — 넓은 화살표 셋 (사용자 2026-08-18)
+  //   '수구 8/8 아래에 위로 향하는 넓은 화살표 3개 (수구의 진행방향 표시)'
+  {
+    const ay = q.cy + q.R*3.35, aw = q.R*0.52, ah = q.R*0.46, sp = q.R*0.78;
+    g.fillStyle = 'rgba(110,235,90,0.55)';
+    for (let k = -1; k <= 1; k++){
+      const x = q.cx + k*sp;
+      g.beginPath();
+      g.moveTo(x, ay - ah);
+      g.lineTo(x + aw, ay);
+      g.lineTo(x + aw*0.42, ay);
+      g.lineTo(x + aw*0.42, ay + ah*0.62);
+      g.lineTo(x - aw*0.42, ay + ah*0.62);
+      g.lineTo(x - aw*0.42, ay);
+      g.lineTo(x - aw, ay);
+      g.closePath(); g.fill();
     }
   }
-  if (!cue || !o1){
-    g.fillStyle = '#ff7b6b';
-    g.font = '700 ' + Math.round(L.h*0.036) + 'px system-ui, sans-serif';
-    g.fillText('수구·1적구가 있어야 합니다', q.cx, L.h*0.94);
+
+  // ── 수구 — **수구 색**으로, 그 위에 지금 당점을 빨간 점으로 (사용자 2026-08-18)
+  {
+    const [x,y] = thickPos(q, st.i);
+    drawBallAt(x, y, q.R, (cue && cue.color) || 'white');
+    const u = q.R * TIP_R;
+    const [ox,oy] = tipXY(S.tipDir, Math.min(3, S.tipR), u);
+    g.beginPath(); g.arc(x+ox, y+oy, Math.max(2.5, u*0.95), 0, 7);
+    g.fillStyle = '#de342c'; g.fill();
+  }
+  // ── 1적구 (수구보다 나중에 그려 위에 오게)
+  drawBallAt(q.cx, q.cy, q.R, (o1 && o1.color) || 'red');
+
+  // ── 고른 두께 하나만 크게 (흩어진 숫자 일곱 개를 지웠다 — 간소화)
+  g.fillStyle = '#ffdd33';
+  g.font = '800 ' + Math.round(L.h*0.075) + 'px system-ui, sans-serif';
+  g.fillText(thickName(st), q.cx, L.h*0.655);
+  g.fillStyle = 'rgba(190,196,210,0.85)';
+  g.font = '600 ' + Math.round(L.h*0.038) + 'px system-ui, sans-serif';
+  g.fillText(thickWord(st), q.cx, L.h*0.705);
+
+  // ── 당점 — 당점판의 그 공만 가져왔다 (사용자 2026-08-18)
+  drawTipDial(q.tx, q.ty, q.TR, (cue && cue.color) || 'white');
+  g.fillStyle = '#ffdd33';
+  g.font = '800 ' + Math.round(L.h*0.055) + 'px system-ui, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(tipClock(S.tipDir, S.tipR), q.tx, L.h*0.665);
+
+  // ── 완료 · 취소
+  for (const b of q.btn){
+    g.fillStyle   = b.ok ? 'rgba(40,120,64,0.95)' : 'rgba(58,62,72,0.95)';
+    g.strokeStyle = b.ok ? '#5fd07a' : 'rgba(96,102,118,0.75)';
+    g.lineWidth = 2;
+    g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.fill(); g.stroke();
+    g.fillStyle = '#e8eaf0';
+    g.font = '800 ' + Math.round(b.h*0.42) + 'px system-ui, sans-serif';
+    g.fillText(b.lb, b.x + b.w/2, b.y + b.h/2);
   }
   g.restore();
+}
+
+// 다이의 공과 같은 모양으로 하나 그린다 (drawBalls 와 같은 규칙)
+function drawBallAt(x, y, r, color){
+  g.save();
+  g.fillStyle = 'rgba(0,0,0,0.45)';
+  g.beginPath(); g.ellipse(x+r*0.12, y+r*0.30, r*0.95, r*0.42, 0, 0, 7); g.fill();
+  g.restore();
+  const base = TONE[color] || '#fff';
+  const sph = g.createRadialGradient(x-r*0.34, y-r*0.38, r*0.05, x, y, r*1.06);
+  sph.addColorStop(0,'#ffffff'); sph.addColorStop(0.30, base);
+  sph.addColorStop(1, shade(base, 0.42));
+  g.fillStyle = sph; g.beginPath(); g.arc(x,y,r,0,7); g.fill();
+  g.strokeStyle = '#14141a'; g.lineWidth = Math.max(1.5, r*0.10); g.stroke();
+}
+
+// 당점 시계판 하나 (당점판의 공과 같은 눈금 — 값은 S 하나를 같이 쓴다)
+function drawTipDial(cx, cy, R, color){
+  const unit = R * TIP_R;
+  drawBallAt(cx, cy, R, color);
+  g.save();
+  g.beginPath();
+  g.arc(cx, cy, R, 0, Math.PI*2);
+  g.moveTo(cx + R*TIP_EDGE, cy);
+  g.arc(cx, cy, R*TIP_EDGE, 0, Math.PI*2, true);
+  g.fillStyle = 'rgba(190,40,32,0.16)'; g.fill();
+  g.restore();
+  g.strokeStyle = 'rgba(222,52,44,0.75)'; g.lineWidth = Math.max(1.5, unit*0.07);
+  g.beginPath(); g.arc(cx,cy,R*TIP_EDGE,0,7); g.stroke();
+  g.strokeStyle = 'rgba(70,74,84,0.45)'; g.lineWidth = Math.max(1, unit*0.05);
+  g.beginPath(); g.arc(cx,cy,unit*3,0,7); g.stroke();
+  for (const d of tipDots()){
+    const [ox,oy] = tipXY(d.dir, d.r, unit);
+    const on = d.dir === S.tipDir && d.r === S.tipR;
+    const rr = Math.max(3, unit * (d.r === 3 ? 0.17 : 0.14));
+    g.beginPath(); g.arc(cx+ox, cy+oy, on ? unit : rr, 0, 7);
+    g.fillStyle = on ? '#de342c' : 'rgba(58,60,68,0.55)'; g.fill();
+    if (on){ g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, unit*0.13); g.stroke(); }
+  }
+  g.fillStyle = 'rgba(40,42,48,0.85)';
+  g.font = '700 ' + Math.round(unit*0.44) + 'px system-ui, sans-serif';
+  for (let d = 0; d < TIP_DIRS; d += 2){
+    const [ox,oy] = tipXY(d, 3.62, unit);
+    g.fillText(String(d === 0 ? 12 : d/2), cx+ox, cy+oy);
+  }
 }
 
 function drawTipPanel(){
