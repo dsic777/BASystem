@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 428;
+const MOBILE_VER = 429;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7946,7 +7946,13 @@ function tipGeom(){
   //      애초에 바닥까지 안 갔을 뿐이라 잘릴 일이 없었다).
   //      → 그림자까지 0.834h 안에 넣는다. 위쪽 여백만 가져다 쓴다.
   //   ⚠️ 캔버스가 왜 더 큰지는 따로 볼 일이다 — 고치면 화면이 16% 넓어진다.
-  const TIP_ROW0 = 0.197, TIP_END = 0.822;
+  //   ⚠️⚠️⚠️ 63·64.jpg 를 재 보니 **캔버스 크기가 들쭉날쭉하다** —
+  //      63 은 캔버스가 창보다 17% 커서 완료·취소가 잘렸고, 64 는 창과 거의 같아
+  //      아래가 0.19h 남았다. 같은 창 크기인데 값이 다르다.
+  //      그래서 '보이는 끝' 을 하나로 못 박을 수가 없다. 가운데를 잡는다 —
+  //      위 여백 0.029h · 아래 여백 0.07h. 사장님이 보고 다시 조정한다.
+  //      ★ 뿌리는 resize() 가 재는 크기다. 그것을 고치면 이 줄다리기가 끝난다.
+  const TIP_ROW0 = 0.206, TIP_END = 0.920;
   const band = h*(TIP_END - TIP_ROW0), gap = Math.round(h*0.012);
   // ★ **한 줄에 두 개씩** (사용자 2026-08-18: '한줄에 두개씩 넣어도 되요').
   //   일곱 칸을 한 줄씩 넣으면 칸이 얇아진다. 둘씩 넣으면 네 줄이라 오히려 커진다.
@@ -8325,7 +8331,7 @@ function drawTipPanel(){
   g.textAlign = 'left'; g.textBaseline = 'alphabetic';
   g.fillStyle = '#f2f4f8';
   g.font = '800 ' + Math.round(fs*1.15) + 'px system-ui, sans-serif';
-  g.fillText(tipClock(S.tipDir, S.tipR), q.x0, Math.round(L.h*0.049));
+  g.fillText(tipClock(S.tipDir, S.tipR), q.x0, Math.round(L.h*0.058));
   const vn = Math.abs(S.tipV) < 0.05 ? '중단'
            : (S.tipV>0?'상단 ':'하단 ') + Math.abs(S.tipV).toFixed(1) + '팁';
   // ★★ 왼쪽 회전(음수)이 '회전 없음' 으로 나오던 것 (사용자 2026-08-17, 25.jpg:
@@ -8339,10 +8345,10 @@ function drawTipPanel(){
   const sa = separationAngle(0.5, S.tipV), rf = reflect(45, S.tipH) - 45;
   g.fillStyle = '#9aa2b2';
   g.font = '600 ' + Math.round(fs*0.76) + 'px system-ui, sans-serif';
-  g.fillText(vn + ' · ' + hn, q.x0, Math.round(L.h*0.104));
+  g.fillText(vn + ' · ' + hn, q.x0, Math.round(L.h*0.113));
   g.fillText('반두께 분리각 ' + (sa === null ? '-' : sa.toFixed(0) + '°')
              + '    쿠션 45° 입사 +' + rf.toFixed(1) + '°',
-             q.x0, Math.round(L.h*0.159));
+             q.x0, Math.round(L.h*0.168));
 
   // 자주 쓰는 당점 (전부 data/ 에 적혀 있는 것)
   g.textAlign = 'center'; g.textBaseline = 'middle';
