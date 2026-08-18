@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 412;
+const MOBILE_VER = 413;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1838,19 +1838,21 @@ function reassignRoles(){
 //   알고 있나요'). 반만 알고 있었다 — 엔진은 '2적구를 맞았다'(scored)만 냈고
 //   쿠션 수는 세지 않았다. 여기서 규칙대로 센다.
 //
-//   3쿠션 규칙 — **수구가 두 번째 적구에 닿기 전에 쿠션을 3회 이상 맞는다.**
+//   3쿠션 규칙 (사용자 2026-08-18 확정, 그대로 옮긴다) —
+//     '수구가 쿠션을 먼저 치든 적구를 먼저 치든 **두 적구를 모두 맞히기 전에 쿠션을
+//      3회 이상** 맞아야 하고, 그 조건 아래 1적구 2적구를 **모두 맞춰야 성공**이다.
+//      중간에 키스가 나더라도 관계없고 조건만 맞으면 된다.'
 //   어느 적구를 먼저 맞든 상관없다. 그래서 **뱅크샷도 이 셈 하나로 판정된다**
 //   (쿠션이 앞에 오는 것뿐이다). 사장님: '뱅크샷의 경우는 아직 해결방법을 못찾았어요'
 //   → 따로 풀 것이 없다. 규칙이 하나다.
+//   ⚠️ 키스는 안 본다 — 조건만 맞으면 성공이다 (사용자 확정).
+//   ⚠️ **1적구를 두 번 맞은 것을 득점으로 세면 안 된다.** engineRun 의 scoreIdx 는
+//      아무 공이나 다시 맞으면 서므로 못 쓴다. hitBoth · railsAtScore 를 쓴다.
 //
 //   ⚠️ 시뮬레이션은 근사다. 아슬아슬한 샷은 틀릴 수 있다 — 판정을 점수에 쓰지 말 것.
 //      여기서는 '수구를 넘길까 말까' 하나에만 쓴다.
 function shotScored(EP){
-  if (!EP || !EP.scored || EP.scoreIdx <= 0) return false;
-  let rails = 0;
-  for (let i = 0; i < EP.scoreIdx && i < EP.cue.k.length; i++)
-    if (EP.cue.k[i] === 'rail') rails++;
-  return rails >= 3;
+  return !!(EP && EP.hitBoth && EP.railsAtScore >= 3);
 }
 // ★★★★ 공수전환 — 실패하면 수구를 상대 공으로 넘긴다 (사용자 2026-08-18):
 //   '배치를 보고 수구를 겨냥할 경우 한 번만 설정을 하고 무조건 시뮬레이션을 돌린다고
@@ -4242,6 +4244,15 @@ function engineRun(dir, V0, kk, E){
   const rec = {}, last = {}, touch = {}, bumped = {};
   for (const b of sim.balls){ rec[b.key] = {p: [b.p.slice()], k: ['start']}; last[b.key] = null; }
   let hitIdx = -1, hitObj = null, scoreIdx = -1, hitAt = null;
+  // ★★★★ 득점 판정용 (사용자 2026-08-18 규칙 확정):
+  //   '수구가 쿠션을 먼저 치든 적구를 먼저 치든 **두 적구를 모두 맞히기 전에 쿠션을
+  //    3회 이상** 맞아야 하고, 그 조건 아래 1적구 2적구를 **모두 맞춰야 성공**이다.
+  //    중간에 키스가 나더라도 관계없고 조건만 맞으면 된다.'
+  //   ⚠️ scoreIdx 는 **아무 공이나 다시 맞으면** 선다 — 1적구를 두 번 맞은 것도
+  //      득점으로 세었다. 그래서 '다른 적구' 를 따로 본다.
+  //   ⚠️ 쿠션은 폴리라인을 나중에 세지 않고 **굴리면서** 센다. 그래야 두 번째 적구를
+  //      맞은 그 순간까지의 수가 정확하다.
+  let railN = 0, hitBoth = false, railsAtScore = -1;
   let spPrev = 0, spIn = 0, spOut = 0, outAt = -1;
   // ⚠️ 끝까지 굴리면 한 번에 250ms 다 — 조준을 밀 때마다 하면 폰이 버벅인다.
   //    화면에 그리는 것은 충돌 뒤 8쿠션 · 1적구 4쿠션까지뿐이라 거기까지만 굴린다.
@@ -4269,6 +4280,9 @@ function engineRun(dir, V0, kk, E){
         if (on && !touch[kk2]){
           bumped[A.key] = bumped[B.key] = 6;
           const other = A.key === 'cue' ? B.key : (B.key === 'cue' ? A.key : null);
+          if (other && hitIdx >= 0 && other !== hitObj && !hitBoth){
+            hitBoth = true; railsAtScore = railN;      // 다른 적구를 맞았다 (위 ★★★★)
+          }
           if (other && hitIdx < 0){                    // 수구가 처음 맞힌 공 = 1적구
             // ★★★★ 여기에 **두께를 통째로 망가뜨린 버그**가 있었다 (사용자 2026-08-18,
             //   47.jpg: '빨간공을 스치듯 지나가는데 두께가 52% 입니다').
@@ -4305,6 +4319,7 @@ function engineRun(dir, V0, kk, E){
         if (!(b.key === 'cue' && isBall && rec.cue.p.length - 1 === hitIdx)){
           rec[b.key].p.push(b.p.slice());
           rec[b.key].k.push(isBall ? 'ball' : 'rail');
+          if (b.key === 'cue' && !isBall) railN++;      // 수구가 맞은 쿠션 수
           if (b.key === 'cue' && isBall && hitIdx > 0 && scoreIdx < 0)
             scoreIdx = rec.cue.p.length - 1;           // 두 번째 공 = 득점
         }
@@ -4315,7 +4330,7 @@ function engineRun(dir, V0, kk, E){
   for (const b of sim.balls){ rec[b.key].p.push(b.p.slice()); rec[b.key].k.push('stop'); }
   if (hitIdx <= 0 || !hitObj) return null;
   return {cue: rec.cue, obj: rec[hitObj] || null, hitIdx, hitObj, scoreIdx,
-          scored: scoreIdx > 0, hitAt,
+          scored: scoreIdx > 0, hitAt, hitBoth, railsAtScore,
           keepC: (spIn > 1 && spOut > 0) ? Math.max(0.05, Math.min(0.98, spOut/spIn)) : null};
 }
 // ★★★ **엔진으로 한 번만 굴려** 2적구에 닿는지 본다 (추천을 거르는 데 쓴다).
