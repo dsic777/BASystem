@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 464;
+const MOBILE_VER = 465;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2085,7 +2085,10 @@ function voicePick(text){
   pickRoute(out[0]);
   S.routeIx = list.indexOf(out[0]);
   S.rblink = 0;
-  voiceSay(text + '  →  ' + (out[0].name || '경로') + (out.length > 1 ? '  외 ' + (out.length-1) : ''), 1);
+  // ★ '외 N개' 를 안 붙인다 (사용자 2026-08-20: '경로 하나만 보여주세요.
+  //   앞돌리기 외 7은 필요없잖아요'). 화면에는 어차피 한 경로만 그려진다 —
+  //   못 고른 숫자를 보여 봐야 읽을 것만 늘어난다.
+  voiceSay(text + '  →  ' + (out[0].name || '경로'), 1);
   blink();
 }
 // 들은 말을 다이 위에 띄운다 — ok 1 확정 · 2 말하는 중 · 0 안 됨
