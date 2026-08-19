@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 456;
+const MOBILE_VER = 457;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1860,10 +1860,25 @@ function sndHit(v, f, ms){
   for (let i = 0; i < n; i++) d[i] = (Math.random()*2 - 1) * Math.exp(-6 * i/n);
   const src = ac.createBufferSource(); src.buffer = buf;
   const bp = ac.createBiquadFilter();
-  bp.type = 'bandpass'; bp.frequency.value = f * (0.75 + 0.5*v); bp.Q.value = 1.6;
-  const gn = ac.createGain(); gn.gain.value = 0.12 + 0.55*v*v;
+  // ★ 사용자 2026-08-19: '공 부디치는 소리 **너무 작아요**'
+  //   ⚠️ 작았던 까닭 둘 —
+  //     ① 밴드패스 Q 가 1.6 이라 잡음의 힘을 거의 다 깎아 냈다 → 1.0 으로 넓힌다
+  //     ② 크기를 v**제곱**으로 줬다. 어중간한 세기(0.5)면 0.26 밖에 안 됐다.
+  //        **비례**로 바꾸고 밑값도 올린다.
+  bp.type = 'bandpass'; bp.frequency.value = f * (0.75 + 0.5*v); bp.Q.value = 1.0;
+  const gn = ac.createGain(); gn.gain.value = 0.45 + 1.55*v;
   src.connect(bp); bp.connect(gn); gn.connect(ac.destination);
   src.start();
+  // ★ 짧은 '몸통' 을 한 겹 더 얹는다. 폰 스피커는 잡음만으로는 잘 안 들린다 —
+  //   같은 높이의 맑은 소리를 아주 짧게(30ms) 겹치면 또렷해진다.
+  const o = ac.createOscillator(), g2 = ac.createGain();
+  o.type = 'triangle'; o.frequency.value = f * 0.75;
+  const t0 = ac.currentTime;
+  g2.gain.setValueAtTime(0.0001, t0);
+  g2.gain.exponentialRampToValueAtTime(0.10 + 0.42*v, t0 + 0.004);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.030);
+  o.connect(g2); g2.connect(ac.destination);
+  o.start(t0); o.stop(t0 + 0.035);
 }
 // 공끼리 — 세기(mm/s)를 0~1 로 바꿔 넘긴다
 function sndBall(speed){ sndHit(Math.min(1, (speed||0)/2600), 2200, 55); }
