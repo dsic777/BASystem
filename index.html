@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 447;
+const MOBILE_VER = 448;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5151,7 +5151,12 @@ function verBar(){
   //    합니다.')  → S.evalWait 인 동안만이다. 배치·큰그림·시뮬레이션에서는 그대로 꺼진다.
   if (!S.routeList && !S.noteList && !previewOn() && !S.anim && !S.scatter &&
       (!S.solo || S.evalWait) && !S.showPlace &&
-      (S.routeIx >= 0 || (S.aim && directRoute()))){
+      // ★★★★ 평가 대기에서는 **경로가 잠깐 없어도** 띄운다 (사용자 2026-08-19:
+      //   '직접지정을 하려는데 점수판을 보여주지 않고 계속 넘어갑니다').
+      //   ⚠️ 직접조준으로 각을 옮기는 도중에는 득점 경로가 아니라 directRoute() 가
+      //      null 이 된다. 그때 점수판과 '다음' 이 통째로 사라져 **빠져나갈 길이
+      //      없어졌다.** 평가 대기에서는 늘 있어야 한다.
+      (S.evalWait || S.routeIx >= 0 || (S.aim && directRoute()))){
     // ⚠️ 하단 c.h*0.035 자리에 있었더니 **3쿠션 초록 숫자와 겹쳤다**
     //    (사용자 2026-08-16, 17.jpg: '3쿠션 위치때문에 점수판과 겹침').
     //    3쿠션 눈금은 장쿠션 아래쪽에 고정으로 그려지므로(drawNumbers) 점수판이
@@ -5162,10 +5167,15 @@ function verBar(){
     //   ⚠️ 보정판(clockCenter)은 이미 점수판을 피해 다닌다. 그러니 점수판이
     //      먼저 자리를 잡고 보정판이 비키는 **한 방향**이라야 서로 안 밀어낸다.
     //      여기서 보정판 자리를 되물으면 둘이 무한히 서로를 피한다.
-    const c = L.cloth, w = Math.min(c.w*0.62, c.h*1.15), h = c.h*0.135;
-    return {x: c.x + c.w*0.02, y: c.y + c.h - h - c.h*0.125, w, h};
+    return verBarRect();
   }
   return null;
+}
+// 점수판이 앉는 자리 — **조건과 떼어 놓는다.** 자리는 늘 계산된다.
+//   ⚠️ 평가 대기에서 '다음' 버튼이 이걸 쓴다. 경로가 잠깐 없어도 버튼은 있어야 한다.
+function verBarRect(){
+  const c = L.cloth, w = Math.min(c.w*0.62, c.h*1.15), h = c.h*0.135;
+  return {x: c.x + c.w*0.02, y: c.y + c.h - h - c.h*0.125, w, h};
 }
 // 가로 자리 → 점수 (10 단위로 딱 떨어지게)
 function verValueAt(px){
@@ -5182,9 +5192,9 @@ function drawVerBar(){
   VER_HIT = verBar();
   if (!VER_HIT) return;
   const r = curRoute();
-  if (!r){ VER_HIT = null; return; }
+  if (!r && !S.evalWait){ VER_HIT = null; return; }   // 평가 대기면 빈 판이라도 띄운다
   const t = VER_HIT, h = t.h;
-  const saved = verGet(r);
+  const saved = r ? verGet(r) : undefined;
   const cur = S.verDrag ? S.verDrag.v : (saved === undefined ? null : +saved);
   const yLine = t.y + h*0.68;                    // 눈금 선의 높이
   g.save();
@@ -5304,8 +5314,7 @@ function noteBtn(){
 let NEXT_HIT = null;
 function nextBtn(){
   if (!S.evalWait) return null;
-  const b = verBar();
-  if (!b) return null;
+  const b = verBarRect();            // ★ 경로가 없어도 자리는 있다 (위 verBarRect 주석)
   const cl = L.cloth, w = b.h*1.55;
   return {x: cl.x + cl.w - w - cl.w*0.02, y: b.y, w, h: b.h};
 }
@@ -7545,6 +7554,13 @@ function scatterFinish(){
              obj1: {p: q[1].p.slice(), color:'yellow'},
              obj2: {p: q[2].p.slice(), color:'red'}};
   S.scatter = null;
+  // ★★★★ **초구를 뿌리면 시범경기가 멈춰 있었다** (사용자 2026-08-19:
+  //   '초구배치를 했고 82 설정을 햇는데 시범경기가 자동으로 실행이 될때도 있고
+  //    가끔은 안되고').
+  //   ⚠️ 시범경기는 **한 샷이 끝나면서 다음 샷을 부르는** 사슬로 돈다 (soloNext).
+  //      초구 뿌리기·화면 전환으로 그 사슬이 끊기면 S.solo 는 1 인 채로 아무도
+  //      안 굴린다 — 켜져 있는데 안 도는 것처럼 보인다. 여기서 사슬을 다시 잇는다.
+  if (S.solo && !S.evalWait) soloNext();
 }
 
 function drawScatter(){
