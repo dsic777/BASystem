@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 453;
+const MOBILE_VER = 454;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -8456,7 +8456,9 @@ function tipGeom(){
   const w = L.w, h = L.h;
   // ★ 사용자 2026-08-19: 'ss1 크기를 90%로 줄이고 좌측으로 이동' ·
   //   '큰원을 좌측으로 조금 이동하세요 **ss2 자리 확보**'
-  const R  = Math.min(h*0.37, w*0.24) * 0.90;
+  //   → 83.jpg 를 보고 **되돌리심**: '이러면 큰 원을 줄일필요 없어요'.
+  //     글자 두 줄이 빠지면서 자리가 넉넉해졌다. 크기는 원래대로, **왼쪽 이동만** 남긴다.
+  const R  = Math.min(h*0.37, w*0.24);
   const cx = Math.round(Math.max(R + w*0.030, w*0.24));
   const cy = Math.round(h*0.47);
   const x0 = Math.round(cx + R + w*0.05);
