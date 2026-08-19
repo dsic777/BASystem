@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 463;
+const MOBILE_VER = 464;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1648,7 +1648,14 @@ function tapButton(px,py){
     if (b.lb === '+'){ S.corr += 0.5; reaimForTip(); }
     else if (b.lb === '-'){ S.corr -= 0.5; reaimForTip(); }
     else if (b.lb === '0'){ S.corr = 0; reaimForTip(); }
-    else if (b.lb === 'cam') shoot();
+    else if (b.lb === 'cam'){
+      // ★★★★ 카메라 칸이 **두 역할**이다 (사용자 2026-08-20):
+      //   '카메라를 **길게 탭하면 마이크**로 전환, 길게 탭하면 카메라로 전환.
+      //    마이크에서 **짧게 탭하면 마이크 ON/OFF**'
+      //   → 누르는 순간에는 정하지 않는다. **떼는 순간** up() 에서 길게/짧게를 가른다
+      //     (힘조절 버튼이 이미 같은 방식이다 — S.powDown).
+      S.camDown = {x:px, y:py, t: nowMs()};
+    }
 
     else if (b.lb === 'exit'){
       // 설치한 앱(PWA)이면 창이 닫히고, 브라우저 탭이면 못 닫는 경우가 있다.
@@ -1974,6 +1981,115 @@ function loadCfg(){
   } catch(e){ /* 읽다 깨져도 기본값으로 그냥 간다 */ }
 }
 loadCfg();
+// ─────────────────────────────── 음성인식 (사용자 2026-08-20)
+// '검증된 음성인식 기능은 **jbprov2.1** 에서 가지고 오세요. 테스트 끝난 버전입니다.'
+//
+// ★ 원본: C:/Portfolio/jbpro2.1/src/hooks/useSpeech.js (React 훅) — 뼈대를 그대로 옮겼다.
+//   그 파일 주석에 적힌 **검증된 대목 셋**을 하나도 안 바꿨다 —
+//     ① continuous = false + onend 에서 **재시작**   ← 모바일 중복 입력을 막는 그 대목
+//     ② interimResults = true                        ← 말하는 중에도 글자가 나온다
+//     ③ no-speech · aborted 는 **무시**              ← 이것 없으면 자꾸 끊긴다
+//   ⚠️ 여기서 continuous=true 로 바꾸고 싶어질 수 있다. **바꾸지 말 것.** 그것 때문에
+//      중복 입력이 나서 jbpro 에서 이 구조로 갔다.
+let REC = null, REC_KEEP = false, REC_FINAL = '';
+function micStop(){
+  REC_KEEP = false;
+  if (REC){ try { REC.stop(); } catch(e){} REC = null; }
+  S.listening = 0;
+}
+function micStart(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ voiceSay('이 폰은 음성인식을 못 씁니다', 0); return; }
+  REC_FINAL = '';
+  REC_KEEP = true;
+  try {
+    const rec = new SR();
+    REC = rec;
+    rec.lang = 'ko-KR';
+    rec.continuous = false;          // ★ 바꾸지 말 것 (위 주석)
+    rec.interimResults = true;
+    rec.onstart = () => { S.listening = 1; };
+    rec.onresult = ev => {
+      let fin = '', inter = '';
+      for (let i = 0; i < ev.results.length; i++){
+        if (ev.results[i].isFinal) fin += ev.results[i][0].transcript;
+        else inter += ev.results[i][0].transcript;
+      }
+      if (fin) REC_FINAL = (REC_FINAL + ' ' + fin.trim()).trim();
+      // 말하는 중에는 회색으로 보여만 주고, 끝난 말이 나오면 그때 경로를 고른다
+      voiceSay((REC_FINAL + ' ' + inter).trim(), fin ? 1 : 2);
+      if (fin) voicePick(REC_FINAL);
+    };
+    rec.onerror = e => {
+      if (e.error !== 'no-speech' && e.error !== 'aborted'){ REC_KEEP = false; micStop(); }
+    };
+    rec.onend = () => {
+      if (!REC_KEEP){ micStop(); return; }
+      try { rec.start(); } catch(err){ micStop(); }     // ★ 세션마다 새 발화
+    };
+    rec.start();
+  } catch(e){ micStop(); voiceSay('마이크를 못 엽니다', 0); }
+}
+function micToggle(){ if (S.listening || REC_KEEP) micStop(); else micStart(); }
+// ─────────────────────────────── 말 → 경로 (낱말표 그대로: data/voice_words.json)
+//   ★ 새로 계산할 것이 없다. 훑어 둔 경로마다 이름표가 이미 다 붙어 있어서
+//     **말을 거르개로 바꾸면** 그만이다.
+const V_BALL = {'노란':'yellow','노랑':'yellow','흰':'white','하얀':'white','백구':'white',
+                '빨간':'red','빨강':'red'};
+// 묶음 셋 — 사장님 2026-08-19: '비껴치기나 뒤돌려치기나 우라나 기레까시나 하나로 보고'
+//   ⚠️ '옆·뒤돌리기' 는 앱이 못 정한 애매한 이름이라 **어느 쪽을 불러도 걸리게** 한다
+const V_NAME = [
+  {말:['제각돌리기','제가돌리기','옆돌리기','하꼬','하코마와시'], 이름:['옆돌리기','옆·뒤돌리기']},
+  {말:['뒤돌리기','뒤돌려치기','우라마우시','우라와시','우라','기레까시','비껴치기','빗껴치기'],
+   이름:['뒤돌리기','옆·뒤돌리기']},
+  {말:['앞돌리기','앞돌려치기','오마우시','오마와시','오마'], 이름:['앞돌리기']},
+  {말:['대회전','네지마우시','네지'], 이름:['대회전']},
+  {말:['원뱅크','원가락'], 이름:['원뱅크']},
+  {말:['투뱅크','투가락'], 이름:['투뱅크']},
+  {말:['쓰리뱅크','완전가락','쓰리가락'], 이름:['쓰리뱅크']},
+  {말:['횡단','더블','접접이','조단조'], 이름:['횡단&더블시스템']}
+];
+function voicePick(text){
+  const raw = String(text || '').replace(/\s+/g, '');
+  if (!raw) return;
+  let list = null;
+  try { list = findRoutes(); } catch(e){ list = null; }
+  if (!list || !list.length){ voiceSay(text + ' — 경로가 없습니다', 0); return; }
+  let out = list.slice();
+  const cut = (f, why) => { const q = out.filter(f); if (q.length) out = q; return q.length; };
+  // ① 먼저 맞힐 공
+  for (const w in V_BALL) if (raw.includes(w)){
+    const c = V_BALL[w];
+    cut(r => S.balls[r.first] && S.balls[r.first].color === c);
+    break;
+  }
+  // ② 진로 묶음
+  for (const g of V_NAME) if (g.말.some(w => raw.includes(w))){
+    cut(r => g.이름.some(n => (r.name || '') === n));
+    break;
+  }
+  // ③ 시까끼(쿠션부터) · 기레까시(공부터) — route.before 하나로 갈린다 (104·105)
+  if (raw.includes('시까끼') || raw.includes('걸어치기')) cut(r => r.before >= 1);
+  else if (raw.includes('기레까시')) cut(r => r.before === 0);
+  // ④ 넣어치기 — 쿠션과 1적구 사이로 들어간다. 아직 못 가르므로 원뱅크까지만 좁힌다
+  if (raw.includes('빵꾸') || raw.includes('구멍') || raw.includes('넣어치기'))
+    cut(r => r.name === '원뱅크');
+  // ⑤ 직접 — 2적구를 바로 맞힌다 (충돌 후 쿠션 0)
+  if (raw.includes('직접')) cut(r => (r.cushions - r.before) === 0);
+  // ⑥ 길게 · 짧게 = **긴각 · 짧은각** (102·103). 분리각이 작을수록 긴각
+  if (raw.includes('길게') || raw.includes('긴각'))
+    out.sort((a,b) => (a.sep === undefined ? 999 : a.sep) - (b.sep === undefined ? 999 : b.sep));
+  else if (raw.includes('짧게') || raw.includes('짧은각'))
+    out.sort((a,b) => (b.sep === undefined ? -1 : b.sep) - (a.sep === undefined ? -1 : a.sep));
+  else out.sort((a, b) => rank(b) - rank(a));
+  pickRoute(out[0]);
+  S.routeIx = list.indexOf(out[0]);
+  S.rblink = 0;
+  voiceSay(text + '  →  ' + (out[0].name || '경로') + (out.length > 1 ? '  외 ' + (out.length-1) : ''), 1);
+  blink();
+}
+// 들은 말을 다이 위에 띄운다 — ok 1 확정 · 2 말하는 중 · 0 안 됨
+function voiceSay(t, ok){ S.heard = {t, ok, at: nowMs()}; }
 function cueColor(){ return S.cueWhite ? 'white' : 'yellow'; }
 function roleOf(c){
   const cc = cueColor();
@@ -2747,6 +2863,22 @@ function up(px, py){
     const r0 = curRoute();
     if (r0 && v !== null) verSet(r0, String(v));
     blink(); return;
+  }
+  if (S.camDown){
+    const d = S.camDown; S.camDown = null;
+    const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
+    if (moved <= LONG_MOVE){
+      if (nowMs() - d.t >= LONG_MS){            // 길게 — 카메라 ↔ 마이크 맞바꾸기
+        S.micMode = S.micMode ? 0 : 1;
+        if (!S.micMode) micStop();              // 카메라로 돌아가면 듣기를 끈다
+        S.heard = null;
+        blink();
+      } else {                                  // 짧게
+        if (S.micMode) micToggle();             // 마이크일 때 — 듣기 켜고 끄기
+        else shoot();                           // 카메라일 때 — 지금까지대로
+      }
+    }
+    return;
   }
   if (S.powDown){
     const d = S.powDown; S.powDown = null;
@@ -5520,6 +5652,32 @@ function nextBtn(){
   const cl = L.cloth, w = b.h*1.55;
   return {x: cl.x + cl.w - w - cl.w*0.02, y: b.y, w, h: b.h};
 }
+// ★★ 들은 말을 **다이 위 정해진 자리**에 띄운다 (사용자 2026-08-20:
+//   '음성을 인식하는 경우 테이블 특정 위치에 텍스트를 보여주세요.
+//    그러면서 경로를 그려주세요. 보면서 보완해 나갑시다')
+//   자리 — 천의 **위쪽 가운데**. 점수판(아래 왼쪽) · 상황판(오른쪽) 과 안 겹친다.
+//   ⚠️ 안전 띠 안에 둔다 (폰은 캔버스보다 짧다).
+const HEARD_MS = 6000;                    // 이만큼 지나면 지운다
+function drawHeard(){
+  const h = S.heard;
+  if (!h || !h.t) return;
+  if (!S.listening && nowMs() - h.at > HEARD_MS){ S.heard = null; return; }
+  const c = L.cloth;
+  const fs = Math.max(11, Math.round(c.h*0.075));
+  g.save();
+  g.font = '800 ' + fs + 'px system-ui, -apple-system, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const w = Math.min(c.w*0.92, g.measureText(h.t).width + fs*1.6);
+  const bh = fs*1.9, x = c.x + (c.w - w)/2, y = c.y + c.h*0.055;
+  round(x, y, w, bh, bh*0.28);
+  g.fillStyle = 'rgba(10,12,16,0.72)'; g.fill();
+  g.strokeStyle = h.ok === 1 ? '#ffdd33' : h.ok === 2 ? '#7d8797' : '#e05a52';
+  g.lineWidth = Math.max(2, fs*0.10); g.stroke();
+  //   확정 노랑 · 말하는 중 회색 · 안 됨 빨강
+  g.fillStyle = h.ok === 1 ? '#ffe98a' : h.ok === 2 ? '#c8d0dc' : '#ffb3ae';
+  g.fillText(h.t, x + w/2, y + bh/2);
+  g.restore();
+}
 function drawNextBtn(){
   const b = nextBtn();
   NEXT_HIT = b;
@@ -5539,6 +5697,7 @@ function drawNextBtn(){
   g.restore();
 }
 function drawNoteBtn(){
+  drawHeard();                       // ★ 들은 말 (마이크 모드에서만 값이 찬다)
   drawNextBtn();                     // ★ 평가 대기일 때만 뜬다
   const b = noteBtn();
   NOTE_HIT = b;
@@ -9585,6 +9744,24 @@ function drawButtons(){
       if (armed){ g.strokeStyle = '#c8931a'; g.lineWidth = Math.max(2, u*0.03); g.stroke(); }
     }
 
+    if (b.lb === 'cam' && S.micMode){
+      // ★ 마이크 — 듣는 중이면 빨갛게 (사용자 2026-08-20)
+      const on = !!S.listening;
+      g.save();
+      g.fillStyle = on ? '#e0342c' : '#2b2f37';
+      const mw = u*0.30, mh = u*0.50;
+      round(cx - mw/2, cy - mh*0.75, mw, mh, mw*0.5); g.fill();
+      g.strokeStyle = on ? '#ffdd33' : '#9aa2b2';
+      g.lineWidth = Math.max(2, u*0.055);
+      g.beginPath(); g.arc(cx, cy - mh*0.05, mw*0.90, 0.15*Math.PI, 0.85*Math.PI); g.stroke();
+      g.beginPath(); g.moveTo(cx, cy + mw*0.90); g.lineTo(cx, cy + mh*0.62); g.stroke();
+      if (on){                                   // 듣는 중 — 둘레가 밝게
+        g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, u*0.06);
+        g.beginPath(); g.arc(cx, cy, u*0.78, 0, 7); g.stroke();
+      }
+      g.restore();
+      continue;
+    }
     if (b.lb === 'cam'){
       if (previewOn()){                           // 미리보기 중 — 검정·빨강 셔터
         g.fillStyle = '#14161a';
