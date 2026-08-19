@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 452;
+const MOBILE_VER = 453;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1870,10 +1870,13 @@ function sndBall(speed){ sndHit(Math.min(1, (speed||0)/2600), 2200, 55); }
 // 쿠션 — 더 둔하고 조금 길게
 function sndRail(speed){ sndHit(Math.min(1, (speed||0)/2600)*0.7, 900, 80); }
 // 득점 — 올라가는 두 음 '띠링'
-function sndScore(){
+// ★ 사용자 2026-08-19: '득점후 **0.5초 뒤**. 1초면 너무 늦어요'
+//   delay 초 뒤에 울린다. Web Audio 가 스스로 시각을 맞춘다 (setTimeout 보다 정확하다).
+function sndScore(delay){
   const ac = snd();
   if (!ac) return;
-  [[880, 0], [1320, 0.10]].forEach(([f, t]) => {
+  const d0 = delay || 0;
+  [[880, d0], [1320, d0 + 0.10]].forEach(([f, t]) => {
     const o = ac.createOscillator(), gn = ac.createGain();
     o.type = 'triangle'; o.frequency.value = f;
     const t0 = ac.currentTime + t;
@@ -7096,6 +7099,14 @@ function simStep(sim, dt){
       }
       // ★ 공끼리 소리 — **부딪히는 속도**로 크기를 정한다 (서로 다가가는 몫)
       if (sim.snd) sndBall(Math.hypot(A.v[0]-B.v[0], A.v[1]-B.v[1]));
+      // ★ 득점 순간 — 수구가 **두 번째 적구**에 닿을 때 (위 willScore 주석)
+      if (sim.snd && sim.willScore && !sim.scoreSnd && sim.hitObj){
+        const other = A.key === 'cue' ? B.key : (B.key === 'cue' ? A.key : null);
+        if (other){
+          sim.hitObj[other] = 1;
+          if (Object.keys(sim.hitObj).length >= 2){ sim.scoreSnd = 1; sndScore(0.5); }
+        }
+      }
       simHit(A, B);
     }
 }
@@ -7493,6 +7504,13 @@ function drawPath(){
         S.sim = simInit(dirOf(cue.p, S.aim), V0, kk, englishSide());
         S.sim.sameAsPath = 1;                    // 그리는 쪽과 같은 반사각으로
         S.sim.snd = 1;                           // ★ 이 sim 만 소리를 낸다
+        // ★★ 득점 소리를 **맞는 그 순간**에 맞춘다 (사용자 2026-08-19).
+        //   엔진이 이미 득점 여부를 안다 (EP). 재생 중 수구가 **두 번째 적구**에
+        //   닿는 순간이 곧 득점 순간이니, 그때 0.5초 뒤로 예약한다.
+        //   ⚠️ 전에는 공이 다 서고 SIM_TAIL(1초) 뒤에 울렸다 — 너무 늦었다.
+        S.sim.willScore = shotScored(EP) ? 1 : 0;
+        S.sim.hitObj = {};                       // 수구가 닿은 적구들
+        S.sim.scoreSnd = 0;
         S.sim.stop = SIM_PLAY_STOP;              // 2적구를 맞고도 조금 더 구른다
         S.simLast = performance.now();
         S.simRest = S.simLast;
@@ -7515,11 +7533,9 @@ function drawPath(){
         //   칠 수 있게 그대로 두는 기능입니다.'
         //   ⚠️ 배치가 바뀌었으니 추천·회로·자동완성을 새 배치 기준으로 되살린다.
         const okShot = shotScored(EP);
-        // ★ 득점 소리 (사용자 2026-08-19: '득점성공시 득점이 되엇다는 사운드')
-        //   ⚠️ 공이 다 서고 SIM_TAIL(1초) 뒤라 조금 늦게 난다. 맞는 그 순간에 내려면
-        //      엔진이 득점 시각을 알려야 하는데(engineRun 의 scoreIdx), 재생은 그려 둔
-        //      선을 따라가는 딴 길이라 시각이 안 맞는다. 지금은 이대로 둔다.
-        if (okShot) sndScore();
+        // ★ 보험 — 재생이 두 적구를 다 못 건드려서 위에서 못 울렸으면 여기서 울린다.
+        //   (그려 둔 선과 엔진이 드물게 어긋난다. 소리가 아예 안 나는 것보다 낫다)
+        if (okShot && S.sim && !S.sim.scoreSnd){ S.sim.scoreSnd = 1; sndScore(0); }
         // ★★★★ 성공한 샷은 **N회 되풀이해서** 보여준다 (위 shotSnap 주석).
         //   다 보고 나서야 이어치기·수구전환·혼자치기로 넘어간다.
         if ((S.replayAll || okShot) && S.replayLeft > 0 && shotRestore()){
