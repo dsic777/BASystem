@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 454;
+const MOBILE_VER = 455;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -8505,7 +8505,16 @@ function tipGeom(){
   const bh = Math.round((band - gap*(nRow-1)) / nRow);
   const y0 = Math.round(h*TIP_ROW0);
   // ★ 설정 줄은 지금 값을 글씨에 붙여 보여준다 (2026-08-18)
-  const rows = PRESET.map(q => q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
+  // ★★ **켜짐인 칸만 살짝 다르게** (사용자 2026-08-19, 83.jpg: '켜짐만 버튼컬러를
+  //   변경해 주세요. **약간만 차이가 나게** … 완료같이 너무 눈에 뜨이게는 하지 말고
+  //   **무던하게** 표시. **되풀이 반복 배치안내는 그대로** 두세요.')
+  //   ⚠️ 그 셋은 켜짐/꺼짐이 아니라 **값이 도는** 칸이다 (성공만·모두 / 꺼짐·1회·2회 /
+  //      2·3·5초). 켜짐이라는 것이 없으니 표시할 것도 없다. 그래서 뺀다.
+  const isOn = q => q.magnet ? !!S.magnet : q.keep ? !!S.keepShot
+                  : q.swap ? !!S.cueSwap : q.solo ? !!S.solo
+                  : q.evalSw ? !!S.evalMode : q.sound ? !!S.sound
+                  : q.auto ? !S.tipLock : false;
+  const rows = PRESET.map(q => ({...q, isOn: isOn(q)})).map(q => q.magnet ? {...q, lb: '자석  ' + (S.magnet ? '켜짐' : '꺼짐')}
                    : q.keep ? {...q, lb: '이어치기  ' + (S.keepShot ? '켜짐' : '꺼짐')}
                    : q.swap ? {...q, lb: '수구전환  ' + (S.cueSwap ? '켜짐' : '꺼짐')}
                    : q.solo ? {...q, lb: '시범경기  ' + (S.solo ? '켜짐' : '꺼짐')}
@@ -8937,9 +8946,12 @@ function drawTipPanel(){
     else if (b.cancel) btn3D(b, '#9aa2b4', '#5a6070', '#2c3038');
     else if (b.done) btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
     else if (on)  btn3D(b, '#8b97b0', '#3a4150', '#171a21', '#ffdd33');
+    // ★ 켜짐 — 꺼짐보다 **한 눈금만** 밝다. 완료(금색)와는 확실히 다르게 무던하다
+    else if (b.isOn) btn3D(b, '#79839a', '#414859', '#1d212a');
     else          btn3D(b, '#5b626e', '#2b2f37', '#15171c');
     g.fillStyle = b.none ? 'rgba(150,156,170,0.55)'
-               : b.cancel ? '#ffffff' : b.done ? '#1a1508' : (on ? '#ffe98a' : '#eef1f6');
+               : b.cancel ? '#ffffff' : b.done ? '#1a1508'
+               : (on ? '#ffe98a' : b.isOn ? '#ffe2a8' : '#eef1f6');
     // ★ 칸이 반으로 좁아졌다 — 글씨가 넘치면 줄인다 (2026-08-18)
     let bf = b.h*0.44;
     for (let k = 0; k < 10; k++){
