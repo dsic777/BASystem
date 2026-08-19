@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 444;
+const MOBILE_VER = 445;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1642,7 +1642,7 @@ function tapButton(px,py){
     //   꺼진 자리를 눌러도 아무 일이 없고, 그 아래 다이 조준이 받는다.
     // ★ 시범경기·배치 중에는 보정을 안 그리므로 **눌러도 안 먹어야 한다** —
     //   안 보이는데 눌리는 버튼은 없어야 한다.
-    if ((S.aimMode || S.solo || S.showPlace) && btnOnCloth(b)) continue;
+    if ((S.aimMode || (S.solo && !S.evalWait) || S.showPlace) && btnOnCloth(b)) continue;
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
     // ★ 보정을 바꿔도 같이 따라간다 (당점과 같은 이유 — reaimForTip 주석 참고)
     if (b.lb === '+'){ S.corr += 0.5; reaimForTip(); }
@@ -1971,6 +1971,28 @@ function soloNext(){
   S.rblink = 0;                          // 3초 잠금은 안 건다 — 혼자 치는 중이다
   startShot();                           // ★ 되풀이가 켜져 있으면 큰 그림부터
 }
+// ★★★★★ 평가를 마쳤다 — 굴러간 끝자리를 **다음 배치**로 삼고 다음 샷 (위 evalWait 주석)
+//   사용자 2026-08-19: '시범경기 이어가기든 직접조준으던 시물레이션 후가 다음 배치가
+//   됩니다. 학습자료를 빠르게 누적하기 위한 것입니다.'
+//   ⚠️ 성적은 이미 세어 두었다 (evalWait 로 들어갈 때). 여기서 또 세면 두 번 센다.
+function evalNext(){
+  S.evalWait = 0;
+  if (S.soloEnd){
+    for (const b of S.soloEnd){
+      const t = S.balls[b.key];
+      if (t) t.p = b.p.slice();
+    }
+    S.soloEnd = null;
+  }
+  ROUTES = {key: null, list: null};
+  S.routeIx = -1; S.lockRails = null; S.snapA = null;
+  tipAuto();
+  blink();
+  // ★ 수구전환 — 실패했을 때만 (swapCue 주석). 시범경기는 늘 켜져 있다.
+  if (!S.soloOk) swapCue();
+  S.soloOk = 0;
+  if (S.solo) soloNext();
+}
 // 색 버튼을 두 번 탭 — 그 공을 1적구로. 흰·노랑이면 나머지가 수구가 된다
 function setFirstObject(c){
   if (c === 'white' || c === 'yellow') S.cueWhite = (c !== 'white');
@@ -2205,7 +2227,8 @@ function openTipPanel(){
               // ★ 사용자 2026-08-18: '취소시 모든 설정 취소입니다. 화면 진입 전으로.
               //   그러니 이 화면 진입시 초기 설정값 모두 알고 있어야 합니다.'
               //   → 이 판에서 바뀌는 것은 **하나도 빼지 않고** 여기 적는다.
-              solo:S.solo, replayN:S.replayN, replayAll:S.replayAll, viewSec:S.viewSec};
+              solo:S.solo, replayN:S.replayN, replayAll:S.replayAll, viewSec:S.viewSec,
+              evalMode:S.evalMode};
   S.tipPanel = true;
 }
 function closeTipPanel(cancel){
@@ -2219,6 +2242,13 @@ function closeTipPanel(cancel){
 }
 function tapTipPanel(px,py){
   const q = tipGeom();
+  // ★ 시범평가 스위치가 먼저 (버튼 띠 밖에 따로 있다)
+  if (q.sw && px >= q.sw.x && px <= q.sw.x+q.sw.w &&
+              py >= q.sw.y && py <= q.sw.y+q.sw.h){
+    S.evalMode = S.evalMode ? 0 : 1;
+    if (!S.evalMode) S.evalWait = 0;          // 끄면 대기도 푼다
+    return;
+  }
   for (const b of q.btn)
     if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
       if (b.done){ closeTipPanel(!!b.cancel); return; }   // 이 둘만 나간다
@@ -2296,7 +2326,9 @@ function down(px,py){
   //   ⚠️ 굴러가는 중이면 그 샷은 **끝까지 굴린다.** 공이 도로 튀어 돌아가면 더 이상하다.
   //      아직 안 굴렀으면(배치·큰 그림) 그 자리에서 접는다.
   //   성적은 지우지 않는다 — '멈춤 12점 / 47이닝' 으로 그대로 남는다.
-  if (S.solo && !S.tipPanel && !S.thickPanel){
+  // ⚠️ **평가 대기 중에는 멈추지 않는다** — 점수를 넣고 직접조준을 해야 하는 자리다.
+  //   그 동안 시범경기를 멈추려면 당점판의 '시범경기' 버튼을 쓴다.
+  if (S.solo && !S.evalWait && !S.tipPanel && !S.thickPanel){
     S.solo = 0;
     if (S.card || S.showPlace){ S.card = 0; S.wantCard = 0; S.showPlace = 0; }
     return;
@@ -2306,6 +2338,11 @@ function down(px,py){
   // 경로 리스트가 열려 있으면 그것부터 — 칸을 고르면 그 경로로 가고 닫힌다
   // ★ 상·중·하 — 다이 안 막대 (사용자 2026-08-14)
   // ★ 요청 목록이 열려 있으면 그것부터 (밀기와 고르기를 뗄 때 가른다)
+  // ★ 평가를 마치고 다음 배치로 (위 nextBtn 주석). 다른 무엇보다 먼저 잡는다.
+  if (NEXT_HIT && px >= NEXT_HIT.x && px <= NEXT_HIT.x + NEXT_HIT.w &&
+      py >= NEXT_HIT.y && py <= NEXT_HIT.y + NEXT_HIT.h){
+    evalNext(); return;
+  }
   if (S.noteList){ S.listDrag = {x:px, y:py, dx:0, note:1}; return; }
   // ★ DSLINE 비밀 버튼 — 내 IP 일 때만 잡힌다 (drawDsline 이 BRAND_HIT 를 세운다)
   if (BRAND_HIT && px >= BRAND_HIT.x && px <= BRAND_HIT.x + BRAND_HIT.w &&
@@ -5102,8 +5139,11 @@ function verBar(){
   // ★ 추천을 보고 있을 때 **그리고 직접지정으로 길을 잡았을 때** 뜬다 (사용자 2026-08-16)
   // ★ 시범경기 중에는 평가판도 안 띄운다 (사용자 2026-08-19: '평가도 지우세요').
   //   앱이 치는 것을 사람이 점수 매길 일이 없다 — 다이를 비운다. 배치 3초도 같다.
+  // ★★ 시범평가의 **평가 대기** 단계에서만 다시 켠다 (사용자 2026-08-19:
+  //   '평가를 계속 켜두자는 것이 아니고 **꼭 필요한 부분에서만 켜고 평가 후 다시 꺼야**
+  //    합니다.')  → S.evalWait 인 동안만이다. 배치·큰그림·시뮬레이션에서는 그대로 꺼진다.
   if (!S.routeList && !S.noteList && !previewOn() && !S.anim && !S.scatter &&
-      !S.solo && !S.showPlace &&
+      (!S.solo || S.evalWait) && !S.showPlace &&
       (S.routeIx >= 0 || (S.aim && directRoute()))){
     // ⚠️ 하단 c.h*0.035 자리에 있었더니 **3쿠션 초록 숫자와 겹쳤다**
     //    (사용자 2026-08-16, 17.jpg: '3쿠션 위치때문에 점수판과 겹침').
@@ -5249,7 +5289,39 @@ function noteBtn(){
   return R;
 }
 
+// ★★★★★ **다음** — 평가 대기에서 빠져나가는 **유일한 길**이다 (evalNext 주석).
+//   ⚠️ 다이를 탭해서 넘기게 하면 **직접조준(다이 탭 = 방향 지정, v394)** 과 부딪힌다.
+//      그래서 버튼을 따로 둔다.
+//   자리는 점수판과 **같은 줄의 천 오른쪽 끝** — 의견 버튼은 점수판 바로 옆이라
+//   서로 안 닿는다 (의견이 왼쪽으로 피해도 마찬가지다).
+let NEXT_HIT = null;
+function nextBtn(){
+  if (!S.evalWait) return null;
+  const b = verBar();
+  if (!b) return null;
+  const cl = L.cloth, w = b.h*1.55;
+  return {x: cl.x + cl.w - w - cl.w*0.02, y: b.y, w, h: b.h};
+}
+function drawNextBtn(){
+  const b = nextBtn();
+  NEXT_HIT = b;
+  if (!b) return;
+  btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const NM = '다음 ▶';
+  let fs = b.h*0.36;
+  const fit = () => { g.font = '900 ' + Math.round(fs) + 'px system-ui, sans-serif';
+                      return g.measureText(NM).width; };
+  const room = b.w*0.84;
+  if (fit() > room) fs = Math.max(9, fs * room / fit());
+  fit();
+  g.fillStyle = '#1a1508';
+  g.fillText(NM, b.x + b.w/2, b.y + b.h/2);
+  g.restore();
+}
 function drawNoteBtn(){
+  drawNextBtn();                     // ★ 평가 대기일 때만 뜬다
   const b = noteBtn();
   NOTE_HIT = b;
   if (!b) return;
@@ -7336,6 +7408,42 @@ function drawPath(){
           S.showPlace = performance.now() || 1;
           return;
         }
+        // ★★★★★ **시범평가** — 굴린 뒤 곧장 넘어가지 않고 **평가를 받는다**
+        //   (사용자 2026-08-19: '시범경기 중 경로 평가및 의견이 가능하게 수정을 합니다.
+        //    매 샷에 사전안내 후 시물레이션 다음에 평가 열어주세요.
+        //    거기서 점수 넣고 의견이 있으면 그것도 넣겟습니다. 또 직접조준도 넣겟습니다.')
+        //
+        //   ★★ **왜 친 배치로 되돌리나** (사장님이 짚어 주신 자리다) —
+        //     '직접조준의 목적은 시범경기 자동 경로설정에 대해서 평가를 하고,
+        //      **더 좋은경로가 있을때 이런 배치에서는 이렇게 경로를 설정한다는 것을
+        //      데이타로 모아두기 위함**입니다. 시범경기 시물레이션 전 배치를 기억하고
+        //      그 배치를 기준으로 직접조준을 해서 경로를 다시 설정해야 합니다.'
+        //   ⚠️ 평가는 placeKey()(공 세 개 자리)로 쌓인다. 공을 옮긴 **뒤에** 점수를
+        //      매기면 엉뚱한 배치에 붙는다. 그래서 **되돌리고 나서** 평가를 받는다.
+        //      그러면 한 배치 아래 두 줄이 짝으로 쌓인다 —
+        //        추천 1번 (앱이 고른 길)   ← 낮은 점수
+        //        직접지정 (사장님의 길)     ← 높은 점수
+        //      이 짝이 rank() 를 고치는 데 제일 값진 자료다.
+        //   ★ 굴러간 끝자리는 S.soloEnd 에 적어 둔다 — '다음' 을 누를 때 그 자리가
+        //     다음 배치가 된다 (사용자: '이어가기든 직접조준이든 시물레이션 후가
+        //     다음 배치가 됩니다').
+        //   ⚠️ 되풀이(replay)가 먼저다. 다 보고 나서 이 단계로 온다.
+        if (S.solo && S.evalMode && !S.evalWait){
+          S.soloEnd = S.sim.balls.map(b2 => ({key: b2.key,
+              p: [Math.min(Math.max(b2.p[0], 0), T.width),
+                  Math.min(Math.max(b2.p[1], 0), T.height)]}));
+          S.soloOk = okShot;
+          if (S.soloStat){                   // 성적은 **여기서** 센다 (한 샷에 한 번)
+            const st = S.soloStat;
+            st.shots++;
+            if (okShot){ st.made++; st.run++; if (st.run > st.best) st.best = st.run; }
+            else st.run = 0;
+          }
+          shotRestore();                     // ★ 공·조준·당점을 **친 그 자리**로
+          S.evalWait = 1;
+          S.anim = 0; S.sim = null;
+          return;
+        }
         // ★ 혼자치기는 이어치기·수구전환이 켜져 있어야 성립한다 (soloStart 주석)
         if (S.solo && S.soloStat){
           const st = S.soloStat;
@@ -8235,7 +8343,15 @@ function tipGeom(){
   const ly = y0 + (nRow-1) * (bh + gap);
   btn.push({lb:'완 료', done:true,               x:x0,           y:ly, w:hw, h:bh});
   btn.push({lb:'취 소', done:true, cancel:true,  x:x0+hw+gap,    y:ly, w:hw, h:bh});
-  return {R, cx, cy, x0, bw, y0, btn, dots: tipDots(), unit: R*TIP_R};
+  // ★★★★ **시범평가** 스위치 — 자석 위쪽, 팁수 글자 오른쪽 빈 칸 (사용자 2026-08-19,
+  //   75.jpg: '임시로 자석켜짐 위쪽 팁수 오른쪽 빈공간에 시범평가 켜기/끄기 스위치를
+  //   넣어 주세요. **기존 배치는 현상태 대로 유지합니다.**')
+  //   ⚠️ 그래서 PRESET 에 아홉째 칸으로 넣지 **않았다** — 넣으면 줄 수가 바뀌어
+  //      여덟 칸 배치가 통째로 흔들린다. 빈 자리에 따로 그린다.
+  //   글자 세 줄은 0.086 · 0.141 · 0.196h 다. 셋째 줄만 오른쪽까지 길어서, 그 위
+  //   (0.038 ~ 0.038+bh)에 앉힌다. 자석 버튼(y0=0.234h)과도 안 닿는다.
+  const sw = {x: x0 + hw + gap, y: Math.round(h*0.038), w: hw, h: bh, evalSw: true};
+  return {R, cx, cy, x0, bw, y0, btn, sw, dots: tipDots(), unit: R*TIP_R};
 }
 
 // 두께판 배치 — 당점판과 같은 짜임새다 (왼쪽 그림 · 오른쪽 버튼)
@@ -8532,6 +8648,26 @@ function drawTipDial(cx, cy, R, color){
   }
 }
 
+// ★ 시범평가 스위치 하나만 따로 그린다 (위 tipGeom 의 sw 주석).
+//   켜져 있으면 금색으로 — 지금 자료를 모으는 중이라는 것이 한눈에 보여야 한다.
+function drawEvalSw(q){
+  const b = q.sw;
+  if (!b) return;
+  if (S.evalMode) btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
+  else            btn3D(b, '#5b626e', '#2b2f37', '#15171c');
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const lb = '시범평가  ' + (S.evalMode ? '켜짐' : '꺼짐');
+  let fs = b.h*0.40;
+  const fit = () => { g.font = '700 ' + Math.round(fs) + 'px system-ui, sans-serif';
+                      return g.measureText(lb).width; };
+  const room = b.w*0.88;
+  if (fit() > room) fs = Math.max(9, fs * room / fit());
+  fit();
+  g.fillStyle = S.evalMode ? '#1a1508' : '#eef1f6';
+  g.fillText(lb, b.x + b.w/2, b.y + b.h/2);
+  g.restore();
+}
 function drawTipPanel(){
   if (!S.tipPanel) return;
   const q = tipGeom();
@@ -8620,6 +8756,7 @@ function drawTipPanel(){
 
   // 자주 쓰는 당점 (전부 data/ 에 적혀 있는 것)
   g.textAlign = 'center'; g.textBaseline = 'middle';
+  drawEvalSw(q);                          // ★ 시범평가 스위치 (버튼 띠 밖에 따로 있다)
   for (const b of q.btn){
     const on = !b.done && b.dir === S.tipDir && b.r === S.tipR;
     // '조정 완료' 는 나가는 버튼이라 눈에 띄게 채운다 (위 btn3D 주석)
