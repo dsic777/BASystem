@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 466;
+const MOBILE_VER = 467;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2092,7 +2092,8 @@ function vocab(){
   if (V_ALL) return V_ALL;
   const a = Object.keys(V_BALL).slice();
   for (const g of V_NAME) for (const w of g.말) a.push(w);
-  for (const w of ['시까끼','걸어치기','기레까시','비껴치기','빵꾸','구멍','넣어치기',
+  for (const w of ['시까끼','걸어치기','기레까시','비껴치기',
+                   '빵꾸','구멍','구멍치기','넣어치기','가락넣기',
                    '직접','길게','긴각','짧게','짧은각']) a.push(w);
   V_ALL = a;
   return a;
@@ -2157,10 +2158,13 @@ function voicePick(text){
     if (hit){ cut(r => g.이름.some(n => (r.name || '') === n)); break; }
   }
   // ③ 시까끼(쿠션부터) · 기레까시(공부터) — route.before 하나로 갈린다 (104·105)
-  if (said('시까끼') || said('걸어치기')) cut(r => r.before >= 1);
+  if (said('시까끼') || said('걸어치기')) cut(r => r.before >= 1 && !r.thru);
   else if (said('기레까시') || said('비껴치기')) cut(r => r.before === 0);
-  // ④ 넣어치기 — 쿠션과 1적구 사이로 들어간다. 아직 못 가르므로 원뱅크까지만 좁힌다
-  if (said('빵꾸') || said('구멍') || said('넣어치기')) cut(r => r.name === '원뱅크');
+  // ④ 넣어치기(구멍·빵꾸) — 1적구를 지나쳐 쿠션과 1적구 사이 틈으로 들어간다.
+  //   route.thru 로 걸어치기와 갈린다 (97·98.jpg · 계산은 findRoutes 의 thru 참고).
+  //   사장님: '구멍 빵꾸 다 **원뱅크 넣어치기**니까요' → 원뱅크까지 같이 건다.
+  if (said('빵꾸') || said('구멍') || said('구멍치기') || said('넣어치기') || said('가락넣기'))
+    cut(r => r.thru && r.name === '원뱅크');
   // ⑤ 직접 — 2적구를 바로 맞힌다 (충돌 후 쿠션 0)
   if (said('직접')) cut(r => (r.cushions - r.before) === 0);
   // ⑥ 길게 · 짧게 = **긴각 · 짧은각** (102·103). 분리각이 작을수록 긴각
@@ -4336,13 +4340,31 @@ function simulate(dir, k){
     return Math.abs(cr) < 1e-6 ? 0 : (cr > 0 ? 1 : -1);
   })();
   const rail1 = rails[c1] || '';                    // 1적구를 맞은 뒤 첫 쿠션 레일
+  // ★★★★ 넣어치기(구멍·빵꾸) 인가 걸어치기(시까끼) 인가 — 사장님 97·98.jpg
+  //   둘 다 '빈쿠션 쓰고 1적구' 라 이름이 똑같이 **원뱅크**로 붙는다. 그런데 길이 다르다 —
+  //     넣어치기  1적구를 **지나쳐** 쿠션과 1적구 사이 틈으로 들어갔다가 되돌아온다
+  //     걸어치기  쿠션을 **먼저** 맞고 1적구로 간다
+  //   '수구가 **다이와 1적구 사이로 들어간다**고 해서 구멍이라고 합니다. 또 타이어 펑크도
+  //    타이어에 못이 박혔다는 의미로 빵꾸라고 합니다.' (사장님 2026-08-19)
+  //   → 가르는 것은 한 줄이다. **출발방향에 1쿠션과 1적구를 투영해 앞뒤만 잰다.**
+  //     1적구가 앞이면 지나친 것 → 넣어치기 · 쿠션이 앞이면 → 걸어치기
+  //   ⚠️ 이름(name)은 안 건드린다. 순위도 안 건드린다. **말로 고를 때 거르는 데만** 쓴다.
+  const thru = (() => {
+    if (c1 < 1 || !seq[0] || !seq[0].p) return false;
+    const ob = S.balls[who];
+    if (!ob || !ob.p) return false;
+    const u = dirOf(cue.p, seq[0].p);
+    const sR = (seq[0].p[0] - cue.p[0]) * u[0] + (seq[0].p[1] - cue.p[1]) * u[1];
+    const sO = (ob.p[0]    - cue.p[0]) * u[0] + (ob.p[1]    - cue.p[1]) * u[1];
+    return sO < sR;
+  })();
   // ⚠️ 키에 **쿠션 차례를 다 넣는다.** (공|빈쿠션|첫쿠션|도는쪽) 까지만 묶으면
   //    사용자 1.jpg(단-장-장)와 3.jpg(단-장-단)가 한 칸으로 뭉쳐 하나가 사라진다.
   //    둘 다 앞돌리기 기본궤적이라고 확인해 주셨다 — 두께로 갈리는 변형이다.
   return {key: who + '|' + c1 + '|' + (turn1 > 0 ? 'L' : 'R') + '|' + rails.join('-'),
           rails, first: who, rail1, turn1,
           cushions: c1 + c2, name, loose, before: c1, kiss: !!kiss, sep,
-          flips, rev, back, thick: af.thick};
+          flips, rev, back, thru, thick: af.thick};
 }
 
 let ROUTES = {key:null, list:[]};
@@ -4779,7 +4801,7 @@ function findRoutes(){
           else cur = {key:r.key, aLo:a, aHi:a, rails:r.rails, first:r.first,
                       rail1:r.rail1, turn1:r.turn1,
                       cushions:r.cushions, name:r.name, loose:r.loose, before:r.before,
-                      kiss:r.kiss, flips:r.flips, rev:r.rev, back:r.back,
+                      kiss:r.kiss, flips:r.flips, rev:r.rev, back:r.back, thru:r.thru,
                       sep:r.sep, thick:r.thick, tip:TIP_NOW, tipV:TIPV_NOW};
         }
       }
@@ -4821,7 +4843,7 @@ function findRoutes(){
           else cur = {key:r.key, aLo:a, aHi:a, rails:r.rails, first:r.first,
                       rail1:r.rail1, turn1:r.turn1,
                       cushions:r.cushions, name:r.name, loose:r.loose, before:r.before,
-                      kiss:r.kiss, flips:r.flips, rev:r.rev, back:r.back,
+                      kiss:r.kiss, flips:r.flips, rev:r.rev, back:r.back, thru:r.thru,
                       sep:r.sep, thick:r.thick, tip:TIP_NOW, tipV:TIPV_NOW};
         }
       }
@@ -4878,7 +4900,7 @@ function findRoutes(){
     rails: r.rails, first: r.first, cushions: r.cushions, key: r.key,
     name: r.name, loose: r.loose, before: r.before, kiss: r.kiss, sep: r.sep,
     flips: r.flips, rev: r.rev, back: r.back, tipV: r.tipV,
-    thick: r.thick, tip: r.tip,
+    thick: r.thick, tip: r.tip, thru: r.thru,
   }));
   // ★★★ 사용자 2026-08-13 승인 — 이 앱의 최종 목표는 **성공 가능한 경로를 제시**하는 것이다.
   //   '추천경로를 보여줬으면 공이 맞아야죠? 키스가 난 경우도 아니고.'
