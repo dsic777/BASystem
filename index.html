@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 468;
+const MOBILE_VER = 469;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -277,13 +277,39 @@ function naturalAdd(ain){
       return t[i][1] + (t[i+1][1]-t[i][1]) * (x-t[i][0]) / (t[i+1][0]-t[i][0]);
   return 0;
 }
+// ★★★★★ 공은 **중심이 쿠션까지 갈 수 없다.** 겉면이 닿으면 거기서 튕긴다.
+//   사장님 2026-08-20 (114.jpg): '공이 쿠션 안으로 들어갔네요.
+//   **공의 외경이 쿠션과 닿아야 합니다.**'
+//   교본에도 같은 말이 있다 (172쪽 · 캡처 87) —
+//     '레일 포인트라 해도 **수구의 직경을 고려하지 않으면 바른 입사점을 찾아낼 수 없다**'
+//   2026-08-12 에 그 줄을 book_standard.json 에 옮기면서 '★ 우리 앱은 궤적을 공
+//   중심선으로 그린다. **이 보정이 없다**' 라고 적어 두고는 코드에 안 넣었다.
+//   그래서 오늘까지 모든 궤적이 공 반지름(30.75mm)만큼 쿠션을 파고들었다.
+//   다이아 한 칸이 317.5mm 이니 **한 칸의 약 1/10**. '공 반 개 차이의 세계'(사장님)
+//   에서 무시할 수 없다.
+//   → 중심이 도는 사각형을 사방으로 반지름만큼 들인다. 이 함수 하나가 경로·엔진
+//     양쪽의 쿠션을 다 정하므로 여기서 들이면 전부 따라온다.
+//   ⚠️ **번호(수구수·1쿠션수·3쿠션수)는 그대로 쿠션 선에서 읽는다.** 번호는 공이
+//      닿는 자리(접점)로 정해지는데, 접점은 중심에서 쿠션으로 **수직으로** 내린
+//      자리라 레일을 따라간 값이 안 변한다. railParam 이 들인 자리도 같은 레일로
+//      읽어 준다 — 거기까지 같이 안 고치면 번호가 통째로 빈칸이 된다.
+function ballRin(){ return (T && T.ball_diameter) ? T.ball_diameter/2 : 0; }
+// 공 **중심**이 있을 수 있는 자리로 가둔다 — 겉면이 쿠션을 넘어가지 않게.
+//   손으로 끌어 놓은 공도, 굴러 멈춘 공도 다 이걸 지나야 한다. 안 그러면
+//   출발점이 이미 쿠션 안이라 경로가 처음부터 깨진다.
+function clampBall(x, y){
+  const R = ballRin();
+  return [Math.min(Math.max(x, R), T.width - R),
+          Math.min(Math.max(y, R), T.height - R)];
+}
 function nextRail(p, d, w, h){
-  const e = 1e-6;
+  const e = 1e-6, R = ballRin();
+  const x0 = R, x1 = w - R, y0 = R, y1 = h - R;
   let best = null;
-  const cand = [['right', d[0] > e ? (w-p[0])/d[0] : null],
-                ['left',  d[0] < -e ? (0-p[0])/d[0] : null],
-                ['top',   d[1] > e ? (h-p[1])/d[1] : null],
-                ['bottom',d[1] < -e ? (0-p[1])/d[1] : null]];
+  const cand = [['right', d[0] > e ? (x1-p[0])/d[0] : null],
+                ['left',  d[0] < -e ? (x0-p[0])/d[0] : null],
+                ['top',   d[1] > e ? (y1-p[1])/d[1] : null],
+                ['bottom',d[1] < -e ? (y0-p[1])/d[1] : null]];
   for (const [r,t] of cand) if (t !== null && t > e && (!best || t < best[1])) best = [r,t];
   if (!best) return null;
   return [best[0], [p[0]+d[0]*best[1], p[1]+d[1]*best[1]]];
@@ -518,10 +544,12 @@ function bend(d, rail, k, E, vIn){
 //   ★ 애초에 이 자리는 **앱이 조준을 코너에 붙여서** 생긴다. 손으로는 못 세운다.
 function cornerBend(q, nd, rail, k, E, v){
   const EPS = 1.0;                       // mm — 이 안이면 코너에 닿은 것으로 본다
+  // ★ 꼭짓점이 공 중심이라 코너에서도 반지름만큼 들어와 있다 (nextRail 참고)
+  const R = ballRin();
   const lg = (rail === 'top' || rail === 'bottom');
   const other = lg
-    ? (Math.abs(q[0]) < EPS ? 'left' : (Math.abs(q[0]-T.width)  < EPS ? 'right' : null))
-    : (Math.abs(q[1]) < EPS ? 'bottom' : (Math.abs(q[1]-T.height) < EPS ? 'top'  : null));
+    ? (Math.abs(q[0]-R) < EPS ? 'left' : (Math.abs(q[0]-(T.width-R))  < EPS ? 'right' : null))
+    : (Math.abs(q[1]-R) < EPS ? 'bottom' : (Math.abs(q[1]-(T.height-R)) < EPS ? 'top'  : null));
   if (!other) return nd;
   const n2 = RAILS[other];               // 안쪽 법선
   if (nd[0]*n2[0] + nd[1]*n2[1] >= 0) return nd;   // 이미 안쪽으로 나간다
@@ -1720,8 +1748,7 @@ function separate(role, p){
       x = o[0] + dx/d*D; y = o[1] + dy/d*D;
       moved = true;
     }
-    x = Math.min(Math.max(x, 0), T.width);
-    y = Math.min(Math.max(y, 0), T.height);
+    [x, y] = clampBall(x, y);
     if (!moved) break;
   }
   return [x, y];
@@ -2932,8 +2959,7 @@ function move(px,py){
     // ★ 손가락이 이만큼 못 움직였으면 **끈 것이 아니라 탭**이다 (아래 up 의 두께판)
     if (S.dragAt && Math.hypot(px-S.dragAt[0], py-S.dragAt[1]) > BW*0.22) S.dragMoved = 1;
     const [x,y] = toMm(px,py);
-    S.balls[S.drag].p = separate(S.drag,
-      [Math.min(Math.max(x,0),T.width), Math.min(Math.max(y,0),T.height)]);
+    S.balls[S.drag].p = separate(S.drag, clampBall(x, y));
     blink(S.balls[S.drag].color);              // 끌고 있는 공만
   } else if (S.aiming){
     // ★★ 사용자 2026-08-12 —
@@ -4674,7 +4700,10 @@ function firstStrike(ang){
   const dir = [Math.cos(ang), Math.sin(ang)];
   const D = T.ball_diameter, R = D/2;
   let best = null;
-  // 쿠션 — 앱은 공 **중심**을 경계선에서 반사시킨다. 그래서 틈은 반지름을 뺀 값이다
+  // 쿠션 — 여기는 **쿠션 선 그대로** 쏜다. t 는 중심에서 쿠션까지의 거리이고,
+  //   공 겉면까지의 틈은 거기서 반지름을 뺀 값이다. 이 식은 2026-08-20 에 반사를
+  //   반지름만큼 들인 뒤에도 그대로 맞다 (nextRail 의 ★★★★★ 주석).
+  //   ⚠️ 여기를 들인 경계로 바꾸면 반지름을 **두 번** 빼게 된다. 건드리지 말 것.
   for (const [i, bound] of [[0,0], [0,T.width], [1,0], [1,T.height]]){
     if (Math.abs(dir[i]) < 1e-9) continue;
     const t = (bound - c.p[i]) / dir[i];
@@ -7456,11 +7485,14 @@ function simStep(sim, dt){
   for (const b of sim.balls){
     const sp = Math.hypot(b.v[0], b.v[1]);
     if (sp < 1e-9) continue;
+    // ★ 경계는 **공 겉면이 쿠션에 닿는 자리** — 중심은 반지름만큼 앞에서 선다
+    //   (nextRail 의 ★★★★★ 주석). 궤적과 엔진이 같은 기준을 써야 안 어긋난다.
+    const R = ballRin();
     let rail = null, depth = 0;
-    if (b.p[0] < 0)             { rail = 'left';   depth = -b.p[0]; }
-    else if (b.p[0] > T.width)  { rail = 'right';  depth = b.p[0]-T.width; }
-    else if (b.p[1] < 0)        { rail = 'bottom'; depth = -b.p[1]; }
-    else if (b.p[1] > T.height) { rail = 'top';    depth = b.p[1]-T.height; }
+    if (b.p[0] < R)               { rail = 'left';   depth = R - b.p[0]; }
+    else if (b.p[0] > T.width-R)  { rail = 'right';  depth = b.p[0]-(T.width-R); }
+    else if (b.p[1] < R)          { rail = 'bottom'; depth = R - b.p[1]; }
+    else if (b.p[1] > T.height-R) { rail = 'top';    depth = b.p[1]-(T.height-R); }
     if (!rail) continue;
     const dir = [b.v[0]/sp, b.v[1]/sp];
     let nd;
@@ -7484,8 +7516,8 @@ function simStep(sim, dt){
     const back = depth / Math.max(1e-9, Math.abs(
                    (rail === 'left' || rail === 'right') ? dir[0] : dir[1]));
     b.p[0] -= dir[0]*back; b.p[1] -= dir[1]*back;    // 닿은 그 자리로
-    if (rail === 'left') b.p[0] = 0; else if (rail === 'right') b.p[0] = T.width;
-    else if (rail === 'bottom') b.p[1] = 0; else b.p[1] = T.height;   // 반올림 찌꺼기 제거
+    if (rail === 'left') b.p[0] = R; else if (rail === 'right') b.p[0] = T.width-R;
+    else if (rail === 'bottom') b.p[1] = R; else b.p[1] = T.height-R;  // 반올림 찌꺼기 제거
     b.p[0] += nd[0]*back; b.p[1] += nd[1]*back;      // 남은 만큼 새 방향으로
     b.v = [nd[0]*sp*gain, nd[1]*sp*gain];
     if (sim.snd) sndRail(sp);          // ★ 쿠션 소리 — 보이는 재생에서만
@@ -7991,8 +8023,7 @@ function drawPath(){
           //      v450 에서 덮어쓰게 했던 것을 되돌린다.
           if (!S.evalShot){
             S.soloEnd = S.sim.balls.map(b2 => ({key: b2.key,
-                p: [Math.min(Math.max(b2.p[0], 0), T.width),
-                    Math.min(Math.max(b2.p[1], 0), T.height)]}));
+                p: clampBall(b2.p[0], b2.p[1])}));
             S.soloOk = okShot;
           }
           // ★ 성적은 **앱이 스스로 친 샷만** 센다. 직접지정으로 다시 쳐 보는 것은
@@ -8028,8 +8059,7 @@ function drawPath(){
           for (const b2 of S.sim.balls){
             const t2 = S.balls[b2.key];
             if (!t2) continue;
-            t2.p = [Math.min(Math.max(b2.p[0], 0), T.width),
-                    Math.min(Math.max(b2.p[1], 0), T.height)];
+            t2.p = clampBall(b2.p[0], b2.p[1]);
           }
           ROUTES = {key: null, list: null};
           S.routeIx = -1; S.lockRails = null; S.snapA = null;
@@ -9467,12 +9497,17 @@ function frameParam(mm){
 
 // 쿠션 날(노즈) 위의 한 점 → 그 레일 위 위치 t. 3쿠션 눈금은 프레임이 아니라
 // **쿠션 위**에 있다 (five_half_numbers.json 의 reference = rail).
+// ★★ 궤적의 꼭짓점은 이제 공 **중심**이라 쿠션에서 반지름만큼 들어와 있다
+//   (nextRail 의 ★★★★★ 주석 참고). 번호는 **접점**으로 읽어야 하므로 두 자리를
+//   다 받는다 — 중심에서 쿠션으로 수직으로 내리면 접점이고, 레일을 따라간 값
+//   (t)은 그대로다. 이걸 같이 안 고치면 번호가 통째로 '—' 가 된다.
 function railParam(mm){
-  const e = 2.0;
-  if (Math.abs(mm[1]) < e)            return {rail:'bottom', t: mm[0]/T.width};
-  if (Math.abs(mm[1]-T.height) < e)   return {rail:'top',    t: mm[0]/T.width};
-  if (Math.abs(mm[0]) < e)            return {rail:'left',   t: mm[1]/T.height};
-  if (Math.abs(mm[0]-T.width) < e)    return {rail:'right',  t: mm[1]/T.height};
+  const e = 2.0, R = ballRin();
+  const on = (v, line, sgn) => Math.abs(v - line) < e || Math.abs(v - (line + sgn*R)) < e;
+  if (on(mm[1], 0, +1))          return {rail:'bottom', t: mm[0]/T.width};
+  if (on(mm[1], T.height, -1))   return {rail:'top',    t: mm[0]/T.width};
+  if (on(mm[0], 0, +1))          return {rail:'left',   t: mm[1]/T.height};
+  if (on(mm[0], T.width, -1))    return {rail:'right',  t: mm[1]/T.height};
   return null;
 }
 
