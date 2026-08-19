@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 443;
+const MOBILE_VER = 444;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1957,6 +1957,14 @@ function soloNext(){
   if (S.soloStat && S.soloStat.shots >= SOLO_MAX){ S.solo = 0; return; }
   let list = null;
   try { list = findRoutes(); } catch(e){ list = null; }
+  // ★★ **시범경기에서는 코앞 타격을 절대 안 고른다** (사용자 2026-08-19:
+  //   '시범경기에서는 이런경우 경로를 선택하면 안됩니다').
+  //   ⚠️ findRoutes 는 '다 빠지면 원래대로 둔다' 는 되돌림이 있어서, 그 배치의
+  //      모든 길이 막히면 막힌 길이 되살아난다. 목록을 보여줄 때는 빈 화면보다
+  //      나으니 그게 맞지만, **혼자 치는 자리에서는 안 된다** — 앱이 스스로
+  //      못 치는 공을 치는 꼴이 된다. 그래서 여기서 되돌림 없이 한 번 더 거른다.
+  //      남는 것이 없으면 아래 줄에서 시범경기가 멈춘다 (칠 길이 없는 것과 같다).
+  if (list) list = list.filter(r => !nearStrikeBlocked(r.a));
   if (!list || !list.length){ S.solo = 0; return; }   // 칠 길이 없으면 멈춘다
   pickRoute(list[0]);
   S.routeIx = 0;                         // 추천 1번을 치는 중이다 (판독창·판정이 이걸 본다)
@@ -4123,6 +4131,72 @@ function cueHalfMasse(){
   const g0 = cueRailGap();
   return g0 > CUE_RAIL_STUCK && g0 <= CUE_RAIL_MASSE;
 }
+// ★★★★ **처음 맞는 것이 코앞이면 못 친다** (사용자 2026-08-19)
+//   '수구와 1쿠션 사이가 공 1.5개 이하시 1쿠션 직접타격 금지'
+//   → '변경. 수구가 쿠션이든 1적구든 공 1.5개 이내시 모두 타격 금지합니다.
+//      **수구의 힘도 나오지 않고 실제 가능하지도 않습니다.**'
+//   → '재수정. 쿠션일 경우 입사각이 좌우 45도 이내 / 1적구를 칠 경우 공의 크기
+//      (테두리)를 반영한 두께·각도가 진행이 가능할 경우는 허용.
+//      예: 공끼리 근접해 있더라도 스치듯 지나갈 수 있으면 가능'
+//
+//   ⚠️ 각도 기준이 두 벌이라 헷갈린다. 사장님 확인 2026-08-19 —
+//        사장님   쿠션 면 기준 · 정면 거울치기 = 90도 · 좌우 45도 이내
+//        이 코드  법선 기준     · 정면 거울치기 =  0도 · 45도 이내
+//      '정면거울치기 0도로 하고 45도이면 같은 결과입니다' → 경계가 같은 자리다.
+//      data/measured_bounce.json 이 **법선 기준**이라 여기도 법선으로 맞춘다.
+//
+//   ⚠️ cueRailGap() 과 다른 값이다. 저것은 **큐가 들어갈 자리**(제일 가까운 쿠션까지
+//      수직 거리)를 보고, 이것은 **공이 굴러갈 자리**(진행 방향으로 처음 맞는 것까지)를
+//      본다. 둘 다 남긴다 — 서로 다른 것을 막는다.
+const NEAR_STRIKE_BALLS = 1.5;      // 공 몇 개. 이 안에서 처음 맞으면 막힌다
+const NEAR_STRIKE_AIN   = 45;       // 쿠션 — 법선에서 이 각 안이면 정면에 가깝다 → 허용
+// 수구가 ang 로 나갈 때 **처음 맞는 것** — {what:'rail'|'ball', gap, ain}
+//   첫 구간은 회전이 궤적을 안 휘므로 직선 기하로 정확히 나온다.
+function firstStrike(ang){
+  const c = S.balls && S.balls.cue;
+  if (!c || !T || typeof ang !== 'number') return null;
+  const dir = [Math.cos(ang), Math.sin(ang)];
+  const D = T.ball_diameter, R = D/2;
+  let best = null;
+  // 쿠션 — 앱은 공 **중심**을 경계선에서 반사시킨다. 그래서 틈은 반지름을 뺀 값이다
+  for (const [i, bound] of [[0,0], [0,T.width], [1,0], [1,T.height]]){
+    if (Math.abs(dir[i]) < 1e-9) continue;
+    const t = (bound - c.p[i]) / dir[i];
+    if (!(t > 1e-6)) continue;
+    const j = 1 - i, q = c.p[j] + t*dir[j], span = j === 0 ? T.width : T.height;
+    if (q < -1 || q > span + 1) continue;                 // 그 쿠션을 벗어나 지나간다
+    if (!best || t < best.t)
+      best = {t, what:'rail', gap: t - R,
+              ain: Math.acos(Math.min(1, Math.abs(dir[i]))) * 180/Math.PI};
+  }
+  // 적구 — |수구 + t·dir − 적구| = 지름 의 **가까운 쪽** 근
+  for (const k in S.balls){
+    if (k === 'cue') continue;
+    const o = S.balls[k].p;
+    const ex = c.p[0] - o[0], ey = c.p[1] - o[1];
+    const b = 2*(ex*dir[0] + ey*dir[1]), cc = ex*ex + ey*ey - D*D;
+    const disc = b*b - 4*cc;
+    if (disc < 0) continue;
+    const t = (-b - Math.sqrt(disc)) / 2;
+    if (!(t > 1e-6)) continue;
+    if (!best || t < best.t)
+      best = {t, what:'ball', gap: Math.hypot(ex, ey) - D};   // 두 공 표면 사이 틈
+  }
+  return best;
+}
+// 이 조준각이 '코앞 타격' 으로 막히나
+function nearStrikeBlocked(ang){
+  const f = firstStrike(ang);
+  if (!f || !T) return false;
+  if (f.gap > NEAR_STRIKE_BALLS * T.ball_diameter) return false;   // 멀면 상관없다
+  if (f.what === 'rail') return f.ain > NEAR_STRIKE_AIN;
+  // ★ 1적구는 **막지 않는다** (예외 ②). 일부러 그렇게 둔 것이니 '빠뜨렸다' 고 보고
+  //   고치지 말 것 — 훑기가 내는 길은 cutAtBall 이 **공 지름을 이미 반영**해 찾은
+  //   것이라, 겹치는 두께는 애초에 후보가 안 된다. 즉 '테두리를 반영한 두께·각도가
+  //   진행이 가능' 이 언제나 참이다. 사장님 예시('근접해 있더라도 스치듯 지나갈 수
+  //   있으면 가능')와 앱이 이미 맞아 있다.
+  return false;
+}
 function findRoutes(){
   const key = routeKey();
   if (!key) return [];
@@ -4389,6 +4463,14 @@ function findRoutes(){
     const inZone = noDrawZone();
     const noDraw = list.filter(r => !(inZone && r.tipV < -0.05));
     if (noDraw.length) list = noDraw;
+  }
+  // ★★★★ **처음 맞는 것이 공 1.5개 안인데 쿠션을 얕게 스치는 길은 뺀다**
+  //   (사용자 2026-08-19 승인 — '추천에서 빼세요'. 위 nearStrikeBlocked 주석 참고)
+  //   ⚠️ 다 빠지면 원래대로 둔다 (빈 목록보다 낫다) — v443·routeSettle 과 같은 방식.
+  //   ★ 순위 벌점으로 바꾸고 싶으면 이 블록을 지우고 rank() 에 한 줄 넣으면 된다.
+  {
+    const okNear = list.filter(r => !nearStrikeBlocked(r.a));
+    if (okNear.length) list = okNear;
   }
   list.sort((a, b) => rank(b) - rank(a));                   // 넓은 것부터 = 쉬운 것부터
   // ★★★★ **엔진으로 그려서 2적구에 안 닿으면 뺀다** (사용자 요청 #14, 2026-08-17:
