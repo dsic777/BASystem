@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 451;
+const MOBILE_VER = 452;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1740,7 +1740,7 @@ function randomLayout(){
   S.balls = {cue:  {p: got.start[0].p.slice(), color: 'white'},
              obj1: {p: got.start[1].p.slice(), color: 'yellow'},
              obj2: {p: got.start[2].p.slice(), color: 'red'}};
-  S.scatter = {sim: {k:0, E:0, stop: SCATTER_STOP, balls: got.start.map((b,i) =>
+  S.scatter = {sim: {k:0, E:0, stop: SCATTER_STOP, snd: 1, balls: got.start.map((b,i) =>
                  ({key: ['cue','obj1','obj2'][i],
                    color: ['white','yellow','red'][i],
                    p: b.p.slice(), v: b.v.slice(), spin:false}))},
@@ -1823,6 +1823,69 @@ function scatterLayout(){
 //      맞히는 길에서도 두께·기울기가 엉뚱한 공으로 잡혔다 (43.jpg 가 그 예다).
 //   ★ 작은 공을 탭하는 것보다 **큰 색 버튼**이 훨씬 잡기 쉽다 —
 //      '1적구 탭이 잘 안돼요. 모바일에서 공 이동할라면 정말 힘들어요.'
+// ─────────────────────────────── 소리 (사용자 2026-08-19)
+// 'SOUND는 공끼리 부디칠때 나는 소리를 넣어주고, 득점성공시 득점이 되엇다는
+//  사운드를 넣고 싶어요. 또 필요시 상황에 따라 여러가지 안내를 AI로 녹음하여 넣어줍시다.'
+//
+// ★ **파일을 안 쓴다.** Web Audio 로 그 자리에서 만든다 —
+//     · 저장소에 mp3 를 안 넣으니 앱이 안 무거워진다
+//     · 세기에 따라 소리가 달라진다 (세게 부딪히면 크고 높게). 녹음 파일로는 못 한다
+//   ⚠️ 음성 안내(말)는 합성으로 못 만든다. 사장님이 CapCut 으로 녹음해 주시면
+//      그때 mp3 를 붙인다. 어떤 상황에 무슨 말을 할지 목록부터 정하는 것이 순서다.
+//
+// ⚠️⚠️ 폰은 **손이 한 번 닿기 전에는 소리를 못 낸다** (브라우저 규칙).
+//    그래서 AudioContext 를 미리 만들지 않고 **처음 소리 낼 때** 만들고 resume 한다.
+//    SOUND 버튼을 누르는 그 탭이 자물쇠를 푼다 (sndPing).
+let AC = null;
+function snd(){
+  if (!S.sound) return null;
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+    return AC;
+  } catch(e){ return null; }
+}
+// 짧은 '딱' — 잡음을 확 줄여 때리는 소리를 만든다
+//   v   0~1 세기. 세면 크고 높다
+//   f   가운데 주파수 (공끼리 2200 · 쿠션 900)
+//   ms  길이
+function sndHit(v, f, ms){
+  const ac = snd();
+  if (!ac) return;
+  v = Math.max(0.05, Math.min(1, v));
+  const n = Math.max(1, Math.floor(ac.sampleRate * ms / 1000));
+  const buf = ac.createBuffer(1, n, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  // 잡음에 지수 감쇠를 씌운다 — 이것이 '딱' 의 뼈대다
+  for (let i = 0; i < n; i++) d[i] = (Math.random()*2 - 1) * Math.exp(-6 * i/n);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const bp = ac.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = f * (0.75 + 0.5*v); bp.Q.value = 1.6;
+  const gn = ac.createGain(); gn.gain.value = 0.12 + 0.55*v*v;
+  src.connect(bp); bp.connect(gn); gn.connect(ac.destination);
+  src.start();
+}
+// 공끼리 — 세기(mm/s)를 0~1 로 바꿔 넘긴다
+function sndBall(speed){ sndHit(Math.min(1, (speed||0)/2600), 2200, 55); }
+// 쿠션 — 더 둔하고 조금 길게
+function sndRail(speed){ sndHit(Math.min(1, (speed||0)/2600)*0.7, 900, 80); }
+// 득점 — 올라가는 두 음 '띠링'
+function sndScore(){
+  const ac = snd();
+  if (!ac) return;
+  [[880, 0], [1320, 0.10]].forEach(([f, t]) => {
+    const o = ac.createOscillator(), gn = ac.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    const t0 = ac.currentTime + t;
+    gn.gain.setValueAtTime(0.0001, t0);
+    gn.gain.exponentialRampToValueAtTime(0.30, t0 + 0.02);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26);
+    o.connect(gn); gn.connect(ac.destination);
+    o.start(t0); o.stop(t0 + 0.28);
+  });
+}
+// SOUND 를 켜는 순간 — 자물쇠를 풀고 켜졌다는 것을 귀로 알린다
+function sndPing(){ sndHit(0.5, 1600, 45); }
 function cueColor(){ return S.cueWhite ? 'white' : 'yellow'; }
 function roleOf(c){
   const cc = cueColor();
@@ -2257,15 +2320,23 @@ function closeTipPanel(cancel){
   //   이미 돌고 있었으면 건드리지 않는다 — 성적이 0 으로 지워지면 안 된다.
   if (!cancel && S.solo && !(was && was.solo)) soloStart();
 }
+// ★★★★ **당점을 스와이프로 고른다** (사용자 2026-08-19: '당점선택을 스와이프로
+//   변경'. 방식은 '(가) 판 위 아무 데나 대고 끌면 따라오고 떼면 제일 가까운 자리').
+//   두께판이 이미 이렇게 돈다 (tapTipDial). **같은 손맛**이라야 헷갈리지 않는다.
+//   ⚠️ 아무 데나 찍히게 하지 않는 것은 그대로다 — 표가 팁 단위로만 있어서, 사이를
+//      허용하면 없는 값을 지어내 쓰게 된다. **가장 가까운 자리**로 붙인다.
+function tipSwipe(px, py){
+  const q = tipGeom(), dx = px - q.cx, dy = py - q.cy;
+  let best = q.dots[0], bd = 1e9;
+  for (const d of q.dots){
+    const [ox,oy] = tipXY(d.dir, d.r, q.unit);
+    const t = Math.hypot(dx - ox, dy - oy);
+    if (t < bd){ bd = t; best = d; }
+  }
+  if (best && (best.dir !== S.tipDir || best.r !== S.tipR)) setTip(best.dir, best.r);
+}
 function tapTipPanel(px,py){
   const q = tipGeom();
-  // ★ 시범평가 스위치가 먼저 (버튼 띠 밖에 따로 있다)
-  if (q.sw && px >= q.sw.x && px <= q.sw.x+q.sw.w &&
-              py >= q.sw.y && py <= q.sw.y+q.sw.h){
-    S.evalMode = S.evalMode ? 0 : 1;
-    if (!S.evalMode) S.evalWait = 0;          // 끄면 대기도 푼다
-    return;
-  }
   for (const b of q.btn)
     if (px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
       if (b.done){ closeTipPanel(!!b.cancel); return; }   // 이 둘만 나간다
@@ -2300,6 +2371,14 @@ function tapTipPanel(px,py){
         //    판 안에서는 꺼짐으로 보였다. 말과 화면이 달랐다.
         if (S.solo){ S.keepShot = 1; S.cueSwap = 1; }
       }
+      else if (b.evalSw){                  // ★ 시범평가 켜기/끄기
+        S.evalMode = S.evalMode ? 0 : 1;
+        if (!S.evalMode) S.evalWait = 0;     // 끄면 대기도 푼다
+      }
+      else if (b.sound){                   // ★ 소리 켜기/끄기
+        S.sound = S.sound ? 0 : 1;
+        if (S.sound) sndPing();              // 켠 것을 귀로 알려준다 (자물쇠도 여기서 풀린다)
+      }
       else if (b.none){ /* 빈 칸 — 나중에 쓸 자리 */ }
       else if (b.auto){                    // ★ 자동조정 켜고 끄기 (위 PRESET 주석)
         // ⚠️⚠️ 여기가 **한 방향뿐이었다** — 늘 켜기만 해서, 이미 켜져 있으면 눌러도
@@ -2323,13 +2402,8 @@ function tapTipPanel(px,py){
     if (dist > q.R*TIP_EDGE){ flash('바깥 7mm 는 큐가 미끄러집니다'); return; }
     // ⚠️ 아무 데나 찍히게 하지 않는다. 표가 팁 단위로만 있어서, 사이를 허용하면
     //    없는 값을 지어내 쓰게 된다. **가장 가까운 자리**로 붙인다.
-    let best = q.dots[0], bd = 1e9;
-    for (const d of q.dots){
-      const [ox,oy] = tipXY(d.dir, d.r, q.unit);
-      const t = Math.hypot(dx - ox, dy - oy);
-      if (t < bd){ bd = t; best = d; }
-    }
-    setTip(best.dir, best.r);              // 값만 바꾸고 판은 그대로
+    tipSwipe(px, py);
+    S.tipDrag2 = 1;                        // ★ 끌기 시작 — move 가 이어받는다
     return;
   }
   closeTipPanel(false);                    // 판 바깥을 탭하면 그대로 나간다
@@ -2492,7 +2566,7 @@ function down(px,py){
 }
 function move(px,py){
   if (S.thickPanel){ moveThickPanel(px,py); return; }
-  if (S.tipPanel) return;
+  if (S.tipPanel){ if (S.tipDrag2) tipSwipe(px,py); return; }   // ★ 당점 스와이프
   if (S.verDrag){ S.verDrag.v = verValueAt(px); blink(); return; }   // 점수 슬라이더
   if (S.listDrag){ S.listDrag.dx = px - S.listDrag.x; return; }   // 목록에서 미는 중
   if (S.pal){                                    // 색 버튼에서 끌어오는 중
@@ -2561,6 +2635,7 @@ function move(px,py){
 const LONG_MS = 450;                 // 이만큼 누르고 있으면 '길게'
 const LONG_MOVE = 14;                // 그 사이 이만큼 넘게 움직이면 끌기로 본다
 function up(px, py){
+  if (S.tipDrag2){ S.tipDrag2 = 0; return; }     // ★ 당점 스와이프 끝 (판은 그대로)
   // ★ 점수 슬라이더 — 떼는 순간 저장한다 (탭도 여기로 온다: 누르고 그 자리에서 뗌)
   if (S.verDrag){
     const v = S.verDrag.v; S.verDrag = null;
@@ -6996,6 +7071,7 @@ function simStep(sim, dt){
     else if (rail === 'bottom') b.p[1] = 0; else b.p[1] = T.height;   // 반올림 찌꺼기 제거
     b.p[0] += nd[0]*back; b.p[1] += nd[1]*back;      // 남은 만큼 새 방향으로
     b.v = [nd[0]*sp*gain, nd[1]*sp*gain];
+    if (sim.snd) sndRail(sp);          // ★ 쿠션 소리 — 보이는 재생에서만
   }
   // ⑶ 공끼리 — **여기서 쫑쫑이 나온다**
   for (let i = 0; i < sim.balls.length; i++)
@@ -7018,6 +7094,8 @@ function simStep(sim, dt){
         A.p[0] -= ux*push; A.p[1] -= uy*push;
         B.p[0] += ux*push; B.p[1] += uy*push;
       }
+      // ★ 공끼리 소리 — **부딪히는 속도**로 크기를 정한다 (서로 다가가는 몫)
+      if (sim.snd) sndBall(Math.hypot(A.v[0]-B.v[0], A.v[1]-B.v[1]));
       simHit(A, B);
     }
 }
@@ -7414,6 +7492,7 @@ function drawPath(){
                  : simNeedV0([...before, ...pts2.slice(1)], keepC) * SIM_PLAY_BOOST;
         S.sim = simInit(dirOf(cue.p, S.aim), V0, kk, englishSide());
         S.sim.sameAsPath = 1;                    // 그리는 쪽과 같은 반사각으로
+        S.sim.snd = 1;                           // ★ 이 sim 만 소리를 낸다
         S.sim.stop = SIM_PLAY_STOP;              // 2적구를 맞고도 조금 더 구른다
         S.simLast = performance.now();
         S.simRest = S.simLast;
@@ -7436,6 +7515,11 @@ function drawPath(){
         //   칠 수 있게 그대로 두는 기능입니다.'
         //   ⚠️ 배치가 바뀌었으니 추천·회로·자동완성을 새 배치 기준으로 되살린다.
         const okShot = shotScored(EP);
+        // ★ 득점 소리 (사용자 2026-08-19: '득점성공시 득점이 되엇다는 사운드')
+        //   ⚠️ 공이 다 서고 SIM_TAIL(1초) 뒤라 조금 늦게 난다. 맞는 그 순간에 내려면
+        //      엔진이 득점 시각을 알려야 하는데(engineRun 의 scoreIdx), 재생은 그려 둔
+        //      선을 따라가는 딴 길이라 시각이 안 맞는다. 지금은 이대로 둔다.
+        if (okShot) sndScore();
         // ★★★★ 성공한 샷은 **N회 되풀이해서** 보여준다 (위 shotSnap 주석).
         //   다 보고 나서야 이어치기·수구전환·혼자치기로 넘어간다.
         if ((S.replayAll || okShot) && S.replayLeft > 0 && shotRestore()){
@@ -8225,7 +8309,16 @@ const PRESET = [
   {lb:'반복',      rep: true,     src:'2026-08-18 — 꺼짐 · 1 · 2회'},
   {lb:'시범경기',   solo: true,    src:'2026-08-18 — 추천 1번으로 앱이 스스로 친다'},
   // ★ 보는 시간 — 배치·두께·당점 화면이 얼마나 머무나 (위 viewMs 주석)
-  {lb:'배치안내',  view: true,    src:'2026-08-19 — 2 · 3 · 5초'}
+  {lb:'배치안내',  view: true,    src:'2026-08-19 — 2 · 3 · 5초'},
+  // ★★ 시범평가 — 굴린 뒤 평가·의견·직접지정을 받는다 (evalWait 주석).
+  //   ⚠️ 8/19 오후에는 시계판 오른쪽 빈 자리에 **떠 있는 스위치**로 넣었었다.
+  //      글자 두 줄('상단 0.8팁…' · '반두께 분리각…')을 지우면서 칸이 생겨
+  //      보통 버튼으로 내려왔다 (사용자: '이부분 지우면 우측에 버튼 2개 추가하면
+  //      되는데요'). 떠 있는 스위치 코드는 지웠다.
+  {lb:'시범평가',  evalSw: true,  src:'2026-08-19 — 매 샷 평가·의견·직접지정'},
+  // ★★ 소리 (사용자 2026-08-19): '공끼리 부디칠때 나는 소리를 넣어주고
+  //   득점성공시 득점이 되엇다는 사운드를 넣고 싶어요'
+  {lb:'SOUND',    sound: true,   src:'2026-08-19 — 공 충돌·득점 소리'}
 ];
 
 // 순회전(공이 도는 쪽)이 화면의 어느 쪽인가.
@@ -8345,8 +8438,10 @@ function tipClock(dir, r){
 const TIP_TOP = 0.10, TIP_BOT = 0.828;
 function tipGeom(){
   const w = L.w, h = L.h;
-  const R  = Math.min(h*0.37, w*0.24);
-  const cx = Math.round(Math.max(R + w*0.045, w*0.28));
+  // ★ 사용자 2026-08-19: 'ss1 크기를 90%로 줄이고 좌측으로 이동' ·
+  //   '큰원을 좌측으로 조금 이동하세요 **ss2 자리 확보**'
+  const R  = Math.min(h*0.37, w*0.24) * 0.90;
+  const cx = Math.round(Math.max(R + w*0.030, w*0.24));
   const cy = Math.round(h*0.47);
   const x0 = Math.round(cx + R + w*0.05);
   const bw = Math.max(40, Math.round(w - x0 - w*0.04));
@@ -8380,7 +8475,9 @@ function tipGeom(){
   //   ★ 사용자 2026-08-19 (66): '2시30분 위 여백 20px만 추가해 보세요'
   //     글자 세 줄과 버튼 시작을 **통째로** 0.028h(≈20px) 내렸다. 줄 사이만 벌리면
   //     제목 글씨가 커서 둘째 줄과 겹친다.
-  const TIP_ROW0 = 0.234, TIP_END = 0.920;
+  // ★ 글자 두 줄을 지워서 버튼 띠가 위로 올라간다 (0.234 → 0.170).
+  //   칸이 열이 되어 여섯 줄이지만, 올라온 만큼 칸 높이는 거의 그대로다.
+  const TIP_ROW0 = 0.170, TIP_END = 0.920;
   const band = h*(TIP_END - TIP_ROW0), gap = Math.round(h*0.012);
   // ★ **한 줄에 두 개씩** (사용자 2026-08-18: '한줄에 두개씩 넣어도 되요').
   //   일곱 칸을 한 줄씩 넣으면 칸이 얇아진다. 둘씩 넣으면 네 줄이라 오히려 커진다.
@@ -8397,6 +8494,8 @@ function tipGeom(){
                    : q.view ? {...q, lb: '배치안내  ' + (S.viewSec || 3) + '초'}
                    : q.rep ? {...q, lb: '반복  ' + (S.replayN ? S.replayN + '회' : '꺼짐')}
                    : q.repWhat ? {...q, lb: '되풀이  ' + (S.replayAll ? '모두' : '성공만')}
+                   : q.evalSw ? {...q, lb: '시범평가  ' + (S.evalMode ? '켜짐' : '꺼짐')}
+                   : q.sound ? {...q, lb: 'SOUND  ' + (S.sound ? '켜짐' : '꺼짐')}
                    : q.auto ? {...q, lb: '자동조정  ' + (S.tipLock ? '꺼짐' : '켜짐')}
                    : q);
   const hw = Math.round((bw - gap) / 2);
@@ -8409,15 +8508,11 @@ function tipGeom(){
   const ly = y0 + (nRow-1) * (bh + gap);
   btn.push({lb:'완 료', done:true,               x:x0,           y:ly, w:hw, h:bh});
   btn.push({lb:'취 소', done:true, cancel:true,  x:x0+hw+gap,    y:ly, w:hw, h:bh});
-  // ★★★★ **시범평가** 스위치 — 자석 위쪽, 팁수 글자 오른쪽 빈 칸 (사용자 2026-08-19,
-  //   75.jpg: '임시로 자석켜짐 위쪽 팁수 오른쪽 빈공간에 시범평가 켜기/끄기 스위치를
-  //   넣어 주세요. **기존 배치는 현상태 대로 유지합니다.**')
-  //   ⚠️ 그래서 PRESET 에 아홉째 칸으로 넣지 **않았다** — 넣으면 줄 수가 바뀌어
-  //      여덟 칸 배치가 통째로 흔들린다. 빈 자리에 따로 그린다.
-  //   글자 세 줄은 0.086 · 0.141 · 0.196h 다. 셋째 줄만 오른쪽까지 길어서, 그 위
-  //   (0.038 ~ 0.038+bh)에 앉힌다. 자석 버튼(y0=0.234h)과도 안 닿는다.
-  const sw = {x: x0 + hw + gap, y: Math.round(h*0.038), w: hw, h: bh, evalSw: true};
-  return {R, cx, cy, x0, bw, y0, btn, sw, dots: tipDots(), unit: R*TIP_R};
+  // ★ ss2 — **큰원 바로 우측 위**, '2시30분 · 3팁' 글자 사이 (사용자 2026-08-19).
+  //   스와이프 결과가 여기 실시간으로 나온다.
+  const r2 = Math.round(h*0.058);
+  const ss2 = {cx: x0 + r2, cy: Math.round(h*0.095), r: r2};
+  return {R, cx, cy, x0, bw, y0, btn, ss2, dots: tipDots(), unit: R*TIP_R};
 }
 
 // 두께판 배치 — 당점판과 같은 짜임새다 (왼쪽 그림 · 오른쪽 버튼)
@@ -8714,24 +8809,23 @@ function drawTipDial(cx, cy, R, color){
   }
 }
 
-// ★ 시범평가 스위치 하나만 따로 그린다 (위 tipGeom 의 sw 주석).
-//   켜져 있으면 금색으로 — 지금 자료를 모으는 중이라는 것이 한눈에 보여야 한다.
-function drawEvalSw(q){
-  const b = q.sw;
-  if (!b) return;
-  if (S.evalMode) btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
-  else            btn3D(b, '#5b626e', '#2b2f37', '#15171c');
+// ★ ss2 — 지금 당점을 **작게** 보여준다 (화살표는 없다, 사용자 2026-08-19).
+//   큰 판을 손가락이 가려도 여기로 값을 확인한다. 스와이프하면 실시간으로 따라온다.
+function drawSS2(s2){
+  if (!s2) return;
+  const R = s2.r, cx = s2.cx, cy = s2.cy;
   g.save();
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  const lb = '시범평가  ' + (S.evalMode ? '켜짐' : '꺼짐');
-  let fs = b.h*0.40;
-  const fit = () => { g.font = '700 ' + Math.round(fs) + 'px system-ui, sans-serif';
-                      return g.measureText(lb).width; };
-  const room = b.w*0.88;
-  if (fit() > room) fs = Math.max(9, fs * room / fit());
-  fit();
-  g.fillStyle = S.evalMode ? '#1a1508' : '#eef1f6';
-  g.fillText(lb, b.x + b.w/2, b.y + b.h/2);
+  g.beginPath(); g.arc(cx, cy, R, 0, 7);
+  g.fillStyle = '#f4f2ec'; g.fill();
+  g.strokeStyle = '#ffdd33'; g.lineWidth = Math.max(2, R*0.13); g.stroke();
+  // 큐가 안 미끄러지는 한계 (큰 판의 빨간 원과 같은 뜻)
+  g.beginPath(); g.arc(cx, cy, R*TIP_EDGE, 0, 7);
+  g.strokeStyle = 'rgba(222,52,44,0.55)'; g.lineWidth = Math.max(1, R*0.05); g.stroke();
+  // 지금 당점 — 큰 판과 **같은 자리 계산**을 쓴다 (tipXY)
+  const unit = R * TIP_R;
+  const [ox,oy] = tipXY(S.tipDir, S.tipR, unit);
+  g.beginPath(); g.arc(cx + ox, cy + oy, Math.max(2.5, unit), 0, 7);
+  g.fillStyle = '#de342c'; g.fill();
   g.restore();
 }
 function drawTipPanel(){
@@ -8801,28 +8895,23 @@ function drawTipPanel(){
   g.textAlign = 'left'; g.textBaseline = 'alphabetic';
   g.fillStyle = '#f2f4f8';
   g.font = '800 ' + Math.round(fs*1.15) + 'px system-ui, sans-serif';
-  g.fillText(tipClock(S.tipDir, S.tipR), q.x0, Math.round(L.h*0.086));
-  const vn = Math.abs(S.tipV) < 0.05 ? '중단'
-           : (S.tipV>0?'상단 ':'하단 ') + Math.abs(S.tipV).toFixed(1) + '팁';
-  // ★★ 왼쪽 회전(음수)이 '회전 없음' 으로 나오던 것 (사용자 2026-08-17, 25.jpg:
-  //   '회전팁수가 안내와 틀림'). 제목은 '10시30분 · 3팁' 인데 그 아래가
-  //   '상단 2.1팁 · 회전 없음' 이었다 — S.tipH < 0.05 로 봐서 음수가 다 걸렸다.
-  //   ⚠️ 순/역회전은 **공이 도는 방향**이 정한다. 당점판만 보고는 알 수 없다.
-  //      그래서 좌·우로 적는다 — 시계 이름(9시·3시)과 바로 이어진다.
-  const hAbs = Math.abs(S.tipH);
-  const hn = hAbs < 0.05 ? '회전 없음'
-           : (S.tipH > 0 ? '우회전 ' : '좌회전 ') + hAbs.toFixed(1) + '팁';
-  const sa = separationAngle(0.5, S.tipV), rf = reflect(45, S.tipH) - 45;
-  g.fillStyle = '#9aa2b2';
-  g.font = '600 ' + Math.round(fs*0.76) + 'px system-ui, sans-serif';
-  g.fillText(vn + ' · ' + hn, q.x0, Math.round(L.h*0.141));
-  g.fillText('반두께 분리각 ' + (sa === null ? '-' : sa.toFixed(0) + '°')
-             + '    쿠션 45° 입사 +' + rf.toFixed(1) + '°',
-             q.x0, Math.round(L.h*0.196));
+  // ★ ss2 를 먼저 그리고 제목을 그 오른쪽에 (위 tipGeom 의 ss2 주석)
+  drawSS2(q.ss2);
+  g.fillText(tipClock(S.tipDir, S.tipR),
+             q.ss2.cx + q.ss2.r + Math.round(L.w*0.015), Math.round(L.h*0.115));
+  // ⚠️⚠️ 여기에 글자 두 줄이 더 있었다 — **지웠다** (사용자 2026-08-19):
+  //     '상단 0.8팁 · 우회전 2.9팁'      당점을 상하/좌우 두 몫으로 쪼갠 것
+  //     '반두께 분리각 43° · 쿠션 45° 입사 +11.0°'   그 당점이 하는 일
+  //   사장님: '이부분은 뭔가요. 필요없는 부분인거 같고, 이부분 지우면 우측에
+  //           버튼 2개 추가하면 되는데요' · '**두께 당점은 다른 화면이잖아요**'
+  //   → 맞는 지적이다. 반두께 분리각은 두께 얘기고 두께는 두께판에 있다.
+  //     셋 다 **보여주기만** 하던 값이라 지워도 계산은 하나도 안 바뀐다.
+  //   ★ 값이 다시 필요하면 이렇게 만든다 — 지운 코드를 다시 짜지 않도록 적어 둔다:
+  //       상하 몫  S.tipV  (+ 상단 · − 하단)   → separationAngle(0.5, S.tipV)
+  //       좌우 몫  S.tipH  (+ 우 · − 좌)       → reflect(45, S.tipH) − 45
 
   // 자주 쓰는 당점 (전부 data/ 에 적혀 있는 것)
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  drawEvalSw(q);                          // ★ 시범평가 스위치 (버튼 띠 밖에 따로 있다)
   for (const b of q.btn){
     const on = !b.done && b.dir === S.tipDir && b.r === S.tipR;
     // '조정 완료' 는 나가는 버튼이라 눈에 띄게 채운다 (위 btn3D 주석)
@@ -9753,7 +9842,8 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => { move(...pos(e)); });
 addEventListener('pointerup', e => up(...pos(e)));
 // 브라우저가 가로채면 놓지 말고 **그냥 취소**한다 (엉뚱한 자리에 공이 놓이면 안 된다)
-function cancelTouch(){ S.pal = null; S.drag = null; S.aiming = false; S.aimFree = 0; }
+function cancelTouch(){ S.pal = null; S.drag = null; S.aiming = false; S.aimFree = 0;
+                        S.tipDrag2 = 0; }
 cv.addEventListener('pointercancel', cancelTouch);
 addEventListener('pointercancel', cancelTouch);
 
