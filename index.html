@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 462;
+const MOBILE_VER = 463;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2106,15 +2106,22 @@ function startShot(){
 // 지금 되풀이해서 보는 중인가 — 당점판을 띄울지 가른다
 function replaying(){ return !!(S.replayN > 0 && S.shotBak); }
 const SOLO_MAX = 300;                    // 이만큼 치면 스스로 멈춘다 (영영 도는 것 막기)
+// ★★★★ **'켜짐' 과 '지금 돌고 있나' 는 다르다** (사용자 2026-08-19: '초구배치 후
+//   설정을 하고 완료를 눌렀는데 **경기 시작을 안해요**').
+//   ⚠️ v461 에서 시범경기 켜짐을 폰에 기억시켰다. 그랬더니 closeTipPanel 의
+//      '이미 돌고 있었으면 건드리지 않는다' 는 조건에 걸려 **완료가 아무것도 안 했다** —
+//      새로 띄우면 S.solo 가 1 인 채로 시작하는데, 사슬(soloNext)은 안 돌고 있었다.
+//   → S.soloRun 이 **사슬이 살아 있나**를 따로 들고 있는다. 완료는 그것만 본다.
+//     성적은 여전히 안 지워진다 — 진짜 돌고 있을 때는 다시 시작하지 않는다.
 function soloStart(){
-  S.solo = 1;
+  S.solo = 1; S.soloRun = 1;
   S.keepShot = 1; S.cueSwap = 1;         // 이 둘이 없으면 혼자치기가 성립 안 한다
   S.soloStat = {shots:0, made:0, run:0, best:0};
   soloNext();
 }
 function soloNext(){
-  if (!S.solo) return;
-  if (S.soloStat && S.soloStat.shots >= SOLO_MAX){ S.solo = 0; return; }
+  if (!S.solo){ S.soloRun = 0; return; }
+  if (S.soloStat && S.soloStat.shots >= SOLO_MAX){ S.solo = 0; S.soloRun = 0; return; }
   let list = null;
   try { list = findRoutes(); } catch(e){ list = null; }
   // ★★ **시범경기에서는 코앞 타격을 절대 안 고른다** (사용자 2026-08-19:
@@ -2125,7 +2132,8 @@ function soloNext(){
   //      못 치는 공을 치는 꼴이 된다. 그래서 여기서 되돌림 없이 한 번 더 거른다.
   //      남는 것이 없으면 아래 줄에서 시범경기가 멈춘다 (칠 길이 없는 것과 같다).
   if (list) list = list.filter(r => !nearStrikeBlocked(r.a));
-  if (!list || !list.length){ S.solo = 0; return; }   // 칠 길이 없으면 멈춘다
+  if (!list || !list.length){ S.solo = 0; S.soloRun = 0; return; }   // 칠 길이 없으면 멈춘다
+  S.soloRun = 1;                         // ★ 사슬이 살아 있다
   pickRoute(list[0]);
   S.routeIx = 0;                         // 추천 1번을 치는 중이다 (판독창·판정이 이걸 본다)
   S.rblink = 0;                          // 3초 잠금은 안 건다 — 혼자 치는 중이다
@@ -2407,7 +2415,7 @@ function closeTipPanel(cancel){
   ROUTES = {key: null, list: null};
   // ★ 완료로 나가면서 혼자치기를 **새로 켰으면** 그때 시작한다 (위 b.solo 주석).
   //   이미 돌고 있었으면 건드리지 않는다 — 성적이 0 으로 지워지면 안 된다.
-  if (!cancel && S.solo && !(was && was.solo)) soloStart();
+  if (!cancel && S.solo && !S.soloRun) soloStart();
 }
 // ★★★★ **당점을 스와이프로 고른다** (사용자 2026-08-19: '당점선택을 스와이프로
 //   변경'. 방식은 '(가) 판 위 아무 데나 대고 끌면 따라오고 떼면 제일 가까운 자리').
@@ -2454,6 +2462,7 @@ function tapTipPanel(px,py){
         //    '혼자치기 설정 누르니 바로 전화면으로 복귀합니다. **완료·취소만** 전화면
         //     복귀가 가능합니다.' → 이 판은 설정판이다. 켜 두기만 하고 완료에서 시작한다.
         S.solo = S.solo ? 0 : 1;
+        if (!S.solo) S.soloRun = 0;          // ★ 끄면 사슬도 끊는다
         // ★ 켜는 순간 이어치기·수구전환도 같이 켠다 — **버튼도 같이 켜져 보여야 한다**
         //   (사용자 2026-08-18, 61: '혼자치기를 켜면 이어치기·수구전환이 같이 켜집니다
         //    그러면 버튼도 같이 켜져야죠'). 전에는 soloStart 가 완료 뒤에 켜서,
@@ -2509,7 +2518,7 @@ function down(px,py){
   // ⚠️ **평가 대기 중에는 멈추지 않는다** — 점수를 넣고 직접조준을 해야 하는 자리다.
   //   그 동안 시범경기를 멈추려면 당점판의 '시범경기' 버튼을 쓴다.
   if (S.solo && !S.evalWait && !S.tipPanel && !S.thickPanel){
-    S.solo = 0;
+    S.solo = 0; S.soloRun = 0;
     saveCfg();                 // ★ 멈춤은 **진짜 멈춤**이다 — 설정도 같이 꺼진다
     if (S.card || S.showPlace){ S.card = 0; S.wantCard = 0; S.showPlace = 0; }
     return;
