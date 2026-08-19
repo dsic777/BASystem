@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 449;
+const MOBILE_VER = 450;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1934,6 +1934,15 @@ function shotRestore(){
 }
 // 한 샷을 시작한다 — 되풀이가 켜져 있으면 **큰 그림부터**
 function startShot(){
+  // ★★★★ **평가 대기에서 ▶ 를 누르면 그것은 '직접지정으로 다시 쳐 보는 것'** 이다
+  //   (사용자 2026-08-19: '직접지정이 있으면 시물레이션 후 **그 배치로** 이어가기').
+  //   ⚠️ 여기서 S.evalWait 를 안 풀면, 굴러간 뒤 평가 단계 조건
+  //      (S.solo && S.evalMode && !S.evalWait) 이 거짓이라 그냥 다음 샷으로 넘어가고
+  //      S.evalWait 는 1 에 박힌 채 남는다 → **그 뒤로 평가 단계가 영영 안 열린다.**
+  //      사장님이 '계속 넘어갑니다' 라고 하신 것이 이것이다.
+  //   → 풀어 주면 이 샷도 끝나고 평가 단계로 **되돌아온다.** 그때 S.soloEnd 가
+  //     **이 샷의 결과**로 바뀌므로, '다음' 은 그 자리로 이어간다.
+  if (S.evalWait){ S.evalWait = 0; S.evalShot = 1; }
   shotSnap();
   S.sim = null; S.card = 0; S.wantCard = 0; S.showPlace = 0;
   // ⚠️⚠️ 여기서 바로 S.card 를 켜면 **직전 샷의 두께·당점**이 뜬다.
@@ -1977,6 +1986,7 @@ function soloNext(){
 //   ⚠️ 성적은 이미 세어 두었다 (evalWait 로 들어갈 때). 여기서 또 세면 두 번 센다.
 function evalNext(){
   S.evalWait = 0;
+  S.evalShot = 0;                      // ★ 직접지정 표시를 지운다 (다음 배치는 앱이 친다)
   S.aimMode = S.aimModeBak ? 1 : 0;     // ★ 들어올 때 값으로 되돌린다
   S.aimModeBak = 0;
   if (S.soloEnd){
@@ -7461,7 +7471,9 @@ function drawPath(){
               p: [Math.min(Math.max(b2.p[0], 0), T.width),
                   Math.min(Math.max(b2.p[1], 0), T.height)]}));
           S.soloOk = okShot;
-          if (S.soloStat){                   // 성적은 **여기서** 센다 (한 샷에 한 번)
+          // ★ 성적은 **앱이 스스로 친 샷만** 센다. 직접지정으로 다시 쳐 보는 것은
+          //   같은 배치를 또 세는 꼴이라 이닝이 부풀어 오른다.
+          if (S.soloStat && !S.evalShot){     // 성적은 **여기서** 센다 (한 샷에 한 번)
             const st = S.soloStat;
             st.shots++;
             if (okShot){ st.made++; st.run++; if (st.run > st.best) st.best = st.run; }
