@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 467;
+const MOBILE_VER = 468;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2039,7 +2039,9 @@ const V_BALL = {'노란':'yellow','노랑':'yellow','흰':'white','하얀':'whit
 // 묶음 셋 — 사장님 2026-08-19: '비껴치기나 뒤돌려치기나 우라나 기레까시나 하나로 보고'
 //   ⚠️ '옆·뒤돌리기' 는 앱이 못 정한 애매한 이름이라 **어느 쪽을 불러도 걸리게** 한다
 const V_NAME = [
-  {말:['제각돌리기','제가돌리기','옆돌리기','하꼬','하코마와시'], 이름:['옆돌리기','옆·뒤돌리기']},
+  // ★ '확고' — 폰이 '하꼬' 를 그렇게 받아 적는다 (사장님 2026-08-20, 111.jpg:
+  //   '111은 확고을 하꼬라고만 변환하면 되겟네요'). 틀리게 들은 것도 별칭이 된다.
+  {말:['제각돌리기','제가돌리기','옆돌리기','하꼬','확고','하코마와시'], 이름:['옆돌리기','옆·뒤돌리기']},
   {말:['뒤돌리기','뒤돌려치기','우라마우시','우라와시','우라','기레까시','비껴치기','빗껴치기'],
    이름:['뒤돌리기','옆·뒤돌리기']},
   {말:['앞돌리기','앞돌려치기','오마우시','오마와시','오마'], 이름:['앞돌리기']},
@@ -2134,7 +2136,16 @@ function voicePick(text){
   try { list = findRoutes(); } catch(e){ list = null; }
   if (!list || !list.length){ voiceSay(text + ' — 경로가 없습니다', 0); return; }
   let out = list.slice();
-  const cut = (f, why) => { const q = out.filter(f); if (q.length) out = q; return q.length; };
+  // ★★★★ **못 찾으면 못 찾았다고 말한다** (사장님 2026-08-20, 110.jpg)
+  //   '노란공 빵꾸' 라고 했는데 화면에 **앞돌리기**가 떴다. cut 은 걸러 낸 것이 하나도
+  //   없으면 조용히 원래 목록을 그대로 두는데, 그 뒤 순위 1등이 뽑히니 엉뚱한 길이 나온다.
+  //   앱이 말을 못 알아들은 것이 아니라 **그 길이 이 배치에 없는 것**이다. 그걸 말해 준다.
+  //   ⚠️ 그래도 경로는 그린다 — 지우면 볼 것이 없어진다. 대신 글자가 빨강으로 뜬다.
+  const miss = [];
+  const cut = (f, why) => { const q = out.filter(f);
+                            if (q.length) out = q; else if (why) miss.push(why);
+                            return q.length; };
+  const BALLNM = {yellow:'노란공', white:'흰공', red:'빨간공'};
   // ① 먼저 맞힐 공
   //   ★★ 그 공이 **지금 수구**면 수구를 바꾼다 (사장님 2026-08-20: '기본은 수구가
   //     결정이 되어 있을꺼고, 아니면 수구전환 하면 자동으로 수구를 바꿔주고').
@@ -2149,24 +2160,40 @@ function voicePick(text){
       out = list.slice();
       fixes.push('수구전환');
     }
-    cut(r => S.balls[r.first] && S.balls[r.first].color === want);
+    cut(r => S.balls[r.first] && S.balls[r.first].color === want, BALLNM[want]);
   }
   // ② 진로 묶음
-  for (const g of V_NAME){
-    let hit = false;
-    for (const w of g.말) if (said(w)){ hit = true; break; }
-    if (hit){ cut(r => g.이름.some(n => (r.name || '') === n)); break; }
+  //   ★★★★ **글자가 그대로 있으면 그것이 먼저다** (2026-08-20)
+  //     '앞돌리기' 라고 말했는데 화면에 **뒤돌리기**가 떴다. 자모로 재면
+  //       '돌리기' ↔ '뒤돌리기'  2  (뒤 = ㄷㅟ 두 자모)
+  //       '돌리기' ↔ '앞돌리기'  3  (앞 = ㅇㅏㅍ 세 자모)
+  //     라서 **뒤가 더 가깝다.** 묶음을 위에서부터 훑으니 뒤돌리기가 먼저 걸리고
+  //     거기서 break 해 앞돌리기는 보지도 못한다. 넓게 듣는 대가로 생긴 구멍이다.
+  //   → 먼저 **글자 그대로** 있는지 한 바퀴 돌고, 없을 때만 자모로 넓게 듣는다.
+  //   ⚠️⚠️ 넓게 들을 때도 **먼저 걸린 것이 아니라 제일 가까운 것**을 잡아야 한다.
+  //     '압돌리기'(앞돌리기 오인)는 '앞돌리기' 와 자모 1 차이인데, 묶음을 위에서부터
+  //     훑으면 '돌리기'↔'뒤돌리기' 2 차이가 먼저 걸려 뒤돌리기로 끝난다. 다 재고 고른다.
+  let grp = null;
+  for (const gg of V_NAME) if (gg.말.some(w => raw.includes(w))){ grp = gg; break; }
+  if (!grp){
+    let bd = 1e9, bf = null, bw = '';
+    for (const gg of V_NAME) for (const w of gg.말){
+      const f = findWord(raw, w);
+      if (f && f.d < bd){ bd = f.d; bf = f; bw = w; grp = gg; }
+    }
+    if (bf && bf.was !== bw) fixes.push(bf.was + '→' + bw);
   }
+  if (grp) cut(r => grp.이름.some(n => (r.name || '') === n), grp.이름[0]);
   // ③ 시까끼(쿠션부터) · 기레까시(공부터) — route.before 하나로 갈린다 (104·105)
-  if (said('시까끼') || said('걸어치기')) cut(r => r.before >= 1 && !r.thru);
-  else if (said('기레까시') || said('비껴치기')) cut(r => r.before === 0);
+  if (said('시까끼') || said('걸어치기')) cut(r => r.before >= 1 && !r.thru, '걸어치기');
+  else if (said('기레까시') || said('비껴치기')) cut(r => r.before === 0, '비껴치기');
   // ④ 넣어치기(구멍·빵꾸) — 1적구를 지나쳐 쿠션과 1적구 사이 틈으로 들어간다.
   //   route.thru 로 걸어치기와 갈린다 (97·98.jpg · 계산은 findRoutes 의 thru 참고).
   //   사장님: '구멍 빵꾸 다 **원뱅크 넣어치기**니까요' → 원뱅크까지 같이 건다.
   if (said('빵꾸') || said('구멍') || said('구멍치기') || said('넣어치기') || said('가락넣기'))
-    cut(r => r.thru && r.name === '원뱅크');
+    cut(r => r.thru && r.name === '원뱅크', '빵꾸');
   // ⑤ 직접 — 2적구를 바로 맞힌다 (충돌 후 쿠션 0)
-  if (said('직접')) cut(r => (r.cushions - r.before) === 0);
+  if (said('직접')) cut(r => (r.cushions - r.before) === 0, '직접');
   // ⑥ 길게 · 짧게 = **긴각 · 짧은각** (102·103). 분리각이 작을수록 긴각
   if (said('길게') || said('긴각'))
     out.sort((a,b) => (a.sep === undefined ? 999 : a.sep) - (b.sep === undefined ? 999 : b.sep));
@@ -2180,8 +2207,17 @@ function voicePick(text){
   //   앞돌리기 외 7은 필요없잖아요'). 화면에는 어차피 한 경로만 그려진다 —
   //   못 고른 숫자를 보여 봐야 읽을 것만 늘어난다.
   //   ★ 고친 낱말이 있으면 같이 보여준다 — 앱이 뭘로 알아들었는지 보이게
+  //   ★ 못 찾은 것이 있으면 **그것부터** 말한다 (위 miss 주석 참고)
+  //   ★★ 원뱅크는 **넣어치기냐 걸어치기냐**까지 적는다 (사장님 2026-08-20:
+  //     '빵꾸를 모두 원뱅크넣어치기 경로로 잡아야 합니다'). 둘은 길이 아주 다른데
+  //     이름표가 똑같이 '원뱅크' 라 화면만 봐서는 어느 쪽을 잡았는지 알 수가 없었다.
+  //     ⚠️ 이름표(r.name)는 **안 바꾼다.** 그건 순위(NAME_SCORE)와 판정 열쇠(route key)에
+  //        쓰여서, 건드리면 지금까지 쌓아 둔 평가 자료가 통째로 어긋난다. 글만 늘린다.
+  const nm0 = out[0].name || '경로';
+  const nm  = nm0 === '원뱅크' ? (out[0].thru ? '원뱅크 넣어치기' : '원뱅크 걸어치기') : nm0;
   voiceSay(text + (fixes.length ? '  (' + fixes.join(' ') + ')' : '')
-           + '  →  ' + (out[0].name || '경로'), 1);
+           + (miss.length ? '  ✕ ' + miss.join('·') + ' 없음' : '')
+           + '  →  ' + nm, miss.length ? 0 : 1);
   blink();
 }
 // 들은 말을 다이 위에 띄운다 — ok 1 확정 · 2 말하는 중 · 0 안 됨
@@ -5783,11 +5819,14 @@ function drawHeard(){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   const w = Math.min(c.w*0.92, g.measureText(h.t).width + fs*1.6);
   const bh = fs*1.9, x = c.x + (c.w - w)/2, y = c.y + c.h*0.055;
-  round(x, y, w, bh, bh*0.28);
-  g.fillStyle = 'rgba(10,12,16,0.72)'; g.fill();
-  g.strokeStyle = h.ok === 1 ? '#ffdd33' : h.ok === 2 ? '#7d8797' : '#e05a52';
-  g.lineWidth = Math.max(2, fs*0.10); g.stroke();
-  //   확정 노랑 · 말하는 중 회색 · 안 됨 빨강
+  // ★★ 배경을 **투명으로** (사장님 2026-08-20, 110.jpg) — 상자가 경로와 두께·분리각
+  //   글씨를 통째로 덮고 있었다. 말을 확인하려다 정작 봐야 할 길을 가리면 안 된다.
+  //   → 상자를 없애고 **글자에 검은 테두리**만 두른다. 천 위에서도 읽히고 길도 보인다.
+  //   상태(확정 노랑 · 말하는 중 회색 · 안 됨 빨강)는 글자색이 그대로 들고 있다.
+  g.lineJoin = 'round'; g.miterLimit = 2;
+  g.strokeStyle = 'rgba(8,10,14,0.90)';
+  g.lineWidth = Math.max(3, fs*0.30);
+  g.strokeText(h.t, x + w/2, y + bh/2);
   g.fillStyle = h.ok === 1 ? '#ffe98a' : h.ok === 2 ? '#c8d0dc' : '#ffb3ae';
   g.fillText(h.t, x + w/2, y + bh/2);
   g.restore();
