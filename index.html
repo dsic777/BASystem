@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 460;
+const MOBILE_VER = 461;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1949,11 +1949,16 @@ function sndPing(){ sndHit(0.5, 1600, 45); }
 //    (version.json), 설정은 아무 데도 안 남아서 **매번 전부 꺼짐으로 돌아갔다.**
 //    '82로 설정했는데 시범경기가 안 돌아요' · '소리가 아예 안들려요' 가 다 이것이었다.
 //    (사장님 확인: '사운드를 껐었네요')
-// ★ 시범경기(solo)는 **일부러 안 기억한다** — 켠 채로 새로고침되면 앱이 저 혼자
-//   치기 시작한다. 그건 사람이 켜는 것이라야 한다.
+// ★★ 시범경기도 **기억한다** (사용자 2026-08-19: '시범경기 설정 켜짐으로 했는데
+//   나갔다 들어오면 꺼짐입니다').
+//   ⚠️ 처음엔 일부러 뺐다 — 켠 채로 새로고침되면 앱이 저 혼자 치기 시작해서다.
+//      그런데 사장님에게 '켜짐' 은 **켜 둔 상태**를 뜻한다. 나갔다 들어와서 꺼져
+//      있으면 설정이 안 먹은 것으로 보인다. 사장님 쪽이 맞다.
+//   → 기억하되, 새로 띄울 때 **공 세 개가 이미 있을 때만** 바로 굴린다.
+//     공이 없으면 켜짐인 채로 기다린다 (공을 놓고 완료를 누르면 그때 돈다).
 const CFG_KEY = 'basystem.cfg';
 const CFG_KEYS = ['sound', 'evalMode', 'keepShot', 'cueSwap', 'magnet',
-                  'tipLock', 'replayAll', 'replayN', 'viewSec'];
+                  'tipLock', 'replayAll', 'replayN', 'viewSec', 'solo'];
 function saveCfg(){
   try {
     const o = {};
@@ -2505,6 +2510,7 @@ function down(px,py){
   //   그 동안 시범경기를 멈추려면 당점판의 '시범경기' 버튼을 쓴다.
   if (S.solo && !S.evalWait && !S.tipPanel && !S.thickPanel){
     S.solo = 0;
+    saveCfg();                 // ★ 멈춤은 **진짜 멈춤**이다 — 설정도 같이 꺼진다
     if (S.card || S.showPlace){ S.card = 0; S.wantCard = 0; S.showPlace = 0; }
     return;
   }
@@ -9994,6 +10000,8 @@ addEventListener('pointercancel', cancelTouch);
     }
     applySetLayout();                       // ★ 진단 배치가 있으면 그것으로 놓는다
     resize(); draw();
+    // ★ 시범경기가 켜진 채로 새로 떴다 — 공이 다 있으면 이어서 굴린다 (위 CFG_KEYS 주석)
+    if (S.solo && Object.keys(S.balls).length >= 3) soloStart();
     log('그리기 시작 · 캔버스 ' + cv.width + 'x' + cv.height);
   }catch(e){
     msg.textContent = '데이터를 못 읽었습니다: ' + e;
