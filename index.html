@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 459;
+const MOBILE_VER = 460;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1852,8 +1852,21 @@ function snd(){
     if (AC.state === 'suspended') AC.resume();
   } catch(e){ return null; }
   if (!ACG){
-    try { ACG = AC.createGain(); ACG.gain.value = SND_VOL; ACG.connect(AC.destination); }
-    catch(e){ ACG = null; }
+    try {
+      ACG = AC.createGain(); ACG.gain.value = SND_VOL;
+      // ⚠️ 공 소리를 2배로 올려 0dB 를 넘는다. 그냥 두면 '딱' 이 '지직' 이 된다.
+      //   제일 센 것만 눌러 주는 장치를 끼운다 (threshold −3dB · 빠른 반응).
+      //   ★★ v458 의 잘못을 되풀이하지 않는다 — **이게 실패해도 소리는 나야 한다.**
+      //      안쪽 try 로 따로 감싸고, 실패하면 곧장 destination 으로 간다.
+      let out = AC.destination;
+      try {
+        const c = AC.createDynamicsCompressor();
+        c.threshold.value = -3; c.knee.value = 3; c.ratio.value = 12;
+        c.attack.value = 0.001; c.release.value = 0.10;
+        c.connect(AC.destination); out = c;
+      } catch(e){ out = AC.destination; }
+      ACG.connect(out);
+    } catch(e){ ACG = null; }
   }
   return AC;
 }
@@ -1863,7 +1876,8 @@ function sndOut(){ return ACG || (AC ? AC.destination : null); }
 //   v   0~1 세기. 세면 크고 높다
 //   f   가운데 주파수 (공끼리 2200 · 쿠션 900)
 //   ms  길이
-function sndHit(v, f, ms){
+// mul — **이 소리만** 몇 배로 (사용자 2026-08-19: '공부디치는 소리만 2배로')
+function sndHit(v, f, ms, mul){
   const ac = snd();
   if (!ac) return;
   // ⚠️⚠️ **소리가 터져도 공은 굴러야 한다.** 이 함수는 simStep 한가운데서 불린다 —
@@ -1886,7 +1900,8 @@ function sndHit(v, f, ms){
   bp.type = 'bandpass'; bp.frequency.value = f * (0.75 + 0.5*v); bp.Q.value = 1.0;
   // ⚠️ 압축기를 걷었다 — 낱개가 너무 크면 그대로 찌그러진다.
   //   손잡이(SND_VOL 1.3)를 곱해도 안 넘치게 잡는다: 최대 0.95 × 1.3 = 1.24
-  const gn = ac.createGain(); gn.gain.value = 0.35 + 0.60*v;
+  const M = mul || 1;
+  const gn = ac.createGain(); gn.gain.value = (0.35 + 0.60*v) * M;
   src.connect(bp); bp.connect(gn); gn.connect(sndOut());
   src.start();
   // ★ 짧은 '몸통' 을 한 겹 더 얹는다. 폰 스피커는 잡음만으로는 잘 안 들린다 —
@@ -1895,14 +1910,14 @@ function sndHit(v, f, ms){
   o.type = 'triangle'; o.frequency.value = f * 0.75;
   const t0 = ac.currentTime;
   g2.gain.setValueAtTime(0.0001, t0);
-  g2.gain.exponentialRampToValueAtTime(0.10 + 0.30*v, t0 + 0.004);
+  g2.gain.exponentialRampToValueAtTime((0.10 + 0.30*v) * M, t0 + 0.004);
   g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.030);
   o.connect(g2); g2.connect(sndOut());
   o.start(t0); o.stop(t0 + 0.035);
   } catch(e){ /* 소리는 없어도 된다. 공은 계속 굴러야 한다 */ }
 }
 // 공끼리 — 세기(mm/s)를 0~1 로 바꿔 넘긴다
-function sndBall(speed){ sndHit(Math.min(1, (speed||0)/2600), 2200, 55); }
+function sndBall(speed){ sndHit(Math.min(1, (speed||0)/2600), 2200, 55, 2.0); }
 // 쿠션 — 공끼리와 **같은 크기**, 더 둔하고 조금 길게
 //   ⚠️ 0.7 배로 깎아 뒀던 것을 걷는다 (사용자 2026-08-19: '쿠션도 내리지 마세요').
 //     낮은 소리(900Hz)라 같은 크기여도 귀에는 덜 세게 들린다.
@@ -1929,6 +1944,31 @@ function sndScore(delay){
 }
 // SOUND 를 켜는 순간 — 자물쇠를 풀고 켜졌다는 것을 귀로 알린다
 function sndPing(){ sndHit(0.5, 1600, 45); }
+// ─────────────────────────────── 설정을 폰에 기억시킨다 (사용자 승인 2026-08-19)
+// ⚠️⚠️ **이것 때문에 하루 종일 헷갈렸다.** 배포할 때마다 폰이 스스로 새로고침하는데
+//    (version.json), 설정은 아무 데도 안 남아서 **매번 전부 꺼짐으로 돌아갔다.**
+//    '82로 설정했는데 시범경기가 안 돌아요' · '소리가 아예 안들려요' 가 다 이것이었다.
+//    (사장님 확인: '사운드를 껐었네요')
+// ★ 시범경기(solo)는 **일부러 안 기억한다** — 켠 채로 새로고침되면 앱이 저 혼자
+//   치기 시작한다. 그건 사람이 켜는 것이라야 한다.
+const CFG_KEY = 'basystem.cfg';
+const CFG_KEYS = ['sound', 'evalMode', 'keepShot', 'cueSwap', 'magnet',
+                  'tipLock', 'replayAll', 'replayN', 'viewSec'];
+function saveCfg(){
+  try {
+    const o = {};
+    for (const k of CFG_KEYS) o[k] = S[k];
+    localStorage.setItem(CFG_KEY, JSON.stringify(o));
+  } catch(e){ /* 저장 못 해도 앱은 돈다 */ }
+}
+function loadCfg(){
+  try {
+    const o = JSON.parse(localStorage.getItem(CFG_KEY) || 'null');
+    if (!o) return;
+    for (const k of CFG_KEYS) if (o[k] !== undefined) S[k] = o[k];
+  } catch(e){ /* 읽다 깨져도 기본값으로 그냥 간다 */ }
+}
+loadCfg();
 function cueColor(){ return S.cueWhite ? 'white' : 'yellow'; }
 function roleOf(c){
   const cc = cueColor();
@@ -2358,6 +2398,7 @@ function closeTipPanel(cancel){
   const was = S.tipBak;
   if (cancel && was) Object.assign(S, was);
   S.tipBak = null; S.tipPanel = false;
+  saveCfg();                               // ★ 설정을 폰에 남긴다 (위 CFG_KEYS 주석)
   ROUTES = {key: null, list: null};
   // ★ 완료로 나가면서 혼자치기를 **새로 켰으면** 그때 시작한다 (위 b.solo 주석).
   //   이미 돌고 있었으면 건드리지 않는다 — 성적이 0 으로 지워지면 안 된다.
