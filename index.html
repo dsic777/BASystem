@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 448;
+const MOBILE_VER = 449;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5032,8 +5032,20 @@ function directRoute(){
     const af = afterHit(cut.from, P, cut.obj);
     if (af){
       thick = af.thick;
-      const q = roll(P, af.dir, 4, S.corr);
-      rails = rails.concat(q.map(h => h.rail));
+      // ★★★★ **추천과 같은 자로 센다** (사용자 2026-08-19: '80을 직접지정으로
+      //   조절해서 3쿠션으로 친겁니다. **자료등록에 문제가 있는것 같아요**').
+      //   ⚠️ 여기가 `roll(P, af.dir, 4, ...)` 였다 — 충돌 뒤 **무조건 4쿠션**을
+      //      덧붙였다. 그래서 3쿠션으로 친 길이 자료에 **7쿠션**으로 남았다.
+      //      추천 경로(simulate)는 afterCushions(c1) 예산만큼만 세고 **2적구에서
+      //      끊는다.** 두 자가 다르면 쌓인 자료를 나중에 못 견준다 —
+      //      실제로 내가 그 숫자를 보고 '쿠션 벌점이 너무 세다' 는 틀린 결론을 냈다.
+      //   → 굴리는 것은 그대로 4쿠션까지 보되(그려야 하니까), **세는 것은 2적구까지**.
+      //   ★ 굴리는 **예산**도 추천과 같은 표를 쓴다 (speed.json 의 충돌 후 쿠션 수).
+      //     4 로 못박아 두면 대회전(예산 7)은 모자라고 3쿠션(예산 0)은 남아돈다.
+      const q = roll(P, af.dir, Math.max(1, afterCushions(c1)), S.corr);
+      const c2cut = cutAtBall([P, ...q.map(h => h.p)], cut.obj);
+      const c2 = Math.max(0, c2cut.pts.length - 2);      // 2적구 전까지 쓴 쿠션 수
+      rails = rails.concat(q.slice(0, c2cut.hit ? c2 : q.length).map(h => h.rail));
     }
   } else rails = hits.map(h => h.rail);
   const who = (cut.hit && cut.obj) ? cut.obj : '빈쿠션';
