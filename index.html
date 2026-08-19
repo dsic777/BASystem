@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 445;
+const MOBILE_VER = 446;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1642,7 +1642,7 @@ function tapButton(px,py){
     //   꺼진 자리를 눌러도 아무 일이 없고, 그 아래 다이 조준이 받는다.
     // ★ 시범경기·배치 중에는 보정을 안 그리므로 **눌러도 안 먹어야 한다** —
     //   안 보이는데 눌리는 버튼은 없어야 한다.
-    if ((S.aimMode || (S.solo && !S.evalWait) || S.showPlace) && btnOnCloth(b)) continue;
+    if ((S.aimMode || S.solo || S.showPlace) && btnOnCloth(b)) continue;
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
     // ★ 보정을 바꿔도 같이 따라간다 (당점과 같은 이유 — reaimForTip 주석 참고)
     if (b.lb === '+'){ S.corr += 0.5; reaimForTip(); }
@@ -1977,6 +1977,8 @@ function soloNext(){
 //   ⚠️ 성적은 이미 세어 두었다 (evalWait 로 들어갈 때). 여기서 또 세면 두 번 센다.
 function evalNext(){
   S.evalWait = 0;
+  S.aimMode = S.aimModeBak ? 1 : 0;     // ★ 들어올 때 값으로 되돌린다
+  S.aimModeBak = 0;
   if (S.soloEnd){
     for (const b of S.soloEnd){
       const t = S.balls[b.key];
@@ -7440,6 +7442,15 @@ function drawPath(){
             else st.run = 0;
           }
           shotRestore();                     // ★ 공·조준·당점을 **친 그 자리**로
+          // ★★★★ **경로설정 모드를 켠다** (사용자 2026-08-19, 79·80.jpg:
+          //   '여기서 직접 경로설정을 하려는데 **수구 뒤에서 조준이 안 되네요**').
+          //   ⚠️ 다이 안(천 위)을 눌러 방향을 잡는 길은 down() 에서 **S.aimMode 일 때만**
+          //      받는다 (v409: '해제시 경로설정 불가'). 평소에는 힘조절 버튼을 길게 눌러
+          //      켜지만, 평가 대기는 **직접조준하라고 만든 자리**라 켜져 있어야 한다.
+          //   ★ 켜지면 천 위에 얹힌 버튼(보정)이 자동으로 꺼진다 — 안 보이는데 눌리는
+          //     버튼이 없어야 한다는 규칙이 그대로 지켜진다 (tapButton 주석).
+          S.aimModeBak = S.aimMode ? 1 : 0;
+          S.aimMode = 1;
           S.evalWait = 1;
           S.anim = 0; S.sim = null;
           return;
