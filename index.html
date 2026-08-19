@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 457;
+const MOBILE_VER = 458;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1836,15 +1836,27 @@ function scatterLayout(){
 // ⚠️⚠️ 폰은 **손이 한 번 닿기 전에는 소리를 못 낸다** (브라우저 규칙).
 //    그래서 AudioContext 를 미리 만들지 않고 **처음 소리 낼 때** 만들고 resume 한다.
 //    SOUND 버튼을 누르는 그 탭이 자물쇠를 푼다 (sndPing).
-let AC = null;
+let AC = null, ACG = null;
+// ★ 사용자 2026-08-19: '**모든 소리를 올려보세요**'
+//   전체 크기를 **한 숫자로** 잡는다. 다시 올리거나 내릴 때 여기만 고치면 된다.
+const SND_VOL = 1.7;
 function snd(){
   if (!S.sound) return null;
   try {
     if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
     if (AC.state === 'suspended') AC.resume();
+    if (!ACG){
+      ACG = AC.createGain(); ACG.gain.value = SND_VOL;
+      // ⚠️ 크게 올리면 소리가 **찌그러진다** (0dB 를 넘으면 잘린다). 압축기를 하나 끼워
+      //    센 것만 눌러 준다 — 크기는 살리고 찌그러짐은 막는다.
+      const comp = AC.createDynamicsCompressor();
+      ACG.connect(comp); comp.connect(AC.destination);
+    }
     return AC;
   } catch(e){ return null; }
 }
+// 모든 소리가 나가는 곳 — destination 이 아니라 **전체 크기 손잡이**를 거친다
+function sndOut(){ return ACG || (AC && AC.destination) || null; }
 // 짧은 '딱' — 잡음을 확 줄여 때리는 소리를 만든다
 //   v   0~1 세기. 세면 크고 높다
 //   f   가운데 주파수 (공끼리 2200 · 쿠션 900)
@@ -1867,7 +1879,7 @@ function sndHit(v, f, ms){
   //        **비례**로 바꾸고 밑값도 올린다.
   bp.type = 'bandpass'; bp.frequency.value = f * (0.75 + 0.5*v); bp.Q.value = 1.0;
   const gn = ac.createGain(); gn.gain.value = 0.45 + 1.55*v;
-  src.connect(bp); bp.connect(gn); gn.connect(ac.destination);
+  src.connect(bp); bp.connect(gn); gn.connect(sndOut());
   src.start();
   // ★ 짧은 '몸통' 을 한 겹 더 얹는다. 폰 스피커는 잡음만으로는 잘 안 들린다 —
   //   같은 높이의 맑은 소리를 아주 짧게(30ms) 겹치면 또렷해진다.
@@ -1877,7 +1889,7 @@ function sndHit(v, f, ms){
   g2.gain.setValueAtTime(0.0001, t0);
   g2.gain.exponentialRampToValueAtTime(0.10 + 0.42*v, t0 + 0.004);
   g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.030);
-  o.connect(g2); g2.connect(ac.destination);
+  o.connect(g2); g2.connect(sndOut());
   o.start(t0); o.stop(t0 + 0.035);
 }
 // 공끼리 — 세기(mm/s)를 0~1 로 바꿔 넘긴다
@@ -1898,7 +1910,7 @@ function sndScore(delay){
     gn.gain.setValueAtTime(0.0001, t0);
     gn.gain.exponentialRampToValueAtTime(0.30, t0 + 0.02);
     gn.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26);
-    o.connect(gn); gn.connect(ac.destination);
+    o.connect(gn); gn.connect(sndOut());
     o.start(t0); o.stop(t0 + 0.28);
   });
 }
