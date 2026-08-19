@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 455;
+const MOBILE_VER = 456;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -8946,8 +8946,11 @@ function drawTipPanel(){
     else if (b.cancel) btn3D(b, '#9aa2b4', '#5a6070', '#2c3038');
     else if (b.done) btn3D(b, '#ffe487', '#c8a23a', '#7a5f13', '#ffdd33');
     else if (on)  btn3D(b, '#8b97b0', '#3a4150', '#171a21', '#ffdd33');
-    // ★ 켜짐 — 꺼짐보다 **한 눈금만** 밝다. 완료(금색)와는 확실히 다르게 무던하다
-    else if (b.isOn) btn3D(b, '#79839a', '#414859', '#1d212a');
+    // ★ 켜짐 — **푸른빛**을 넣는다 (사용자 2026-08-19, 85.jpg: '버튼컬러도 조금
+    //   가미하면 좋겠어요. 뚜렷하게 차이는 좀 부족하네요, 전혀 없는것은 아니지만').
+    //   ⚠️ 밝기만 한 눈금 올렸더니 폰에서 거의 안 보였다 — **색을 바꿔야** 눈에 든다.
+    //   ⚠️ 따뜻한 쪽(금·호박)으로는 안 간다. 완료가 금색이라 헷갈린다. 반대쪽으로 간다.
+    else if (b.isOn) btn3D(b, '#8296bb', '#3d4c6b', '#181e2d');
     else          btn3D(b, '#5b626e', '#2b2f37', '#15171c');
     g.fillStyle = b.none ? 'rgba(150,156,170,0.55)'
                : b.cancel ? '#ffffff' : b.done ? '#1a1508'
