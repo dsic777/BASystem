@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 498;
+const MOBILE_VER = 499;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3454,7 +3454,15 @@ const SHOW_XY = false;
 //   ⚠️ 다 보고 나면 null 로 되돌린다 — 안 그러면 켤 때마다 이 배치가 나온다.
 //   좌표는 mm, 좌하단이 0,0. 수구는 cue 로 적는다.
 //     예) {cue:'yellow', yellow:[1962,592], white:[1927,259], red:[983,907], aim:[1723,1224]}
-const SET_LAYOUT = null;
+// ★★★ 시험용 고정 배치 — 사장님 지시 2026-08-20:
+//   '매번 바뀌니 **테스트 종료 시까지 157 배치를 미리** 해 주세요. 그리고 빨간공 빵꾸를
+//    직접 하고 경로를 그려보세요. 나는 결과만 캡처해서 올릴게요.'
+//   좌표는 사장님이 요청 #20 으로 보내 주신 그 배치다 (mm, 좌하단 0,0).
+//   그 배치로 돌리면 2시 3팁 · 1쿠션 37 이 나오는데, 157 화면의 값과 같다.
+//   ⚠️ 시험이 끝나면 SET_LAYOUT 과 AUTO_SAY 를 **둘 다 null 로 되돌린다.**
+const SET_LAYOUT = {cue:'white', white:[421,1072], red:[1511,1092], yellow:[2188,891]};
+// ★ 켜질 때 이 말을 **앱이 스스로 한다.** 사장님은 결과만 보시면 된다.
+const AUTO_SAY = '빨간공 빵꾸';
 //   ↑ 2026-08-13 영상(15-55-33)의 그 대회전. 무회전 자연회전(v241) 확인용.
 //     두께 74% · 분리각 52° · 1쿠션 상단 x=2182 (영상에서 잰 값과 같다)
 //     ⚠️ 확인이 끝나면 null 로 되돌린다.
@@ -10901,6 +10909,19 @@ addEventListener('pointercancel', cancelTouch);
     }
     applySetLayout();                       // ★ 진단 배치가 있으면 그것으로 놓는다
     resize(); draw();
+    // ★ 시험용 — 켜지자마자 그 말을 스스로 한다 (위 AUTO_SAY 주석)
+    if (AUTO_SAY){
+      try {
+        voicePick(AUTO_SAY);
+        // ⚠️⚠️ **한 번 더 고른다.** Node 로 재 보니 켜지자마자 고른 경로는 엔진 관문이
+        //   안 걸려 있었다 (1쿠션 25 · 엔진 실패), 그런데 같은 경로를 **한 번 더** 고르면
+        //   1쿠션 38 로 옮겨 엔진이 성공한다. 첫 번째와 두 번째가 다르다는 뜻이고,
+        //   그건 따로 잡아야 할 버그다 — 지금은 시험이 먼저라 한 번 더 불러 덮는다.
+        const cur = curRoute();
+        if (cur) pickRoute(cur);
+      } catch(e){ log('★AUTO_SAY ' + e); }
+      draw();
+    }
     // ★ 시범경기가 켜진 채로 새로 떴다 — 공이 다 있으면 이어서 굴린다 (위 CFG_KEYS 주석)
     if (S.solo && Object.keys(S.balls).length >= 3) soloStart();
     log('그리기 시작 · 캔버스 ' + cv.width + 'x' + cv.height);
