@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 501;
+const MOBILE_VER = 502;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5577,6 +5577,13 @@ function engineRun(dir, V0, kk, E){
   //   ⚠️ 쿠션은 폴리라인을 나중에 세지 않고 **굴리면서** 센다. 그래야 두 번째 적구를
   //      맞은 그 순간까지의 수가 정확하다.
   let railN = 0, hitBoth = false, railsAtScore = -1;
+  // ★★★★★ **2적구에 닿은 그 자리**를 같이 적어 둔다 (사장님 2026-08-20, 164·165.jpg:
+  //   '또 원위치입니다')
+  //   v500 에서 **판정**은 hitBoth 로 고쳤는데 **그리는 쪽**은 그대로 scoreIdx 를 보고
+  //   있었다. scoreIdx 는 얇게·느리게 맞으면 안 서므로(위 ⚠️), 그림은 2적구를 그냥
+  //   지나쳐 계속 그려졌다 — 판정은 성공인데 화면은 빗나간 선이다.
+  //   → 닿은 순간의 **수구 자리와 그때까지의 점 개수**를 남겨, 그림도 거기서 끊는다.
+  let bothIdx = -1, bothP = null;
   let spPrev = 0, spIn = 0, spOut = 0, outAt = -1;
   // ⚠️ 끝까지 굴리면 한 번에 250ms 다 — 조준을 밀 때마다 하면 폰이 버벅인다.
   //    화면에 그리는 것은 충돌 뒤 8쿠션 · 1적구 4쿠션까지뿐이라 거기까지만 굴린다.
@@ -5606,6 +5613,8 @@ function engineRun(dir, V0, kk, E){
           const other = A.key === 'cue' ? B.key : (B.key === 'cue' ? A.key : null);
           if (other && hitIdx >= 0 && other !== hitObj && !hitBoth){
             hitBoth = true; railsAtScore = railN;      // 다른 적구를 맞았다 (위 ★★★★)
+            bothIdx = rec.cue.p.length;                // 그림을 여기서 끊는다
+            bothP = (A.key === 'cue' ? A : B).p.slice();
           }
           if (other && hitIdx < 0){                    // 수구가 처음 맞힌 공 = 1적구
             // ★★★★ 여기에 **두께를 통째로 망가뜨린 버그**가 있었다 (사용자 2026-08-18,
@@ -5654,7 +5663,7 @@ function engineRun(dir, V0, kk, E){
   for (const b of sim.balls){ rec[b.key].p.push(b.p.slice()); rec[b.key].k.push('stop'); }
   if (hitIdx <= 0 || !hitObj) return null;
   return {cue: rec.cue, obj: rec[hitObj] || null, hitIdx, hitObj, scoreIdx,
-          scored: scoreIdx > 0, hitAt, hitBoth, railsAtScore,
+          scored: scoreIdx > 0, hitAt, hitBoth, railsAtScore, bothIdx, bothP,
           keepC: (spIn > 1 && spOut > 0) ? Math.max(0.05, Math.min(0.98, spOut/spIn)) : null};
 }
 // ★★★ **엔진으로 한 번만 굴려** 2적구에 닿는지 본다 (추천을 거르는 데 쓴다).
@@ -8345,8 +8354,14 @@ function drawPath(){
   let scoreHit = post.hit;
   if (EP && EP.hitIdx > 0){
     // 엔진 선을 **같은 규칙으로** 자른다 — 2적구에 닿으면 거기까지, 아니면 표대로.
-    let end = EP.cue.p.length - 1;
+    let end = EP.cue.p.length - 1, tail = null;
     if (EP.scoreIdx > 0) end = EP.scoreIdx;
+    // ★★★★★ scoreIdx 가 안 섰어도 **2적구에 닿았으면 거기서 끊는다** (위 bothIdx 주석)
+    //   164·165.jpg — 판정은 성공인데 선이 노란공을 지나쳐 계속 갔다.
+    else if (EP.hitBoth && EP.bothP && EP.bothIdx > EP.hitIdx){
+      end = Math.min(EP.bothIdx - 1, EP.cue.p.length - 1);
+      tail = EP.bothP;
+    }
     else {
       let rails = 0;
       end = EP.hitIdx;
@@ -8355,7 +8370,11 @@ function drawPath(){
         end = i;
       }
     }
-    if (end > EP.hitIdx){ pts2 = EP.cue.p.slice(EP.hitIdx, end + 1); scoreHit = EP.scored; }
+    if (end > EP.hitIdx){
+      pts2 = EP.cue.p.slice(EP.hitIdx, end + 1);
+      if (tail) pts2.push(tail);
+      scoreHit = shotScored(EP);          // ★ 득점 판정도 하나로 (v500 과 같은 자)
+    }
   }
   // ★ 키스 자리 — 수구 길과 1적구 길이 겹치는 곳에 빨간 X 를 찍는다.
   //   사용자: '미리 키스가 없는 두께와 당점을 미리 알려주면 얼마나 좋겠어요.'
