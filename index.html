@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 495;
+const MOBILE_VER = 496;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5369,7 +5369,9 @@ function findRoutes(){
       const r = list[i];
       if (i >= look || r.kiss){ keep.push(r); continue; }
       let ok = null;
+      const pf = PICK_FIX; PICK_FIX = 0;          // 관문에서는 조정을 끈다 (위 pickFix 주석)
       try { pickRoute(r); ok = engineScores(S.balls.cue.p, S.aim); } catch(e){ ok = null; }
+      PICK_FIX = pf;
       if (ok !== false) keep.push(r);      // 판정을 못 하면(null) 남긴다
     }
     if (keep.length) list = keep;
@@ -6630,6 +6632,45 @@ function blinking(){ return !!S.rblink && nowMs() - S.rblink < BLINK_MS; }
 // ⚠️ S.dirSet 은 '손으로 방향을 정했다' 는 표시다. 찾는 범위를 없앤 뒤로 **읽는 데가
 //    없다.** 지우지 않고 둔다 — 방향으로 무엇을 가를 일이 또 생기면 그때 쓴다.
 function tipAuto(){ S.tipLock = 0; S.aimSnapped = 0; S.dirSet = 0; }
+// ★★★★★★ **화면에 띄우는 순간 성공으로 맞춘다** (사장님 2026-08-20, 155.jpg)
+//   '두께가 11%인데 **조금만 올리면 성공하는 궤적으로 바뀔** 겁니다. 그러려면
+//    1쿠션이 그림상 50으로 가까워져야 할 거고' · '결과를 성공으로 조정하세요, 두께 당점 등으로'
+//
+//   ⚠️⚠️ **모델이 둘이다.** 이것이 155 의 진짜 까닭이었다 —
+//     routeSettle·routeFix 는 **기하 계산**(drawnScores)으로 득점을 본다
+//     화면에 그려지는 선은 v323 부터 **엔진**이 낸다
+//   사장님이 좌표를 보내 주신 배치에서 재 보니 빵꾸 56개가 **전부** 기하로는 득점인데
+//   엔진으로는 전부 실패였다. 사장님이 보시는 것은 언제나 **그려진 선**이다.
+//   → 경로를 고르는 자리에서 **엔진으로 다시 보고**, 안 닿으면 각(=두께)을 ±2도 안에서
+//     밀어 닿게 만든다. 한 경로만 보므로 폰에서도 감당된다 (엔진 한 번 ≈ 10ms).
+//   ⚠️ 추천을 거를 때(findRoutes 의 관문)는 이 조정을 끄고 부른다 — 안 그러면
+//      관문이 경로마다 41번씩 굴려 폰이 선다. PICK_FIX 가 그 깃발이다.
+//   ⚠️ 못 고치면 **원래 각으로 되돌린다.** 억지로 딴 길로 옮기지 않는다.
+let PICK_FIX = 1;
+const PICK_LIM = 2.0, PICK_STEP = 0.1;      // 각을 얼마까지 · 얼마씩 미나 (도)
+function pickFix(r){
+  const cue = S.balls.cue;
+  if (!PICK_FIX || !cue || typeof r.a !== 'number') return;
+  const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
+  const aimAt = (a) => [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+  let base = null;
+  try { base = engineScores(cue.p, aimAt(r.a)); } catch(e){ base = null; }
+  if (base !== false) return;               // 이미 닿거나, 판정을 못 하면 손대지 않는다
+  const a0 = r.a, who = r.first;
+  for (let d = PICK_STEP; d <= PICK_LIM + 1e-9; d += PICK_STEP)
+    for (const sg of [1, -1]){
+      const a = a0 + sg*d*Math.PI/180;
+      // 먼저 맞는 공과 회로가 그대로여야 '그 경로' 다 (drawnScores 가 같이 본다)
+      let ok = false;
+      try { ok = drawnScores(r, a) && engineScores(cue.p, aimAt(a)) === true; } catch(e){ ok = false; }
+      if (ok){
+        r.a = a; r.fixed = 1;
+        if (LAST_THICK !== null) r.thick = LAST_THICK;
+        return;
+      }
+    }
+  r.a = a0;
+}
 function pickRoute(r){
   tipAuto();                               // 추천을 고르면 그 경로의 당점이 주인이다
   const cue = S.balls.cue;
@@ -6663,6 +6704,7 @@ function pickRoute(r){
     S.tipDir = ((Math.round(Math.atan2(S.tipH, S.tipV) / (Math.PI/12)) % 24) + 24) % 24;
   }
   liftTipIfNoDraw();                   // ★ 쿠션 가까이서는 하단을 못 쓴다
+  pickFix(r);                          // ★ 그려지는 선이 2적구에 닿게 두께를 맞춘다
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(r.a)*len, cue.p[1] + Math.sin(r.a)*len];
 }
