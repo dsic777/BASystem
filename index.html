@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 496;
+const MOBILE_VER = 497;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6646,22 +6646,44 @@ function tipAuto(){ S.tipLock = 0; S.aimSnapped = 0; S.dirSet = 0; }
 //   ⚠️ 추천을 거를 때(findRoutes 의 관문)는 이 조정을 끄고 부른다 — 안 그러면
 //      관문이 경로마다 41번씩 굴려 폰이 선다. PICK_FIX 가 그 깃발이다.
 //   ⚠️ 못 고치면 **원래 각으로 되돌린다.** 억지로 딴 길로 옮기지 않는다.
+// ★★★★★ 찾는 축은 **각도가 아니라 1쿠션 포인트** 다 (사장님 2026-08-20, 156.jpg)
+//   '**1쿠션 포인트가 지금 29죠. 1씩 늘리면서 2적구가 맞을 때까지 돌려보고,
+//     맞으면 궤적을 표시하세요.**'
+//   ⚠️ 처음엔 각을 ±2도씩 밀었다. 그건 사장님이 판을 읽는 방식이 아니고, 폭도 모자랐다 —
+//      1쿠션 29에서 몇 포인트를 옮겨야 하는지는 배치마다 다르다.
+//   → 조준을 조금씩 돌리면서 **1쿠션 수가 한 칸 바뀔 때마다** 한 번씩 굴려 본다.
+//     한 칸이 몇 도인지는 배치가 정한다. 우리는 칸으로 센다.
+//   ⚠️ 엔진은 무겁다(한 번 10ms). 칸이 바뀔 때만 굴리므로 PICK_TRY 번을 안 넘는다.
 let PICK_FIX = 1;
-const PICK_LIM = 2.0, PICK_STEP = 0.1;      // 각을 얼마까지 · 얼마씩 미나 (도)
+const PICK_SWEEP = 15;     // 조준을 좌우로 최대 몇 도까지 돌려 보나
+const PICK_FINE  = 0.05;   // 그 사이를 얼마씩 훑나 (1쿠션 수가 한 칸 바뀌는 자리를 놓치지 않게)
+const PICK_TRY   = 40;     // 엔진을 최대 몇 번 굴리나
 function pickFix(r){
   const cue = S.balls.cue;
   if (!PICK_FIX || !cue || typeof r.a !== 'number') return;
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   const aimAt = (a) => [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+  const numAt = (a) => { try { return firstNumFor(cue.p, [Math.cos(a), Math.sin(a)]); }
+                         catch(e){ return null; } };
   let base = null;
   try { base = engineScores(cue.p, aimAt(r.a)); } catch(e){ base = null; }
   if (base !== false) return;               // 이미 닿거나, 판정을 못 하면 손대지 않는다
-  const a0 = r.a, who = r.first;
-  for (let d = PICK_STEP; d <= PICK_LIM + 1e-9; d += PICK_STEP)
+  const a0 = r.a;
+  const n0 = numAt(a0);
+  let tries = 0;
+  // 한쪽씩 따로 센다 — 조준을 어느 쪽으로 돌리든 1쿠션 수는 한 칸씩만 움직여야 한다
+  const seen = {1: (n0 === null ? null : Math.round(n0)), '-1': (n0 === null ? null : Math.round(n0))};
+  for (let d = PICK_FINE; d <= PICK_SWEEP + 1e-9 && tries < PICK_TRY; d += PICK_FINE)
     for (const sg of [1, -1]){
       const a = a0 + sg*d*Math.PI/180;
-      // 먼저 맞는 공과 회로가 그대로여야 '그 경로' 다 (drawnScores 가 같이 본다)
+      const n = numAt(a);
+      if (n === null) continue;
+      const k = Math.round(n);
+      if (seen[sg] !== null && k === seen[sg]) continue;   // 아직 한 칸도 안 움직였다
+      seen[sg] = k;
+      // 먼저 맞는 공과 빈쿠션 수가 그대로여야 '그 경로' 다 (drawnScores 가 같이 본다)
       let ok = false;
+      tries++;
       try { ok = drawnScores(r, a) && engineScores(cue.p, aimAt(a)) === true; } catch(e){ ok = false; }
       if (ok){
         r.a = a; r.fixed = 1;
