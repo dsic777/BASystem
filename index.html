@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 497;
+const MOBILE_VER = 498;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4976,6 +4976,26 @@ const SEEK_KIND = {
   //      씨앗 단계는 r.thru 가 아직 없으므로 g.s 로 본다 (아래 seedOK).
   '빵꾸': (r, g) => r.before === 1 && (r.thru !== undefined ? r.thru : g.s >= g.D * 0.5),
 };
+// ★★★★★★ **파이브앤하프 당점으로 자동설정** (사장님 2026-08-20, 157.jpg:
+//   '일단 당점을 파이브앤하프 시스템 기준으로 자동설정하세요. 그리고 방법을 찾아보세요.')
+//   157 은 사장님이 직접 만드신 경로다 — **2시 3팁 · 1쿠션 37 · 두께 50%**.
+//   ⚠️ CLAUDE.md 에 이미 적혀 있는 것을 내가 안 쓰고 있었다 —
+//        '파이브앤하프  상단 2~3팁, 미들 팔로우'
+//      그런데 나는 판의 당점 **73자리를 전부**(하단·역회전까지) 돌았다.
+//      그래서 6시 하단이나 역회전으로만 서는 길이 잔뜩 나왔고 (152·158·159),
+//      정작 사장님이 치시는 순회전 상단은 그 속에 묻혔다.
+//   → 빵꾸(원뱅크 넣어치기)는 파이브앤하프로 푸는 길이다. 당점을 그 기준으로 좁힌다.
+//     시계 1시~2시30분 (그리고 거울쪽 9시30분~11시) · 2팁과 3팁 = 열여섯 자리.
+//     도는 쪽이 어느 쪽인지는 미리 모르므로 양쪽을 다 둔다.
+const FH_TIPS = (() => {
+  const a = [];
+  for (const r of [3, 2])
+    for (const d of [2, 3, 4, 5, 22, 21, 20, 19])
+      a.push([r*Math.sin(d*Math.PI/12), r*Math.cos(d*Math.PI/12)]);
+  return a;
+})();
+// 이 진로는 어느 당점 자리를 도나 — 파이브앤하프로 푸는 것은 FH_TIPS 만 본다
+function tipsFor(kind){ return kind === '빵꾸' ? FH_TIPS : SEEK_TIPS; }
 function seekRoutes(want, kind){
   const cue = S.balls.cue;
   if (!cue || !T || !SEEK_KIND[kind]) return [];
@@ -5010,7 +5030,7 @@ function seekRoutes(want, kind){
   //   사장님 가설의 '1직선으로 바라본다' 는 **각을 세는 출발점**을 말한 것이지
   //   씨앗을 무회전으로 잡으라는 뜻이 아니었다.
   try {
-    for (const [tp, tv] of SEEK_TIPS){
+    for (const [tp, tv] of tipsFor(kind)){
       S.tipH = tp; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(tp, tv));
       TIP_NOW = tp; TIPV_NOW = tv;
       for (let dg = 0; dg <= 90; dg++)                       // 2. 1도씩 벌린다
