@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 485;
+const MOBILE_VER = 486;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2169,15 +2169,11 @@ function voicePick(text){
   //   → 말이 들어온 순간부터 자를 끄고 훑는다. 추천은 여기에 끼지 않는다.
   //   ⚠️ 훑고 나면 깃발은 되돌린다. 다만 목록(ROUTES)은 그대로 둔다 —
   //      되돌려 지우면 그린 경로와 화살표로 넘길 목록이 서로 다른 것을 가리킨다.
-  //   ★ 빵꾸를 콕 집어 요구하면 **빵꾸 찾기**까지 돌린다 (findRoutes 의 SEEK_NAB).
-  //     사장님 가설 3번 — 씨앗을 찾고 0.1도씩 밀어 3쿠션을 완성시킨다.
-  SEEK_ALL = 1;
-  SEEK_NAB = (said('빵꾸') || said('구멍') || said('구멍치기') ||
-              said('넣어치기') || said('가락넣기')) ? 1 : 0;
-  ROUTES = {key:null, list:[]};
+  //   ★ 빵꾸는 **요구 전용 찾기(seekRoutes)** 로 따로 간다 — 아래 ④ 참고.
+  SEEK_ALL = 1; ROUTES = {key:null, list:[]};
   let list = null;
   try { list = findRoutes(); } catch(e){ list = null; }
-  SEEK_ALL = 0; SEEK_NAB = 0;
+  SEEK_ALL = 0;
   if (!list || !list.length){ voiceSay(text + ' — 경로가 없습니다', 0); return; }
   let out = list.slice();
   // ★★★★ **못 찾으면 못 찾았다고 말한다** (사장님 2026-08-20, 110.jpg)
@@ -2211,9 +2207,9 @@ function voicePick(text){
       swapCue();
       // ⚠️ 수구를 바꾸면 다시 훑는데, 여기서도 **자를 꺼야** 한다.
       //    안 그러면 수구전환된 배치만 추천용 목록이 되어 앞뒤가 안 맞는다.
-      SEEK_ALL = 1; SEEK_NAB = (say.indexOf('빵꾸') >= 0) ? 1 : 0;
+      SEEK_ALL = 1;
       try { list = findRoutes() || []; } catch(e){}
-      SEEK_ALL = 0; SEEK_NAB = 0;
+      SEEK_ALL = 0;
       out = list.slice();
     }
     say.push(BALLNM[want]);
@@ -2271,14 +2267,17 @@ function voicePick(text){
   //     원뱅크 전체 → 그것도 없으면 빈쿠션을 쓰는 길 전체.
   if (said('빵꾸') || said('구멍') || said('구멍치기') || said('넣어치기') || said('가락넣기')){
     say.push('빵꾸');
-    // ★★★★★ **넓히지 않는다** (사장님 2026-08-20: '**빵꾸와 원뱅크는 일부만 같은
-    //   겁니다. 원뱅크의 경로가 얼마나 많은데요.**')
-    //   v471 에서 '거부하지 말라' 는 말을 넓히기로 받아 빵꾸 → 원뱅크 전체 → 뱅크
-    //   전체로 물러나게 했다. 그런데 빵꾸는 원뱅크의 **일부**다. 넓히면 빵꾸와 아무
-    //   상관 없는 원뱅크가 빵꾸인 척 나온다 (132·133 이 그랬다).
-    //   → 빵꾸는 빵꾸만 준다. 없으면 없다고 한다. 대신 **찾는 쪽**을 파야 한다
-    //     (SEEK_ALL · 당점 21가지 · 세기 3.5배는 그래서 넣은 것이다).
-    cut(r => r.thru && r.name === '원뱅크', '빵꾸');
+    // ★★★★★★ **요구 전용 찾기로 간다** (사장님 2026-08-20 승인: '음성요구는
+    //   완전분리 결정했습니다. 안돌아갑니다.')
+    //   추천 목록(findRoutes)을 거르지 않는다. seekRoutes 가 사장님 가설 그대로
+    //   공에서 출발해 각을 벌리고, 두께·당점을 대입해 3쿠션을 완성시켜 온다.
+    //   ⚠️ 넓히지 않는다 — '빵꾸와 원뱅크는 일부만 같은 겁니다' (2026-08-20).
+    //      없으면 없다고 한다. 대신 그리지도 않는다 (아래 miss 처리).
+    const nab = want ? seekRoutes(want, '빵꾸') : [];
+    if (nab.length){
+      list = nab; out = nab.slice();
+      ROUTES = {key: routeKey(), list: nab};   // 화살표로 넘길 목록도 이것으로
+    } else miss.push('빵꾸');
   }
   // ⑤ 직접 — 2적구를 바로 맞힌다 (충돌 후 쿠션 0)
   if (said('직접')){ say.push('직접'); cut(r => (r.cushions - r.before) === 0, '직접'); }
@@ -4592,8 +4591,6 @@ function simulate(dir, k){
 let SEEK_ALL = 0;
 // ★ 빵꾸를 콕 집어 요구했을 때만 켠다 — findRoutes 의 '빵꾸 찾기' 를 돌린다.
 //   씨앗 찾기(1도) + 완성시키기(0.1도) 라 값이 비싸다. 그 말이 나올 때만 돈다.
-let SEEK_NAB = 0;
-let NAB_DBG = {seed:0, tried:0, got:0, skip:0};
 let ROUTES = {key:null, list:[]};
 // 지금 배치에 대해 **이미 훑어 둔** 결과가 있으면 그것. 없으면 null.
 // ⚠️ 그리기에서 findRoutes() 를 부르면 안 된다 — 공을 끄는 동안 매 프레임 한 바퀴씩
@@ -4911,6 +4908,116 @@ function nearStrikeBlocked(ang){
   //   있으면 가능')와 앱이 이미 맞아 있다.
   return false;
 }
+// ══════════════════════════════════════════════════════════════════════════
+// ★★★★★★★ **요구 전용 찾기** — 추천과 완전히 갈라 놓는다 (사장님 승인 2026-08-20)
+//
+//   왜 갈랐나 — 2026-08-20 하루에 말로 고르기를 열세 번 기웠다. 까닭은 하나였다.
+//   **추천과 요구가 같은 코드를 쓰면서 서로 반대를 원한다.**
+//     추천은 '억지스러운 것을 걸러' 좋은 것만 보여야 하고,
+//     요구는 '콕 집어 부른 그것을' 어떻게든 찾아내야 한다.
+//   한쪽을 고치면 다른 쪽이 망가졌다. 그래서 요구는 이 함수 하나로만 간다.
+//   findRoutes(추천)는 **손대지 않는다.** 되돌리려면 voicePick 의 부르는 줄 하나만
+//   되돌리면 된다.
+//
+//   뼈대는 사장님 가설 그대로 —
+//     1. 수구가 그 공을 **일직선으로 바라본다**
+//     2. 거기서 **1도씩 벌리며** 그 진로의 기하 조건에 맞는 각(씨앗)을 모은다
+//     3. 씨앗마다 **두께(0.1도 미세각) × 당점 21가지**를 대입해
+//        **3쿠션이 완성되고 2적구를 맞힐 때까지** 민다
+//
+//   ⚠️ 추천용 자(두께 ≤50% · 분리각 20~45° · 창 0.10° · 역회전 2팁)는 하나도 안 건다.
+//      그건 '추천에 넣기엔 억지' 라는 뜻이지 '못 친다' 는 뜻이 아니다.
+//   ⚠️ 대신 **득점 확인은 반드시 통과**해야 한다 (drawnScores). 못 치는 길을 내놓느니
+//      없다고 하는 것이 낫다 — 138·139.jpg 의 '소설' 이 그래서 나왔다.
+// ★★ 당점은 **판에 실제로 있는 점**을 다 돈다 (2026-08-20)
+//   처음엔 좌우 7 × 상하 3 격자로 돌았다. 그런데 138.jpg 의 정답 당점이 **2시 3팁**
+//   이라 그 격자에 아예 없었다 — 찾을 수가 없었다.
+//   판은 팁수 0·1·2·3 자리에만 점이 있고 시계는 30분(24자리)이다 (tipToDot 참고).
+//   → 0팁 하나 + 1·2·3팁 × 24자리 = **73가지**. 다 돈다.
+//   ⚠️ 추천이라면 못 할 값이다(화면 그릴 때마다 도니까). 요구는 한 번만 돈다.
+const SEEK_TIPS = (() => {
+  const a = [[0, 0]];
+  for (let r = 1; r <= 3; r++)
+    for (let d = 0; d < 24; d++)
+      a.push([r*Math.sin(d*Math.PI/12), r*Math.cos(d*Math.PI/12)]);
+  return a;
+})();
+// 진로별 **기하 조건 한 줄**. 사장님께 들은 것만 넣는다 — 지어내지 않는다.
+const SEEK_KIND = {
+  // 빵꾸(넣어치기·구멍) — 1적구와 쿠션 사이 틈으로 밀고 들어간다.
+  //   '구멍 넣어치기는 공 반개만 벌어져 있어도 밀고 들어가서 성공을 시킵니다' (2026-08-20)
+  //   그리고 '구멍 빵꾸 다 **원뱅크** 넣어치기니까요' (2026-08-19) → 빈쿠션은 하나다.
+  '빵꾸': (r, g) => r.before === 1 && g.s >= g.D * 0.5,
+};
+function seekRoutes(want, kind){
+  const cue = S.balls.cue;
+  if (!cue || !T || !SEEK_KIND[kind]) return [];
+  let ob = null;
+  for (const k in S.balls) if (k !== 'cue' && S.balls[k].color === want) ob = S.balls[k];
+  if (!ob) return [];
+  const O = ob.p, D = T.ball_diameter, R = D/2;
+  // 그 공이 붙어 있는 쿠션 — 제일 가까운 것 하나
+  const cd = [[O[0],[1,0]], [T.width-O[0],[-1,0]],
+              [O[1],[0,1]], [T.height-O[1],[0,-1]]];
+  let nr = cd[0];
+  for (const q of cd) if (q[0] < nr[0]) nr = q;
+  const nn = nr[1], RAD = Math.PI/180;
+  const a0 = Math.atan2(O[1]-cue.p[1], O[0]-cue.p[0]);   // 1. 일직선으로 바라본다
+  const hS = S.tipH, vS = S.tipV, rS = S.tipR, aS = S.aim;
+  const tH = TIP_NOW, tV = TIPV_NOW;
+  // ★★★★★★ **추천용 자를 끈다.** 이게 분리의 핵심이다.
+  //   simulate() 안에는 '추천에 넣기엔 억지' 라는 자가 둘 박혀 있다 —
+  //     ① 뱅크는 두께 ≤50% · 분리각 20~45° 라야 남는다
+  //     ② 뱅크 구간을 역회전 2팁 이상으로 꺾는 길은 뺀다
+  //   138.jpg 의 정답 당점이 **2시 3팁**(좌우 2.6팁)이라 ②에 걸려 죽고 있었다.
+  //   요구는 '억지인가' 를 묻지 않는다. **있는가** 만 묻는다.
+  const seekSave = SEEK_ALL, cSave = SWEEP_C_NOW, mSave = MIN_C_NOW;
+  SEEK_ALL = 1; SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
+  let k0 = 0;
+  if (S.corr && S.aim){ try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; } }
+  const out = [], seen = new Set();
+  try {
+    for (const [tp, tv] of SEEK_TIPS){
+      S.tipH = tp; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(tp, tv));
+      TIP_NOW = tp; TIPV_NOW = tv;
+      for (let dg = 0; dg <= 90; dg++)                     // 2. 1도씩 벌린다
+      for (const sg of (dg ? [1, -1] : [1])){
+        const aSeed = a0 + sg*dg*RAD;
+        // ── 씨앗인가 (기하만 본다. 3쿠션은 안 본다)
+        let g = null;
+        try {
+          const aim = [cue.p[0] + Math.cos(aSeed)*500, cue.p[1] + Math.sin(aSeed)*500];
+          const hh = pathFromAim(cue.p, aim, S.corr);
+          const ct = cutAtBall([cue.p, ...hh.map(h => h.p)]);
+          if (ct.hit){
+            const PP = ct.pts[ct.pts.length-1];
+            g = {D, before: ct.pts.length - 2,
+                 s: -((PP[0]-O[0])*nn[0] + (PP[1]-O[1])*nn[1])};   // 쿠션 쪽이 +
+          }
+        } catch(e){}
+        if (!g || !SEEK_KIND[kind]({before: g.before}, g)) continue;
+        // ── 3. 그 언저리를 0.1도씩 밀며 **완성되는** 각을 찾는다
+        for (let t = -10; t <= 10; t++){
+          const a = aSeed + t*0.1*RAD;
+          let r = null;
+          try { r = simulate([Math.cos(a), Math.sin(a)], k0); } catch(e){}
+          if (!r || !SEEK_KIND[kind](r, g)) continue;
+          const key = r.key + '|' + tp + '|' + tv;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(Object.assign({}, r, {a, w: 0.2, tip: tp, tipV: tv}));
+        }
+      }
+    }
+  } catch(e){}
+  S.tipH = hS; S.tipV = vS; S.tipR = rS; S.aim = aS; TIP_NOW = tH; TIPV_NOW = tV;
+  SEEK_ALL = seekSave; SWEEP_C_NOW = cSave; MIN_C_NOW = mSave;
+  // ── 득점 확인 (3쿠션 + 2적구). 통과 못 하면 안 내놓는다.
+  const ok = out.filter(r => { try { return drawnScores(r, r.a); } catch(e){ return false; } });
+  for (const r of ok) r.reach = 1;
+  return ok;
+}
+// ══════════════════════════════════════════════════════════════════════════
 function findRoutes(){
   const key = routeKey();
   if (!key) return [];
@@ -5098,80 +5205,6 @@ function findRoutes(){
       if (cur) runs.push(cur);
     }
   }
-  // ★★★★★★ **빵꾸 찾기 — 사장님 가설 그대로** (2026-08-20)
-  //   '노란공 빵꾸 라고 하면
-  //     1. 수구가 노란공을 **1직선으로 바라본다**
-  //     2. 노란공 기준 **1도씩** 줄이면서 궤적이 원쿠션과 노란공의 상단에 닿을 때까지
-  //     3. **두께설정과 당점을 대입하면서 쓰리쿠션이 완성될 때까지** 찾는다'
-  //
-  //   Node 로 132 배치를 재 보니 1·2 는 맞았다 — 일직선(5.2°)에서 **1~2도만 벌리면**
-  //   원뱅크 빵꾸 각이 나온다 (빵꾸 각 189개, 그중 +4°·+5° 가 빈쿠션 1개).
-  //   각이 없어서가 아니었다. **3번이 없었다** — 앱은 격자로 한 번 훑고 3쿠션이
-  //   안 채워지면 그냥 버렸다. 완성될 때까지 미는 과정이 없었다.
-  //
-  //   → 두 단계로 간다.
-  //     ⑴ **씨앗 찾기** — 공을 바라보는 각에서 1도씩 벌리며, 빈쿠션을 쓰고
-  //        1적구의 쿠션 쪽 틈으로 **공 반 개 이상** 비켜 스치는 각을 모은다.
-  //        여기서는 3쿠션을 안 본다. 기하만 본다 (그래서 씨앗이 많이 나온다).
-  //     ⑵ **완성시키기** — 씨앗 언저리를 **0.1도씩** 밀며 at() 을 부른다.
-  //        at() 은 3쿠션·득점까지 다 보므로, 통과하면 그것이 완성된 빵꾸다.
-  //        당점은 ⑴·⑵ 모두 21가지를 대입한다.
-  //   ⚠️ 말로 빵꾸를 요구했을 때만 돈다 (SEEK_NAB). 추천은 이 길로 안 온다.
-  if (SEEK_NAB){
-    NAB_DBG = {seed:0, tried:0, got:0, skip:0};
-    const DD = T.ball_diameter;
-    const NTIPS = [3,2,1,0,-1,-2,-3].flatMap(h => [3, 0.78, -3].map(v => [h, v]));
-    for (const kk in S.balls){
-      if (kk === 'cue') continue;
-      const O = S.balls[kk].p;
-      const cd = [[O[0],[1,0]], [T.width-O[0],[-1,0]],
-                  [O[1],[0,1]], [T.height-O[1],[0,-1]]];
-      let nr = cd[0];
-      for (const q of cd) if (q[0] < nr[0]) nr = q;
-      if (nr[0] - DD/2 > NAB_GAP * DD){ NAB_DBG.skip++; continue; }  // 그 공엔 틈이 없다
-      const nn = nr[1];
-      const a0 = Math.atan2(O[1]-cue.p[1], O[0]-cue.p[0]);   // 1. 일직선으로 바라본다
-      for (const [tp, tv] of NTIPS){
-        S.tipR = Math.min(3, Math.hypot(tp, tv));
-        S.tipH = tp; S.tipV = tv; TIP_NOW = tp; TIPV_NOW = tv;
-        for (let dg = 0; dg <= 90; dg++)                     // 2. 1도씩 벌린다
-        for (const sg of (dg ? [1, -1] : [1])){
-          const aS = a0 + sg*dg*Math.PI/180;
-          let seed = false;
-          try {
-            const aim = [cue.p[0] + Math.cos(aS)*500, cue.p[1] + Math.sin(aS)*500];
-            const hh = pathFromAim(cue.p, aim, S.corr);
-            const ct = cutAtBall([cue.p, ...hh.map(h => h.p)]);
-            if (ct.hit && ct.pts.length - 2 >= 1){           // 빈쿠션을 먼저 썼다
-              const PP = ct.pts[ct.pts.length-1];
-              const ss = -((PP[0]-O[0])*nn[0] + (PP[1]-O[1])*nn[1]);
-              seed = ss >= DD*0.5;                           // 쿠션 쪽 틈으로 스친다
-            }
-          } catch(e){}
-          NAB_DBG.tried++;
-          if (!seed) continue;
-          NAB_DBG.seed++;
-          // 3. 그 언저리를 0.1도씩 밀며 **쓰리쿠션이 완성되는** 각을 찾는다
-          let cur = null;
-          for (let t = -10; t <= 10; t++){
-            const a = aS + t*0.1*Math.PI/180;
-            const r = at(a);
-            if (r && r.before === 0){ if (cur){ runs.push(cur); cur = null; } continue; }
-            if (cur && (!r || r.key !== cur.key)){ runs.push(cur); cur = null; }
-            if (r){ NAB_DBG.got++;
-              if (cur) cur.aHi = a;
-              else cur = {key:r.key, aLo:a, aHi:a, rails:r.rails, first:r.first,
-                          rail1:r.rail1, turn1:r.turn1,
-                          cushions:r.cushions, name:r.name, loose:r.loose, before:r.before,
-                          kiss:r.kiss, flips:r.flips, rev:r.rev, back:r.back, thru:r.thru,
-                          sep:r.sep, thick:r.thick, tip:TIP_NOW, tipV:TIPV_NOW};
-            }
-          }
-          if (cur) runs.push(cur);
-        }
-      }
-    }
-  }
   SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
   // ⚠️ TIP_NOW 는 **좌우** 팁이다. 여기에 tipSave(=반지름) 를 넣고 있었다 (2026-08-14 발견).
   //    훑기가 끝난 뒤 TIP_NOW 를 보는 곳에서 엉뚱한 값을 읽게 된다.
@@ -5201,15 +5234,7 @@ function findRoutes(){
   const best = {};
   for (const r of runs){
     const w = r.hi - r.lo;
-    // ★★★★★ **빵꾸는 창이 좁다고 버리면 안 된다** (사장님 가설 3번, 2026-08-20)
-    //   132 배치를 계측해 보니 씨앗 189개에서 3쿠션까지 완성되는 각이 4개 나왔는데,
-    //   그 4개가 전부 **여기서** 사라졌다. 빵꾸는 1적구와 쿠션 사이 틈으로 밀어 넣는
-    //   샷이라 각도창이 좁을 수밖에 없다. 보통 경로와 같은 잣대(0.10°)로 자르면
-    //   **있는 빵꾸가 영영 안 나온다.**
-    //   → 빵꾸를 콕 집어 요구했을 때(SEEK_NAB), 빵꾸인 길은 이 잣대를 안 건다.
-    //     ⚠️ 좁다는 것은 **어렵다**는 뜻이지 없다는 뜻이 아니다. 어려운 것은
-    //        사장님이 보고 판단하실 몫이다 (인수인계서 4번 — 없애지 말고 뒤로 민다).
-    if (w < ROUTE_MIN_DEG * Math.PI/180 && !(SEEK_NAB && r.thru)) continue;
+    if (w < ROUTE_MIN_DEG * Math.PI/180) continue;
     if (!best[r.key] || w > best[r.key].hi - best[r.key].lo) best[r.key] = r;
   }
   // ⚠️⚠️ v166 에서 **키스가 나는 길을 통째로 뺐다.** 2026-08-13 에 되돌린다 —
@@ -5254,20 +5279,6 @@ function findRoutes(){
   //   ★ 키스는 안 뺀다. 키스는 당점으로 피할 수 있고, 사용자가 그렇게 정했다.
   const drawn = list.filter(routeSettle); // 판의 점 당점으로 붙이고, 각(두께)으로 맞춘다
   if (drawn.length) list = drawn;          // 다 빠지면 원래대로 둔다 (빈 목록보다 낫다)
-  // ★★★★★★ **빵꾸라고 내놓는 것은 반드시 득점해야 한다** (사장님 136·137.jpg)
-  //   137 의 길은 수구 → 상단(1쿠션) → 노란공 → 상단(2쿠션) → 빨간공 이다.
-  //   충돌 후 쿠션이 하나뿐이라 **2쿠션 · 득점이 아니다.** 사장님: '이 그림은 2쿠션이에요.
-  //   3쿠션이 나와야 성공이지.' 그런데 목록에 남았다 — 바로 윗줄의 '다 빠지면 원래대로
-  //   둔다' 가 득점 확인에서 탈락한 길까지 되살리기 때문이다.
-  //   추천이라면 그래도 된다 (볼 것이 없는 것보다 낫다). 그런데 사장님이 **'빵꾸' 라고
-  //   콕 집어 부른 것**에 득점도 못 하는 길을 빵꾸라고 내밀면 안 된다.
-  //   → SEEK_NAB 일 때, 득점 확인을 통과 못 한 thru 는 **빵꾸 딱지를 뗀다.**
-  //     ⚠️ 경로를 지우지는 않는다. 목록에는 남아 '원뱅크 걸어치기' 로 보인다 —
-  //        거부하지 않는다는 원칙은 그대로다. 빵꾸라고 부르지 않을 뿐이다.
-  if (SEEK_NAB && drawn.length < list.length){
-    const ok = new Set(drawn);
-    for (const r of list) if (r.thru && !ok.has(r)) r.thru = false;
-  }
   for (const r of list){
     r.reach = routeReach(r);
     // ★ 키스도 **엔진 판정**으로 덮어쓴다 (위 kissRun 주석 — 옛 판정은 30% 틀렸다).
