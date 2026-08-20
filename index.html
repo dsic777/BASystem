@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 509;
+const MOBILE_VER = 510;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6786,7 +6786,9 @@ let PICK_FIX = 1;
 //   → 그 방향으로 **갈 수 있는 데까지** 간다. 판정은 shotScored 하나로 한다.
 const PICK_SWEEP = 89;     // 조준을 그 쪽으로 최대 몇 도까지 돌려 보나
 const PICK_FINE  = 0.05;   // 그 사이를 얼마씩 훑나 (1쿠션 수가 한 칸 바뀌는 자리를 놓치지 않게)
-const PICK_TRY   = 200;    // 엔진을 최대 몇 번 굴리나 (한 번 부를 때만 도는 값이다)
+const PICK_TRY   = 120;    // 지금 당점에서 엔진을 최대 몇 번 굴리나
+const PICK_TRY_MORE = 60;  // 당점을 옮긴 뒤에는 이만큼씩
+const PICK_TIPS  = 5;      // 당점을 몇 자리까지 옮겨 보나 (지금 것 포함 · 가까운 순서)
 function pickFix(r){
   const cue = S.balls.cue;
   if (!PICK_FIX || !cue || typeof r.a !== 'number') return;
@@ -6797,57 +6799,74 @@ function pickFix(r){
   let base = null;
   try { base = engineScores(cue.p, aimAt(r.a)); } catch(e){ base = null; }
   if (base === true && (!r.first || ESC_FIRST === r.first)) return;   // 이미 닿는다
-  // ⚠️ 전에는 판정을 못 할 때(null)도 손을 뗐다. 그러면 루프가 아예 안 돈다. 이제는 돈다.
-  const a0 = r.a;
-  const n0 = numAt(a0);
-  // ★★★★★★ **한 쪽으로만 돈다 — 1쿠션 수가 커지는 쪽** (사장님 2026-08-20)
-  //   '루프를 **좌로만** 돌리세요. **1쿠션 수도 같이 증가**가 되어야 합니다.
-  //    자동으로 두께가 두꺼워집니다. 루프대로 경로를 측정하면 빵꾸 궤적이 자동으로 나오고,
-  //    수구가 궤도를 타고 2적구로 향해 득점이 성공하는 배치로 형성됩니다.'
-  //   ⚠️ 전에는 양쪽을 번갈아 봤다. 그러면 1쿠션이 **줄어드는 쪽**(두께가 얇아지는 쪽)이
-  //      먼저 걸려, 사장님이 판을 읽는 순서와 어긋났다.
-  //   어느 각으로 돌려야 1쿠션 수가 커지는지는 배치가 정한다 — 살짝 돌려 보고 고른다.
-  let sgUp = 1;
-  {
-    const t = 0.5*Math.PI/180;
-    const nA = numAt(a0 + t), nB = numAt(a0 - t);
-    if (nA !== null && nB !== null && nB > nA) sgUp = -1;
-  }
-  let tries = 0, seen = (n0 === null ? null : Math.round(n0));
-  for (let d = PICK_FINE; d <= PICK_SWEEP + 1e-9 && tries < PICK_TRY; d += PICK_FINE){
-    const a = a0 + sgUp*d*Math.PI/180;
-    const n = numAt(a);
-    if (n === null) continue;
-    const k = Math.round(n);
-    if (seen !== null && k === seen) continue;      // 아직 한 칸도 안 움직였다
-    seen = k;
-    // ★★★★★★ **판정은 엔진 하나로** (사장님 2026-08-20: '성공할 때까지 해보세요.
-    //   성공 판정할 수 있다면서요.')
-    //   ⚠️ 전에는 여기에 drawnScores(기하 판정)를 **같이** 걸었다. 그것은 '빈쿠션 수와
-    //      먼저 맞는 공이 그대로인가' 까지 보는 자라, 조준을 크게 돌리면 거의 언제나
-    //      실패한다. 그래서 루프가 200번을 돌아도 한 번도 성공이 안 났다 (169·170.jpg).
-    //   → 사장님이 말씀하신 성공은 하나다 — **두 적구를 다 맞히고 그 전에 쿠션 3회 이상**
-    //      (shotScored). 그것만 본다.
-    let ok = false;
-    tries++;
-    // ★★★★★ **먼저 맞는 공은 사장님이 지목한 그 공이라야 한다** (위 ESC_FIRST 주석)
-    try { ok = engineScores(cue.p, aimAt(a)) === true
-               && (!r.first || ESC_FIRST === r.first); } catch(e){ ok = false; }
-    if (ok){
-      r.a = a; r.fixed = 1;
-      // 이름표·두께·쿠션 차례를 **그 각의 것으로** 다시 읽는다 (안 그러면 딴 값이 남는다)
-      const sv = SEEK_ALL, cv = SWEEP_C_NOW, mv = MIN_C_NOW;
-      SEEK_ALL = 1; SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
-      let sr = null;
-      try { sr = simulate([Math.cos(a), Math.sin(a)], 0); } catch(e){ sr = null; }
-      SEEK_ALL = sv; SWEEP_C_NOW = cv; MIN_C_NOW = mv;
-      if (sr){ r.thick = sr.thick; r.sep = sr.sep; r.rails = sr.rails; r.name = sr.name;
-               r.before = sr.before; r.cushions = sr.cushions; r.thru = sr.thru; r.key = sr.key; }
-      else if (LAST_THICK !== null) r.thick = LAST_THICK;
+  const a0 = r.a, h0 = r.tip, v0 = r.tipV;
+  // 이 각의 값들을 그 각의 것으로 다시 읽는다 (이름표·두께·쿠션 차례)
+  const refresh = (a) => {
+    const sv = SEEK_ALL, cv = SWEEP_C_NOW, mv = MIN_C_NOW;
+    SEEK_ALL = 1; SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
+    let sr = null;
+    try { sr = simulate([Math.cos(a), Math.sin(a)], 0); } catch(e){ sr = null; }
+    SEEK_ALL = sv; SWEEP_C_NOW = cv; MIN_C_NOW = mv;
+    if (sr){ r.thick = sr.thick; r.sep = sr.sep; r.rails = sr.rails; r.name = sr.name;
+             r.before = sr.before; r.cushions = sr.cushions; r.thru = sr.thru; r.key = sr.key; }
+  };
+  const setTipTo = (tp, tv) => {
+    r.tip = tp; r.tipV = tv;
+    S.tipH = Math.max(-3, Math.min(3, tp)); S.tipV = tv;
+    S.tipR = Math.min(3, Math.hypot(S.tipH, S.tipV));
+    S.tipDir = ((Math.round(Math.atan2(S.tipH, S.tipV) / (Math.PI/12)) % 24) + 24) % 24;
+  };
+  // ★★★★★★ **한 당점에서 1쿠션을 한 방향으로 끝까지 민다** (사장님 2026-08-20)
+  //   돌려주는 것 — {ok:성공한 각} 또는 {last:지목한 공까지는 가는 제일 먼 각}
+  //   ⚠️ '한계' 를 남기는 까닭 (사장님 172.jpg):
+  //     '두께를 올리다가 **한계가 온 건지** 중요한 판단의 근거가 됩니다.
+  //      한계가 온 거면 **거기까지 경로로 표현은 해 주세요.** 실패라고 보고
+  //      **초기값을 보여주지 말고.** 그 다음은 당점을 조정해서 경로를 수정해야 하거든요.'
+  const sweepOne = (cap) => {
+    let sgUp = 1;
+    { const t = 0.5*Math.PI/180;
+      const nA = numAt(a0 + t), nB = numAt(a0 - t);
+      if (nA !== null && nB !== null && nB > nA) sgUp = -1; }
+    let tries = 0, seen = null, last = null;
+    { const n = numAt(a0); seen = (n === null ? null : Math.round(n)); }
+    for (let d = PICK_FINE; d <= PICK_SWEEP + 1e-9 && tries < cap; d += PICK_FINE){
+      const a = a0 + sgUp*d*Math.PI/180;
+      const n = numAt(a);
+      if (n === null) continue;
+      const k = Math.round(n);
+      if (seen !== null && k === seen) continue;      // 아직 한 칸도 안 움직였다
+      seen = k;
+      tries++;
+      let v = null;
+      try { v = engineScores(cue.p, aimAt(a)); } catch(e){ v = null; }
+      const sameBall = (!r.first || ESC_FIRST === r.first);
+      if (sameBall) last = a;                          // 여기까지는 그 공으로 간다
+      if (v === true && sameBall) return {ok: a};
+    }
+    return {last};
+  };
+  // ★ 당점 자리 — 지금 것부터, 그 다음 **파이브앤하프 이웃**으로 (가까운 순서)
+  //   '그 다음은 **당점을 조정해서** 경로를 수정해야 하거든요' (사장님)
+  const tips = FH_TIPS.slice().sort((A, B) =>
+      (Math.hypot(A[0]-h0, A[1]-v0)) - (Math.hypot(B[0]-h0, B[1]-v0)))
+    .slice(0, PICK_TIPS);
+  let limit = null;
+  for (let i = 0; i < tips.length; i++){
+    setTipTo(tips[i][0], tips[i][1]);
+    const got = sweepOne(i === 0 ? PICK_TRY : PICK_TRY_MORE);
+    if (got.ok !== undefined){
+      r.a = got.ok; r.fixed = 1; refresh(got.ok);
       return;
     }
+    if (got.last != null && !limit) limit = {a: got.last, tp: tips[i][0], tv: tips[i][1]};
   }
-  r.a = a0;
+  // ── 끝까지 못 찾았다. **한계 자리를 그대로 보여준다** (초기값으로 안 되돌린다)
+  if (limit){
+    setTipTo(limit.tp, limit.tv);
+    r.a = limit.a; r.limit = 1; refresh(limit.a);
+  } else {
+    setTipTo(h0, v0); r.a = a0;
+  }
 }
 function pickRoute(r){
   tipAuto();                               // 추천을 고르면 그 경로의 당점이 주인이다
