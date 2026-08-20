@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 470;
+const MOBILE_VER = 471;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2172,6 +2172,21 @@ function voicePick(text){
   const cut = (f, why) => { const q = out.filter(f);
                             if (q.length) out = q; else if (why) miss.push(why);
                             return q.length; };
+  // ★★★★★ **요구를 거부하지 않는다** (사장님 2026-08-20, 119.jpg:
+  //   '**사용자가 요구를 하는데 거부를 하네요**')
+  //   딱 맞는 것이 없으면 cut 은 조건을 **통째로 버리고** 순위 1등을 집었다.
+  //   118 에서 '빨간 공 빵꾸' 라 했더니 두께 87% 짜리 횡단&더블이 나왔다 —
+  //   그 배치에 117(원뱅크 · 두께 28%, 사장님: '너무 좋은 공')이 있었는데도.
+  //   → **한 칸씩 넓혀 가며 제일 가까운 것**을 준다. 그리고 넓혔다고 화면에 적는다.
+  //     없다고 잘라 말하는 것보다, 가까운 것을 주고 그렇다고 말하는 것이 낫다.
+  const soft = [];
+  const soften = (why, ...steps) => {
+    for (let i = 0; i < steps.length; i++){
+      const q = out.filter(steps[i][0]);
+      if (q.length){ out = q; if (i) soft.push(why + '→' + steps[i][1]); return; }
+    }
+    miss.push(why);
+  };
   const BALLNM = {yellow:'노란공', white:'흰공', red:'빨간공'};
   // ① 먼저 맞힐 공
   //   ★★ 그 공이 **지금 수구**면 수구를 바꾼다 (사장님 2026-08-20: '기본은 수구가
@@ -2212,13 +2227,18 @@ function voicePick(text){
   }
   if (grp) cut(r => grp.이름.some(n => (r.name || '') === n), grp.이름[0]);
   // ③ 시까끼(쿠션부터) · 기레까시(공부터) — route.before 하나로 갈린다 (104·105)
-  if (said('시까끼') || said('걸어치기')) cut(r => r.before >= 1 && !r.thru, '걸어치기');
+  if (said('시까끼') || said('걸어치기'))
+    soften('걸어치기', [r => r.before >= 1 && !r.thru, ''], [r => r.before >= 1, '뱅크']);
   else if (said('기레까시') || said('비껴치기')) cut(r => r.before === 0, '비껴치기');
-  // ④ 넣어치기(구멍·빵꾸) — 1적구를 지나쳐 쿠션과 1적구 사이 틈으로 들어간다.
-  //   route.thru 로 걸어치기와 갈린다 (97·98.jpg · 계산은 findRoutes 의 thru 참고).
-  //   사장님: '구멍 빵꾸 다 **원뱅크 넣어치기**니까요' → 원뱅크까지 같이 건다.
+  // ④ 넣어치기(구멍·빵꾸) — 1적구와 쿠션 사이의 **틈으로 밀고 들어간다**.
+  //   판정은 findRoutes 의 thru (97·117.jpg · 사장님 '공 반개만 벌어져 있어도').
+  //   사장님: '구멍 빵꾸 다 **원뱅크 넣어치기**니까요' → 원뱅크를 같이 건다.
+  //   ★ 못 찾으면 거부하지 말고 넓힌다 (위 soften 주석 · 119.jpg).
+  //     원뱅크 전체 → 그것도 없으면 빈쿠션을 쓰는 길 전체.
   if (said('빵꾸') || said('구멍') || said('구멍치기') || said('넣어치기') || said('가락넣기'))
-    cut(r => r.thru && r.name === '원뱅크', '빵꾸');
+    soften('빵꾸', [r => r.thru && r.name === '원뱅크', ''],
+                   [r => r.name === '원뱅크', '원뱅크'],
+                   [r => r.before >= 1, '뱅크']);
   // ⑤ 직접 — 2적구를 바로 맞힌다 (충돌 후 쿠션 0)
   if (said('직접')) cut(r => (r.cushions - r.before) === 0, '직접');
   // ⑥ 길게 · 짧게 = **긴각 · 짧은각** (102·103). 분리각이 작을수록 긴각
@@ -2226,6 +2246,17 @@ function voicePick(text){
     out.sort((a,b) => (a.sep === undefined ? 999 : a.sep) - (b.sep === undefined ? 999 : b.sep));
   else if (said('짧게') || said('짧은각'))
     out.sort((a,b) => (b.sep === undefined ? -1 : b.sep) - (a.sep === undefined ? -1 : a.sep));
+  // ★★★★★ **말로 요구하면 순위를 태우지 않는다** (사장님 2026-08-20)
+  //   '사용자가 경로를 요구하면 **판단이 필요한게 아니라 경로를 찾아내야** 합니다.
+  //    **추천이 아니에요. 우선순위 필요 없어요.**'
+  //   여기서 rank() 를 다시 태우면 진로 이름 점수 · 키스 −250 · 두께 벌점 같은
+  //   **앱의 판단**이 사장님이 고른 것 위에 다시 얹힌다. 118 이 그랬다 —
+  //   빵꾸를 달랬는데 순위가 87% 두께 횡단&더블을 올렸다.
+  //   → 거른 것 중에서는 **각도창이 넓은 것**부터 준다. 이건 '좋은 길' 이라는 판단이
+  //     아니라 '실제로 겨냥해서 맞출 수 있는 폭' 이다. 나머지는 화살표로 넘겨 보신다.
+  //   ⚠️ 아무 말도 못 알아들었을 때만 지금까지대로 순위를 쓴다 (그때는 추천이 맞다).
+  else if (grp || miss.length || soft.length || said('직접'))
+    out.sort((a, b) => (b.w || 0) - (a.w || 0));
   else out.sort((a, b) => rank(b) - rank(a));
   pickRoute(out[0]);
   S.routeIx = list.indexOf(out[0]);
@@ -2243,8 +2274,9 @@ function voicePick(text){
   const nm0 = out[0].name || '경로';
   const nm  = nm0 === '원뱅크' ? (out[0].thru ? '원뱅크 넣어치기' : '원뱅크 걸어치기') : nm0;
   voiceSay(text + (fixes.length ? '  (' + fixes.join(' ') + ')' : ''),
-           miss.length ? 0 : 1,
-           (miss.length ? '✕ ' + miss.join('·') + ' 없음   ' : '') + '→ ' + nm);
+           miss.length ? 0 : (soft.length ? 2 : 1),
+           (miss.length ? '✕ ' + miss.join('·') + ' 없음   ' : '')
+           + (soft.length ? '~ ' + soft.join('·') + '   ' : '') + '→ ' + nm);
   blink();
 }
 // 들은 말을 다이 위에 띄운다 — ok 1 확정 · 2 말하는 중 · 0 안 됨
@@ -4415,14 +4447,31 @@ function simulate(dir, k){
   //   → 가르는 것은 한 줄이다. **출발방향에 1쿠션과 1적구를 투영해 앞뒤만 잰다.**
   //     1적구가 앞이면 지나친 것 → 넣어치기 · 쿠션이 앞이면 → 걸어치기
   //   ⚠️ 이름(name)은 안 건드린다. 순위도 안 건드린다. **말로 고를 때 거르는 데만** 쓴다.
+  //   ⚠️⚠️ **2026-08-20 다시 짰다.** 처음엔 '진행방향으로 쿠션이 먼저냐 공이 먼저냐'
+  //     로 갈랐는데 그건 내가 지어낸 자다. 사장님 117.jpg 가 그 자로는 걸어치기가 되어
+  //     '빵꾸 없음' 이 떴다 — 사장님: '**117 너무 좋은 공인데 118 왜 없다는 겁니까**'.
+  //   ★ 사장님이 준 정의는 처음부터 **틈**이었다 (97.jpg) —
+  //       '수구가 **다이와 1적구 사이로 들어간다**고 해서 구멍이라고 합니다'
+  //     그리고 2026-08-20 에 크기까지 주셨다 —
+  //       '구멍 넣어치기는 **공 반개만 벌어져 있어도 밀고 들어가서** 성공을 시킵니다'
+  //   → 두 가지만 본다.
+  //       ① 1적구가 쿠션에 가깝다 (겉면에서 쿠션까지가 틈)
+  //       ② 맞는 순간 **수구 중심이 1적구 중심보다 쿠션 쪽**에 있다 = 틈으로 들어갔다
+  //     ①의 아래 끝은 사장님이 '공 반개' 로 못 박으셨다. 위 끝은 안 주셨으므로
+  //     넉넉히 잡는다 — 좁게 잡아 놓치면 또 '없다' 고 거부하게 된다.
   const thru = (() => {
-    if (c1 < 1 || !seq[0] || !seq[0].p) return false;
+    if (c1 < 1) return false;                      // 빈쿠션을 안 쓰면 넣어치기가 아니다
     const ob = S.balls[who];
-    if (!ob || !ob.p) return false;
-    const u = dirOf(cue.p, seq[0].p);
-    const sR = (seq[0].p[0] - cue.p[0]) * u[0] + (seq[0].p[1] - cue.p[1]) * u[1];
-    const sO = (ob.p[0]    - cue.p[0]) * u[0] + (ob.p[1]    - cue.p[1]) * u[1];
-    return sO < sR;
+    if (!ob || !ob.p || !P) return false;
+    const O = ob.p, R = T.ball_diameter/2;
+    // 1적구가 어느 쿠션에 붙어 있나 — 제일 가까운 쿠션 하나
+    const cand = [[O[0], [1,0]], [T.width-O[0], [-1,0]],
+                  [O[1], [0,1]], [T.height-O[1], [0,-1]]];
+    let nr = cand[0];
+    for (const c of cand) if (c[0] < nr[0]) nr = c;
+    if (nr[0] - R > NAB_GAP * T.ball_diameter) return false;   // 틈이라 할 만큼 안 가깝다
+    const n = nr[1];
+    return (P[0]-O[0])*n[0] + (P[1]-O[1])*n[1] < 0;            // 쿠션 쪽으로 지나갔다
   })();
   // ⚠️ 키에 **쿠션 차례를 다 넣는다.** (공|빈쿠션|첫쿠션|도는쪽) 까지만 묶으면
   //    사용자 1.jpg(단-장-장)와 3.jpg(단-장-단)가 한 칸으로 뭉쳐 하나가 사라진다.
@@ -4694,6 +4743,10 @@ function cueHalfMasse(){
 //   ⚠️ cueRailGap() 과 다른 값이다. 저것은 **큐가 들어갈 자리**(제일 가까운 쿠션까지
 //      수직 거리)를 보고, 이것은 **공이 굴러갈 자리**(진행 방향으로 처음 맞는 것까지)를
 //      본다. 둘 다 남긴다 — 서로 다른 것을 막는다.
+// ★ 넣어치기(빵꾸)로 볼 **틈의 위 끝** — 1적구 겉면에서 쿠션까지, 공 몇 개.
+//   아래 끝은 사장님이 못 박으셨다 ('공 반개만 벌어져 있어도 밀고 들어간다').
+//   위 끝은 안 주셨다. 좁히면 또 '없다' 고 거부하게 되므로 넉넉히 둔다.
+const NAB_GAP = 2.0;
 const NEAR_STRIKE_BALLS = 1.5;      // 공 몇 개. 이 안에서 처음 맞으면 막힌다
 const NEAR_STRIKE_AIN   = 45;       // 쿠션 — 법선에서 이 각 안이면 정면에 가깝다 → 허용
 // 수구가 ang 로 나갈 때 **처음 맞는 것** — {what:'rail'|'ball', gap, ain}
