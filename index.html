@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 471;
+const MOBILE_VER = 472;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2152,13 +2152,15 @@ function findWord(text, w){
 function voicePick(text){
   let raw = String(text || '').replace(/\s+/g, '');
   if (!raw) return;
-  // ★ 자동 수정 — 알아들은 낱말을 **제 이름으로 고쳐** 보여준다 (사장님 요청)
-  const fixes = [];
-  const said = w => {
-    const f = findWord(raw, w);
-    if (f && f.was !== w) fixes.push(f.was + '→' + w);
-    return !!f;
-  };
+  // ★★★★★ **알아들은 말로 바꿔서 보여준다** (사장님 2026-08-20)
+  //   '잘못 알아들었으면 파싱해서 **바로 변환해서** 보여주세요. 궁 → 공'
+  //   '화면에는 공으로 나오게. **해석과정 보여주지 말고 결론만.**'
+  //   → 들은 그대로('빨간 궁 빵꾸')를 띄우지 않는다. 알아들은 낱말을 제 이름으로
+  //     이어 붙여 **'빨간공 빵꾸'** 로 띄운다. 못 알아들은 찌꺼기('궁')는 그냥 버린다.
+  //   ⚠️ 고침 표시('도란→노란')·'수구전환' 같은 **과정은 안 적는다.** 결론만.
+  //      전에는 그걸 괄호로 달았는데, 사장님이 보고 싶은 것은 '앱이 뭘 하기로 했나' 다.
+  const say = [];                       // 알아들은 낱말을 제 이름으로 모은다
+  const said = w => !!findWord(raw, w);
   let list = null;
   try { list = findRoutes(); } catch(e){ list = null; }
   if (!list || !list.length){ voiceSay(text + ' — 경로가 없습니다', 0); return; }
@@ -2200,8 +2202,8 @@ function voicePick(text){
       swapCue();
       try { list = findRoutes() || []; } catch(e){}
       out = list.slice();
-      fixes.push('수구전환');
     }
+    say.push(BALLNM[want]);
     cut(r => S.balls[r.first] && S.balls[r.first].color === want, BALLNM[want]);
   }
   // ② 진로 묶음
@@ -2223,29 +2225,32 @@ function voicePick(text){
       const f = findWord(raw, w);
       if (f && f.d < bd){ bd = f.d; bf = f; bw = w; grp = gg; }
     }
-    if (bf && bf.was !== bw) fixes.push(bf.was + '→' + bw);
   }
-  if (grp) cut(r => grp.이름.some(n => (r.name || '') === n), grp.이름[0]);
+  if (grp){ say.push(grp.이름[0]);
+            cut(r => grp.이름.some(n => (r.name || '') === n), grp.이름[0]); }
   // ③ 시까끼(쿠션부터) · 기레까시(공부터) — route.before 하나로 갈린다 (104·105)
-  if (said('시까끼') || said('걸어치기'))
-    soften('걸어치기', [r => r.before >= 1 && !r.thru, ''], [r => r.before >= 1, '뱅크']);
-  else if (said('기레까시') || said('비껴치기')) cut(r => r.before === 0, '비껴치기');
+  if (said('시까끼') || said('걸어치기')){ say.push('걸어치기');
+    soften('걸어치기', [r => r.before >= 1 && !r.thru, ''], [r => r.before >= 1, '뱅크']); }
+  else if (said('기레까시') || said('비껴치기')){ say.push('비껴치기');
+    cut(r => r.before === 0, '비껴치기'); }
   // ④ 넣어치기(구멍·빵꾸) — 1적구와 쿠션 사이의 **틈으로 밀고 들어간다**.
   //   판정은 findRoutes 의 thru (97·117.jpg · 사장님 '공 반개만 벌어져 있어도').
   //   사장님: '구멍 빵꾸 다 **원뱅크 넣어치기**니까요' → 원뱅크를 같이 건다.
   //   ★ 못 찾으면 거부하지 말고 넓힌다 (위 soften 주석 · 119.jpg).
   //     원뱅크 전체 → 그것도 없으면 빈쿠션을 쓰는 길 전체.
-  if (said('빵꾸') || said('구멍') || said('구멍치기') || said('넣어치기') || said('가락넣기'))
+  if (said('빵꾸') || said('구멍') || said('구멍치기') || said('넣어치기') || said('가락넣기')){
+    say.push('빵꾸');
     soften('빵꾸', [r => r.thru && r.name === '원뱅크', ''],
                    [r => r.name === '원뱅크', '원뱅크'],
                    [r => r.before >= 1, '뱅크']);
+  }
   // ⑤ 직접 — 2적구를 바로 맞힌다 (충돌 후 쿠션 0)
-  if (said('직접')) cut(r => (r.cushions - r.before) === 0, '직접');
+  if (said('직접')){ say.push('직접'); cut(r => (r.cushions - r.before) === 0, '직접'); }
   // ⑥ 길게 · 짧게 = **긴각 · 짧은각** (102·103). 분리각이 작을수록 긴각
-  if (said('길게') || said('긴각'))
-    out.sort((a,b) => (a.sep === undefined ? 999 : a.sep) - (b.sep === undefined ? 999 : b.sep));
-  else if (said('짧게') || said('짧은각'))
-    out.sort((a,b) => (b.sep === undefined ? -1 : b.sep) - (a.sep === undefined ? -1 : a.sep));
+  if (said('길게') || said('긴각')){ say.push('길게');
+    out.sort((a,b) => (a.sep === undefined ? 999 : a.sep) - (b.sep === undefined ? 999 : b.sep)); }
+  else if (said('짧게') || said('짧은각')){ say.push('짧게');
+    out.sort((a,b) => (b.sep === undefined ? -1 : b.sep) - (a.sep === undefined ? -1 : a.sep)); }
   // ★★★★★ **말로 요구하면 순위를 태우지 않는다** (사장님 2026-08-20)
   //   '사용자가 경로를 요구하면 **판단이 필요한게 아니라 경로를 찾아내야** 합니다.
   //    **추천이 아니에요. 우선순위 필요 없어요.**'
@@ -2264,7 +2269,8 @@ function voicePick(text){
   // ★ '외 N개' 를 안 붙인다 (사용자 2026-08-20: '경로 하나만 보여주세요.
   //   앞돌리기 외 7은 필요없잖아요'). 화면에는 어차피 한 경로만 그려진다 —
   //   못 고른 숫자를 보여 봐야 읽을 것만 늘어난다.
-  //   ★ 고친 낱말이 있으면 같이 보여준다 — 앱이 뭘로 알아들었는지 보이게
+  //   ★ 윗줄은 **들은 그대로가 아니라 알아들은 말**이다 (위 say 주석 · '궁 → 공').
+  //     하나도 못 알아들었으면 그때만 들은 그대로 띄운다 — 안 그러면 빈 줄이 된다.
   //   ★ 못 찾은 것이 있으면 **그것부터** 말한다 (위 miss 주석 참고)
   //   ★★ 원뱅크는 **넣어치기냐 걸어치기냐**까지 적는다 (사장님 2026-08-20:
   //     '빵꾸를 모두 원뱅크넣어치기 경로로 잡아야 합니다'). 둘은 길이 아주 다른데
@@ -2273,7 +2279,7 @@ function voicePick(text){
   //        쓰여서, 건드리면 지금까지 쌓아 둔 평가 자료가 통째로 어긋난다. 글만 늘린다.
   const nm0 = out[0].name || '경로';
   const nm  = nm0 === '원뱅크' ? (out[0].thru ? '원뱅크 넣어치기' : '원뱅크 걸어치기') : nm0;
-  voiceSay(text + (fixes.length ? '  (' + fixes.join(' ') + ')' : ''),
+  voiceSay(say.length ? say.join(' ') : text,
            miss.length ? 0 : (soft.length ? 2 : 1),
            (miss.length ? '✕ ' + miss.join('·') + ' 없음   ' : '')
            + (soft.length ? '~ ' + soft.join('·') + '   ' : '') + '→ ' + nm);
