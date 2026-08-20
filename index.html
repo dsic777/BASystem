@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 512;
+const MOBILE_VER = 513;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1673,9 +1673,21 @@ function tapButton(px,py){
     if ((S.aimMode || S.solo || S.showPlace) && btnOnCloth(b)) continue;
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
     // ★ 보정을 바꿔도 같이 따라간다 (당점과 같은 이유 — reaimForTip 주석 참고)
-    if (b.lb === '+'){ S.corr += 0.5; reaimForTip(); }
-    else if (b.lb === '-'){ S.corr -= 0.5; reaimForTip(); }
-    else if (b.lb === '0'){ S.corr = 0; reaimForTip(); }
+    // ★★★★★★ **보정 바가 두 역할이다 — 보정 / 경로조정** (사장님 2026-08-20:
+    //   '보정 가운데 길게 누르면 좌우 화살표 변환, 다시 길게 누르면 − + 변환.
+    //    그러면 테이블에서 조정 필요없어요.' · 이름은 '경로조정')
+    //   가운데(0) 를 **길게** 누르면 좌우 버튼이 ◀ ▶ 로 바뀌어 **1쿠션 포인트**를
+    //   한 칸씩 옮긴다. 다시 길게 누르면 − + (보정) 로 돌아온다.
+    //   ⚠️ 다이 위에서 손가락으로 조준을 미는 것보다 훨씬 덜 예민하다 — 그것이 까닭이다.
+    if (b.lb === '0'){ S.corrDown = {x: px, y: py, t: nowMs()}; return; }
+    if (b.lb === '+'){
+      if (S.pathMode) nudgeFirstPoint(1);
+      else { S.corr += 0.5; reaimForTip(); }
+    }
+    else if (b.lb === '-'){
+      if (S.pathMode) nudgeFirstPoint(-1);
+      else { S.corr -= 0.5; reaimForTip(); }
+    }
     else if (b.lb === 'cam'){
       // ★★★★ 카메라 칸이 **두 역할**이다 (사용자 2026-08-20):
       //   '카메라를 **길게 탭하면 마이크**로 전환, 길게 탭하면 카메라로 전환.
@@ -3192,6 +3204,16 @@ function up(px, py){
     }
     return;
   }
+  // ★ 보정 가운데 — 길게면 모드 전환, 짧게면 보정 0 (위 ★★★★★★ 주석)
+  if (S.corrDown){
+    const d = S.corrDown; S.corrDown = null;
+    const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
+    if (moved <= LONG_MOVE){
+      if (nowMs() - d.t >= LONG_MS){ S.pathMode = S.pathMode ? 0 : 1; blink(); }
+      else if (!S.pathMode){ S.corr = 0; reaimForTip(); }
+    }
+    return;
+  }
   if (S.powDown){
     const d = S.powDown; S.powDown = null;
     const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
@@ -3498,9 +3520,9 @@ const SHOW_XY = false;
 //   좌표는 사장님이 요청 #20 으로 보내 주신 그 배치다 (mm, 좌하단 0,0).
 //   그 배치로 돌리면 2시 3팁 · 1쿠션 37 이 나오는데, 157 화면의 값과 같다.
 //   ⚠️ 시험이 끝나면 SET_LAYOUT 과 AUTO_SAY 를 **둘 다 null 로 되돌린다.**
-const SET_LAYOUT = null;   // ← 시험 끝. 사장님 2026-08-20 '시험배치 고정은 푸세요'
+const SET_LAYOUT = {cue:'white', white:[421,1072], red:[1511,1092], yellow:[2188,891]};
 // ★ 켜질 때 이 말을 **앱이 스스로 한다.** 사장님은 결과만 보시면 된다.
-const AUTO_SAY = null;     // ← 같이 푼다
+const AUTO_SAY = '빨간공 빵꾸';   // ← 켜지면 스스로 부른다 (시험용)
 //   ↑ 2026-08-13 영상(15-55-33)의 그 대회전. 무회전 자연회전(v241) 확인용.
 //     두께 74% · 분리각 52° · 1쿠션 상단 x=2182 (영상에서 잰 값과 같다)
 //     ⚠️ 확인이 끝나면 null 로 되돌린다.
@@ -6442,6 +6464,68 @@ function drawNextBtn(){
   g.fillText(NM, b.x + b.w/2, b.y + b.h/2);
   g.restore();
 }
+// ★★★★★ **임시 — 키보드 화살표로 1쿠션 포인트를 한 칸씩** (사장님 2026-08-20:
+//   '임시기능추가 키보드 화살표 좌 우 포인트 조정 기능 넣어주세요. 임시기능입니다.
+//    마우스가 예민해서 1쿠션 포인트 변경용입니다.')
+//   ← 는 1쿠션 자리를 **화면 왼쪽**으로, → 는 **오른쪽**으로 한 칸(1포인트) 옮긴다.
+//   숫자가 커지는 쪽이 어느 쪽인지는 배치가 정하므로 **보이는 방향**으로 맞춘다.
+//   ⚠️ 임시 기능이다. 다 보고 나면 뺀다.
+function nudgeFirstPoint(dirPx){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim) return;
+  const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
+  const len = Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) || 2000;
+  const numAt = (a) => { try { return firstNumFor(cue.p, [Math.cos(a), Math.sin(a)]); }
+                         catch(e){ return null; } };
+  const pxAt = (a) => { try { const h = frameHit(cue.p, [Math.cos(a), Math.sin(a)]);
+                              return h ? toPx(...h)[0] : null; } catch(e){ return null; } };
+  const n0 = numAt(a0), x0 = pxAt(a0);
+  if (n0 === null || x0 === null) return;
+  const STEP = 0.02 * Math.PI/180;
+  // 어느 쪽으로 돌려야 화면에서 그 쪽으로 가나
+  let sg = 1;
+  { const xA = pxAt(a0 + STEP*10), xB = pxAt(a0 - STEP*10);
+    if (xA !== null && xB !== null) sg = ((xA - xB) * dirPx >= 0) ? 1 : -1; }
+  for (let i = 1; i <= 4000; i++){
+    const a = a0 + sg*i*STEP;
+    const n = numAt(a);
+    if (n === null) break;
+    if (Math.abs(Math.round(n) - Math.round(n0)) >= 1){
+      S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+      S.aimSnapped = 0; S.snapA = null;
+      blink(); draw();
+      return;
+    }
+  }
+}
+// ★ 위·아래 — **당점을 파이브앤하프 자리에서 한 칸씩** (사장님 2026-08-20:
+//   '키보드 위 아래도 같이 넣어주세요 경로조정')
+//   좌우가 1쿠션 포인트니, 위아래는 나머지 손잡이인 당점이다 —
+//   사장님 172: '그 다음은 **당점을 조정해서** 경로를 수정해야 하거든요.'
+//   FH_TIPS 열여섯 자리를 시계 방향으로 한 칸씩 돈다. 조준은 같은 각을 지킨다.
+function nudgeTip(step){
+  if (!FH_TIPS.length) return;
+  let bi = 0, bd = 1e9;
+  for (let i = 0; i < FH_TIPS.length; i++){
+    const d = Math.hypot(FH_TIPS[i][0]-(S.tipH||0), FH_TIPS[i][1]-(S.tipV||0));
+    if (d < bd){ bd = d; bi = i; }
+  }
+  const n = (bi + step + FH_TIPS.length) % FH_TIPS.length;
+  const [tp, tv] = FH_TIPS[n];
+  S.tipH = tp; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(tp, tv));
+  S.tipDir = ((Math.round(Math.atan2(tp, tv) / (Math.PI/12)) % 24) + 24) % 24;
+  S.tipLock = 1;                       // 손으로 정한 값이다 — 자동으로 안 되돌린다
+  blink(); draw();
+}
+addEventListener('keydown', function(e){
+  const K = e.key;
+  if (K !== 'ArrowLeft' && K !== 'ArrowRight' && K !== 'ArrowUp' && K !== 'ArrowDown') return;
+  if (S.noteList || S.routeList || S.tipPanel) return;      // 목록·판이 떠 있으면 안 받는다
+  e.preventDefault();
+  if (K === 'ArrowLeft')  nudgeFirstPoint(-1);
+  else if (K === 'ArrowRight') nudgeFirstPoint(1);
+  else nudgeTip(K === 'ArrowUp' ? 1 : -1);
+});
 function drawNoteBtn(){
   drawHeard();                       // ★ 들은 말 (마이크 모드에서만 값이 찬다)
   drawNextBtn();                     // ★ 평가 대기일 때만 뜬다
@@ -10652,6 +10736,7 @@ function drawButtons(){
   //   배치 3초도 같다 (그때는 길·두께 글자도 이미 안 그린다).
   const hideCorr = !!(S.solo || S.showPlace);
   const cb = BTN.filter(b => ['-','0','+'].includes(b.lb));
+  const CORR_LB = S.pathMode ? {'-':'◀', '0':'경로', '+':'▶'} : {'-':'−', '0':'0', '+':'+'};
   if (cb.length === 3 && !hideCorr){
     g.save();
     const x0 = Math.min(...cb.map(b => b.x)), x1 = Math.max(...cb.map(b => b.x+b.w));
@@ -10839,7 +10924,12 @@ function drawButtons(){
       }
       continue;
     }
-    if (b.lb === '0'){                             // 보정 값 — 부호를 색으로 (사용자 확정)
+    // ★★★★★ **경로조정** 일 때는 ◀ 경로 ▶ 로 바뀐다 (위 CORR_LB · 사장님 2026-08-20)
+    if (S.pathMode && ['-','0','+'].includes(b.lb)){
+      const t = CORR_LB[b.lb];
+      heavy(t, cx, cy, u*(b.lb === '0' ? 0.34 : 0.62), b.lb === '0' ? '#ffd400' : '#f2f4f8');
+    }
+    else if (b.lb === '0'){                        // 보정 값 — 부호를 색으로 (사용자 확정)
       // 0 일 때는 부호가 없으므로 - + 와 같은 색으로 둔다 (사용자 지시).
       heavy(String(Math.abs(S.corr)), cx, cy, u*0.58,
             S.corr < 0 ? '#ff5fa8' : '#f2f4f8');
