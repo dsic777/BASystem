@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 514;
+const MOBILE_VER = 515;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3102,16 +3102,13 @@ function down(px,py){
   // ⚠️ **경로설정 모드일 때만** 받는다 (사용자 2026-08-18: '해제시 경로설정 불가').
   //   테두리(프레임) 조준은 그대로 둔다 — 거기는 버튼이 없어 부딪힐 일이 없고,
   //   미세조정에 쓰던 오래된 길이다.
-  if (S.aimMode && !previewOn() && S.balls.cue){
-    const c = L.cloth;
-    if (px >= c.x && px <= c.x+c.w && py >= c.y && py <= c.y+c.h){
-      // 찍은 쪽 **반대**로 한 번에 (깜빡임 중이면 안 먹는다) → 자석
-      if (aimAtPx(px,py)) magnetPull();
-      const f = pxAngleTo(px,py), a = curAimPxAngle();
-      // 끌기 기준 — 누른 순간의 손가락 각과 조준 각을 같이 붙잡아 둔다
-      if (f !== null && a !== null) S.aimFree = {f, a};
-    }
-  }
+  // ★★★★★★ **다이 안(천 위) 조준을 뺀다** (사장님 2026-08-21:
+  //   '테이블 수구 뒤에서 조정 … 그거 삭제하세요. 불편해요. 써 보니 이제
+  //    **프레임에서 기본 조정하고 화살표나 보정에서 조정**하는 게 세밀합니다.')
+  //   손가락으로 천 위를 미는 것은 폰에서 너무 예민했다. 대신 —
+  //     프레임(테두리) 탭 = 큰 조정   ·   ◀ ▶(경로조정)·키보드 화살표 = 세밀 조정
+  //   ⚠️ 프레임 조준은 그대로 둔다. S.aimFree(끌기)는 이제 안 켜진다 —
+  //      코드는 남겨 둔다. 다시 필요해지면 이 한 덩어리만 되살리면 된다.
 }
 function move(px,py){
   if (S.thickPanel){ moveThickPanel(px,py); return; }
