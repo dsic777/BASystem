@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 469;
+const MOBILE_VER = 470;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2242,13 +2242,17 @@ function voicePick(text){
   //        쓰여서, 건드리면 지금까지 쌓아 둔 평가 자료가 통째로 어긋난다. 글만 늘린다.
   const nm0 = out[0].name || '경로';
   const nm  = nm0 === '원뱅크' ? (out[0].thru ? '원뱅크 넣어치기' : '원뱅크 걸어치기') : nm0;
-  voiceSay(text + (fixes.length ? '  (' + fixes.join(' ') + ')' : '')
-           + (miss.length ? '  ✕ ' + miss.join('·') + ' 없음' : '')
-           + '  →  ' + nm, miss.length ? 0 : 1);
+  voiceSay(text + (fixes.length ? '  (' + fixes.join(' ') + ')' : ''),
+           miss.length ? 0 : 1,
+           (miss.length ? '✕ ' + miss.join('·') + ' 없음   ' : '') + '→ ' + nm);
   blink();
 }
 // 들은 말을 다이 위에 띄운다 — ok 1 확정 · 2 말하는 중 · 0 안 됨
-function voiceSay(t, ok){ S.heard = {t, ok, at: nowMs()}; }
+// ★★ 두 줄로 나눈다 (사장님 2026-08-20, 115.jpg) — '빨간 궁 빵꾸 ✕ 빵꾸 없음 →
+//   횡단&더블시스템' 이 한 줄로 다이를 가로질러 **두께·분리각 숫자를 덮었다.**
+//   상자를 걷어낸 뜻이 반쯤 죽는다. 들은 말(윗줄)과 앱이 한 일(아랫줄)을 가른다.
+//   아랫줄은 작게 — 먼저 읽어야 할 것은 '내 말을 뭐로 알아들었나' 다.
+function voiceSay(t, ok, sub){ S.heard = {t, ok, sub: sub || '', at: nowMs()}; }
 function cueColor(){ return S.cueWhite ? 'white' : 'yellow'; }
 function roleOf(c){
   const cc = cueColor();
@@ -5852,12 +5856,22 @@ function drawHeard(){
   //   글씨를 통째로 덮고 있었다. 말을 확인하려다 정작 봐야 할 길을 가리면 안 된다.
   //   → 상자를 없애고 **글자에 검은 테두리**만 두른다. 천 위에서도 읽히고 길도 보인다.
   //   상태(확정 노랑 · 말하는 중 회색 · 안 됨 빨강)는 글자색이 그대로 들고 있다.
+  //   ★★ 두 줄로 나눈다 (사장님 2026-08-20, 115.jpg) — 못 찾은 것까지 한 줄에 이으니
+  //     '빨간 궁 빵꾸 ✕ 빵꾸 없음 → 횡단&더블시스템' 이 다이를 가로질러 **두께·분리각
+  //     숫자를 덮었다.** 상자를 걷어낸 뜻이 반쯤 죽는다.
+  //     윗줄 = 들은 말 (먼저 읽어야 할 것) · 아랫줄 = 앱이 한 일. 아랫줄은 작게.
+  const cx = x + w/2, cy = y + bh/2;
+  const col = h.ok === 1 ? '#ffe98a' : h.ok === 2 ? '#c8d0dc' : '#ffb3ae';
   g.lineJoin = 'round'; g.miterLimit = 2;
   g.strokeStyle = 'rgba(8,10,14,0.90)';
-  g.lineWidth = Math.max(3, fs*0.30);
-  g.strokeText(h.t, x + w/2, y + bh/2);
-  g.fillStyle = h.ok === 1 ? '#ffe98a' : h.ok === 2 ? '#c8d0dc' : '#ffb3ae';
-  g.fillText(h.t, x + w/2, y + bh/2);
+  const line = (t, yy, size, cc) => {
+    g.font = '800 ' + Math.round(size) + 'px system-ui, -apple-system, sans-serif';
+    g.lineWidth = Math.max(3, size*0.30);
+    g.strokeText(t, cx, yy);
+    g.fillStyle = cc; g.fillText(t, cx, yy);
+  };
+  line(h.t, cy, fs, col);
+  if (h.sub) line(h.sub, cy + fs*1.15, fs*0.78, col);
   g.restore();
 }
 function drawNextBtn(){
