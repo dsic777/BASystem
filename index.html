@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 475;
+const MOBILE_VER = 476;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5001,14 +5001,28 @@ function findRoutes(){
   //      성공률이 거의 없다' 고 했지만, 없애지 않고 rank() 가 뒤로 민다 (인수인계서 4번).
   SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
   {
-    const BANK_TIPS = [[3, 3], [3, 0.78], [-3, 3], [-3, 0.78]];   // [좌우, 상하]
-    const m360 = Math.ceil(2*Math.PI / step);
+    // ★★★★★ **요구가 들어오면 당점을 다 훑는다** (사장님 2026-08-20, 126~128.jpg)
+    //   127 에서 '빨간 공 빵꾸 **원뱅크 넣어치기**' 라고 콕 집어 말했는데 '✕ 원뱅크 없음'.
+    //   121·125·126 도 원뱅크가 안 나왔다. 이유가 여기 있었다 —
+    //   **뱅크 훑기가 당점을 넷만 본다.** 좌우 ±3팁 × 상단 둘. 0팁도 1·2팁도,
+    //   하단(끌어치기)도 안 본다. 그러니 그 당점이라야 나오는 원뱅크는 영영 없다.
+    //   (위 주석의 '42가지를 다 돌면 폰에서 못 쓴다' 는 **추천**을 말한 것이다.
+    //    추천은 화면을 그릴 때마다 도는데, 말로 요구하는 것은 한 번만 돈다.)
+    //   → SEEK_ALL 이면 좌우 7 × 상하 3 = 21가지를 돈다. 추천은 지금까지대로 넷.
+    const BANK_TIPS = SEEK_ALL
+      ? [3,2,1,0,-1,-2,-3].flatMap(h => [3, 0.78, -3].map(v => [h, v]))
+      : [[3, 3], [3, 0.78], [-3, 3], [-3, 0.78]];   // [좌우, 상하]
+    // ★ 당점을 21가지로 넓히면 훑는 양이 5배가 된다 (Node 로 4.7~5.4초).
+    //   **찾는 단계만 성글게** 본다 — 경계는 어차피 뒤에서 edge() 가 다시 다듬는다.
+    //   ⚠️ 너무 성글면 좁은 창(빙 돌아 겨우 맞는 길)을 건너뛴다. 3배까지만.
+    const bstep = SEEK_ALL ? step*3 : step;
+    const m360 = Math.ceil(2*Math.PI / bstep);
     for (const [tp, tv] of BANK_TIPS){
       S.tipR = Math.min(3, Math.hypot(tp, tv));
       S.tipH = tp; S.tipV = tv; TIP_NOW = tp; TIPV_NOW = tv;
       let cur = null;
       for (let i = 0; i <= m360; i++){
-        const a = -Math.PI + i*step;
+        const a = -Math.PI + i*bstep;
         const r = at(a);
         if (r && r.before === 0){ if (cur){ runs.push(cur); cur = null; } continue; }
         if (cur && (!r || r.key !== cur.key)){ runs.push(cur); cur = null; }
