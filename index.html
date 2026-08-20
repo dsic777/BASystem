@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 487;
+const MOBILE_VER = 488;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4979,44 +4979,51 @@ function seekRoutes(want, kind){
   SEEK_ALL = 1; SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
   let k0 = 0;
   if (S.corr && S.aim){ try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; } }
-  const out = [], seen = new Set();
-  // ⑵ **씨앗은 무회전으로 잡는다.** 각만 보는 단계라 당점을 섞으면 안 된다.
-  //   ⚠️ 전에는 (당점 고정 → 각 훑기) 였다. 그러면 그 당점에서 씨앗이 안 잡히는 각은
-  //      영영 못 본다. 141.jpg 에서 두께 3% 짜리만 나온 까닭이다.
-  //      사장님 가설은 반대다 — **각을 잡고 두께·당점을 대입**한다.
-  const seeds = [];
-  S.tipH = 0; S.tipV = 0; S.tipR = 0; TIP_NOW = 0; TIPV_NOW = 0;
-  for (let dg = 0; dg <= 90; dg++)                          // 2. 1도씩 벌린다
-  for (const sg of (dg ? [1, -1] : [1])){
-    const aSeed = a0 + sg*dg*RAD;
-    let g = null;
-    try {
-      const aim = [cue.p[0] + Math.cos(aSeed)*500, cue.p[1] + Math.sin(aSeed)*500];
-      const hh = pathFromAim(cue.p, aim, S.corr);
-      const ct = cutAtBall([cue.p, ...hh.map(h => h.p)]);
-      if (ct.hit){
-        const PP = ct.pts[ct.pts.length-1];
-        g = {D, before: ct.pts.length - 2,
-             s: -((PP[0]-O[0])*nn[0] + (PP[1]-O[1])*nn[1])};      // 쿠션 쪽이 +
-      }
-    } catch(e){}
-    if (g && SEEK_KIND[kind]({before: g.before}, g)) seeds.push({a: aSeed, g});
-  }
-  // ⑶ **씨앗마다 두께(0.1도) × 당점(판의 점 73자리)을 대입한다** — 가설 3번 그대로
+  const out = [], seen = new Map();
+  // ⑵ **씨앗은 당점마다 잡는다.** 회전을 줘야 비로소 원뱅크가 되는 각이 있기 때문이다.
+  //   ⚠️ 한때 무회전 하나로만 씨앗을 잡아 봤다가 되돌렸다 — 138 배치에서 정답 각
+  //      (2시 3팁 · 10.2° · 두께 24%)이 무회전에서는 씨앗이 안 잡힌다. 회전이 1쿠션
+  //      반사각을 바꾸므로, 같은 각이라도 당점에 따라 원뱅크가 되기도 안 되기도 한다.
+  //   사장님 가설의 '1직선으로 바라본다' 는 **각을 세는 출발점**을 말한 것이지
+  //   씨앗을 무회전으로 잡으라는 뜻이 아니었다.
   try {
-    for (const sd of seeds)
     for (const [tp, tv] of SEEK_TIPS){
       S.tipH = tp; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(tp, tv));
       TIP_NOW = tp; TIPV_NOW = tv;
-      for (let t = -10; t <= 10; t++){
-        const a = sd.a + t*0.1*RAD;
-        let r = null;
-        try { r = simulate([Math.cos(a), Math.sin(a)], k0); } catch(e){}
-        if (!r || !SEEK_KIND[kind](r, sd.g)) continue;
-        const key = r.key + '|' + tp.toFixed(2) + '|' + tv.toFixed(2);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(Object.assign({}, r, {a, w: 0.2, tip: tp, tipV: tv}));
+      for (let dg = 0; dg <= 90; dg++)                       // 2. 1도씩 벌린다
+      for (const sg of (dg ? [1, -1] : [1])){
+        const aSeed = a0 + sg*dg*RAD;
+        let g = null;
+        try {
+          const aim = [cue.p[0] + Math.cos(aSeed)*500, cue.p[1] + Math.sin(aSeed)*500];
+          const hh = pathFromAim(cue.p, aim, S.corr);
+          const ct = cutAtBall([cue.p, ...hh.map(h => h.p)]);
+          if (ct.hit){
+            const PP = ct.pts[ct.pts.length-1];
+            g = {D, before: ct.pts.length - 2,
+                 s: -((PP[0]-O[0])*nn[0] + (PP[1]-O[1])*nn[1])};   // 쿠션 쪽이 +
+          }
+        } catch(e){}
+        if (!g || !SEEK_KIND[kind]({before: g.before}, g)) continue;
+        // ⑶ 그 언저리를 **0.1도씩** 밀며 3쿠션이 완성되는 각을 찾는다 (가설 3번)
+        for (let t = -10; t <= 10; t++){
+          const a = aSeed + t*0.1*RAD;
+          const sd = {g};
+          let r = null;
+          try { r = simulate([Math.cos(a), Math.sin(a)], k0); } catch(e){}
+          if (!r || !SEEK_KIND[kind](r, sd.g)) continue;
+          // ★★★★★ 같은 회로·같은 당점이면 **제일 두꺼운 것**을 남긴다.
+          //   ⚠️ 전에는 먼저 들어온 것을 남기고 나머지를 버렸다. 미세각을 −1도부터
+          //      도니까 **제일 얇은 것**이 남았다 — 138 에서 두께 24% 짜리를 찾아
+          //      놓고 1% 로 덮어쓰고 있었다 (141.jpg '성공을 시켜야 합니다').
+          //   빵꾸는 얇을수록 여유가 없다. 틈을 지나는 한(=반두께 이하) **두꺼울수록**
+          //   맞히기 쉽다. 그래서 두꺼운 쪽을 남긴다.
+          const key = r.key + '|' + tp.toFixed(2) + '|' + tv.toFixed(2);
+          const cand = Object.assign({}, r, {a, w: 0.2, tip: tp, tipV: tv});
+          const had = seen.get(key);
+          if (had === undefined){ seen.set(key, out.length); out.push(cand); }
+          else if (cand.thick > out[had].thick) out[had] = cand;
+        }
       }
     }
   } catch(e){}
