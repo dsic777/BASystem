@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 504;
+const MOBILE_VER = 505;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6754,27 +6754,37 @@ function pickFix(r){
   if (base !== false) return;               // 이미 닿거나, 판정을 못 하면 손대지 않는다
   const a0 = r.a;
   const n0 = numAt(a0);
-  let tries = 0;
-  // 한쪽씩 따로 센다 — 조준을 어느 쪽으로 돌리든 1쿠션 수는 한 칸씩만 움직여야 한다
-  const seen = {1: (n0 === null ? null : Math.round(n0)), '-1': (n0 === null ? null : Math.round(n0))};
-  for (let d = PICK_FINE; d <= PICK_SWEEP + 1e-9 && tries < PICK_TRY; d += PICK_FINE)
-    for (const sg of [1, -1]){
-      const a = a0 + sg*d*Math.PI/180;
-      const n = numAt(a);
-      if (n === null) continue;
-      const k = Math.round(n);
-      if (seen[sg] !== null && k === seen[sg]) continue;   // 아직 한 칸도 안 움직였다
-      seen[sg] = k;
-      // 먼저 맞는 공과 빈쿠션 수가 그대로여야 '그 경로' 다 (drawnScores 가 같이 본다)
-      let ok = false;
-      tries++;
-      try { ok = drawnScores(r, a) && engineScores(cue.p, aimAt(a)) === true; } catch(e){ ok = false; }
-      if (ok){
-        r.a = a; r.fixed = 1;
-        if (LAST_THICK !== null) r.thick = LAST_THICK;
-        return;
-      }
+  // ★★★★★★ **한 쪽으로만 돈다 — 1쿠션 수가 커지는 쪽** (사장님 2026-08-20)
+  //   '루프를 **좌로만** 돌리세요. **1쿠션 수도 같이 증가**가 되어야 합니다.
+  //    자동으로 두께가 두꺼워집니다. 루프대로 경로를 측정하면 빵꾸 궤적이 자동으로 나오고,
+  //    수구가 궤도를 타고 2적구로 향해 득점이 성공하는 배치로 형성됩니다.'
+  //   ⚠️ 전에는 양쪽을 번갈아 봤다. 그러면 1쿠션이 **줄어드는 쪽**(두께가 얇아지는 쪽)이
+  //      먼저 걸려, 사장님이 판을 읽는 순서와 어긋났다.
+  //   어느 각으로 돌려야 1쿠션 수가 커지는지는 배치가 정한다 — 살짝 돌려 보고 고른다.
+  let sgUp = 1;
+  {
+    const t = 0.5*Math.PI/180;
+    const nA = numAt(a0 + t), nB = numAt(a0 - t);
+    if (nA !== null && nB !== null && nB > nA) sgUp = -1;
+  }
+  let tries = 0, seen = (n0 === null ? null : Math.round(n0));
+  for (let d = PICK_FINE; d <= PICK_SWEEP + 1e-9 && tries < PICK_TRY; d += PICK_FINE){
+    const a = a0 + sgUp*d*Math.PI/180;
+    const n = numAt(a);
+    if (n === null) continue;
+    const k = Math.round(n);
+    if (seen !== null && k === seen) continue;      // 아직 한 칸도 안 움직였다
+    seen = k;
+    // 먼저 맞는 공과 빈쿠션 수가 그대로여야 '그 경로' 다 (drawnScores 가 같이 본다)
+    let ok = false;
+    tries++;
+    try { ok = drawnScores(r, a) && engineScores(cue.p, aimAt(a)) === true; } catch(e){ ok = false; }
+    if (ok){
+      r.a = a; r.fixed = 1;
+      if (LAST_THICK !== null) r.thick = LAST_THICK;
+      return;
     }
+  }
   r.a = a0;
 }
 function pickRoute(r){
