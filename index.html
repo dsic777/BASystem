@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 476;
+const MOBILE_VER = 477;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5414,7 +5414,16 @@ function enginePath(cueP, aim, fast){
         EPATH = {key, val: out};
         return out;
       }
-      for (const f of [0.55, 0.8, 1.0, 1.35, 1.8]){        // 닿는 세기를 먼저 하나 찾는다
+      // ★★★★ **세게 쳐야 가는 길이 있다** (사장님 2026-08-20, 129.jpg:
+      //   '원뱅크 걸어치기가 나와서 내가 직접 그렸는데 이렇게 나오네요. **공이 끝까지
+      //    못 가요**')
+      //   여기서 못 찾으면 '못 치는 길' 로 보고 그리는 데까지만 굴린다 — 그래서 공이
+      //   중간에 선다. 그런데 못 치는 게 아니라 **더 세게 치면 가는** 길이었다.
+      //   ⚠️ 위 세기는 기하 계산값(pl.V0)의 배수다. 원뱅크처럼 쿠션을 많이 타는 길은
+      //      엔진이 기하보다 훨씬 많이 잃어서 1.8배로는 모자란다.
+      //   → 2.5 · 3.5 까지 넓힌다. 닿는 세기를 찾으면 거기서 멈추므로, 쉬운 길은
+      //     지금까지와 똑같이 첫 서너 번에 끝난다. 어려운 길에서만 두 번 더 굴린다.
+      for (const f of [0.55, 0.8, 1.0, 1.35, 1.8, 2.5, 3.5]){  // 닿는 세기를 먼저 하나 찾는다
         const r = engineRun(pl.dir, base*f, pl.kk, E);
         if (r && r.scored){ hi = base*f; best = r; break; }
         lo = base*f;
