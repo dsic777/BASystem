@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 517;
+const MOBILE_VER = 519;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1334,7 +1334,7 @@ const S = {balls:{}, cueWhite:true, place:null, aim:null, aiming:false, scatter:
            replayN:0, replayAll:0, replayLeft:0, shotBak:null, shotInfo:null,
            card:0, wantCard:0, showPlace:0, viewSec:3,
            thickPanel:false, thickBak:null, thDrag:0, tipDragP:0,
-           dragAt:null, dragMoved:0, aimFree:0, magnet:1,
+           dragAt:null, dragMoved:0, magnet:1,
            noteList:false, notePage:0, verDrag:null,
            // ★ 세기 — 0 약 · 1 중 · 2 강. 기본은 **중** (사용자 확정 2026-08-11).
            //   아직 자리만 잡아 둔 것이다. 경로 길이에는 연결하지 않았다 —
@@ -2673,63 +2673,16 @@ function setAimPxAngle(a){
   liftTipIfNoDraw();                // ★ '직접지정 시는 경로설정 시 당점을 자동으로 올려버리세요'
   return true;
 }
-// ★★★★ **뒤에서 총 쏘듯** 겨냥한다 (사용자 2026-08-18):
-//   '다이에서 조정을 할때 지금의 경우 공과 1쿠션 사이에서 손가락으로 방향을
-//    설정하려니 경로가 가립니다. 쿠션과 수구의 반대 방향에서 겨냥을 하는 방식으로
-//    변경하면 좋겠어요 뒤에서 총을쏘듯'
-//   → 손가락은 **수구 뒤**에 둔다. 공은 손가락 반대쪽으로 간다.
-//     보고 싶은 경로 위에 손가락이 없으니 가릴 일이 없다.
-//   ⚠️ 끌 때의 부호는 안 바뀐다 — 수구를 축으로 한 **한 덩어리 회전**이라
-//      손가락과 총구가 같은 쪽으로 돈다. 그래서 aimDragPx 는 그대로 둔다.
-const AIM_FROM_BEHIND = Math.PI;
-// 누를 때 — 찍은 쪽의 **반대**로 바로 간다
-function aimAtPx(px, py){
-  const cue = S.balls.cue;
-  if (!cue) return false;
-  if (blinking()) return false;
-  const [cx,cy] = toPx(...cue.p);
-  if (Math.hypot(px-cx, py-cy) < ballR()*2.2) return false;
-  const a = pxAngleTo(px, py);
-  return a === null ? false : setAimPxAngle(a + AIM_FROM_BEHIND);
-}
-// ─────────────────────────────── 자석 (사용자 2026-08-18 다시 넣음)
-// '이럴경우 자석기능을 줘 봅시다. 따로 1적구를 선택하지 않아도 결정이 되었고
-//  두께와 당점도 자동으로 조정이 되면 좋겠어요'
-// '이미 어느 방향으로 칠것인지를 알수 있다는 얘기입니다'
-//
-// ★ 붙이는 일 자체는 snapAim() 이 이미 한다 (아래). 못 맞히는 각이면 가까운 **득점
-//   각**으로 옮기고, 그 자리에서 autoTipSide() 로 순회전 3팁을 잡는다.
-//   두께는 각이 정해지면 따라온다 — 그래서 '두께와 당점도 자동' 이 이걸로 된다.
-//   1적구도 따로 안 고른다 — 두께·기울기는 **실제로 먼저 맞는 공**을 보고 적는다.
-// ⚠️ 다른 것 둘만 바꾼다 —
-//   ① **배치마다 한 번만** 규칙(S.aimSnapped)을 안 쓴다. 누를 때마다 새로 붙는다.
-//   ② **3초 깜빡임 잠금을 안 건다.** 붙을 때마다 3초씩 손이 묶이면 못 쓴다.
-// ⚠️⚠️ **누를 때 한 번만** 건다. 끄는 동안에는 절대 부르지 않는다 —
-//    끌면서 부르면 못 맞히는 각마다 끌어당겨 값이 하나에 고정된다 (aimDragPx 주석).
-//    이것 때문에 1쿠션 40 과 42 사이를 못 그렸다 (54·55.jpg).
-// ⚠️ 다이 안에서만. 테두리(프레임)는 미세조정 자리라 그대로 둔다.
-function magnetPull(){
-  if (!S.magnet) return false;
-  const sn = S.aimSnapped, rb = S.rblink;
-  S.aimSnapped = 0;
-  const ok = snapAim();
-  S.aimSnapped = sn; S.rblink = rb;
-  return ok;
-}
-// 끄는 동안 — 누른 자리를 기준으로 20% 만
-function aimDragPx(px, py){
-  if (blinking() || !S.aimFree) return false;
-  const a = pxAngleTo(px, py);
-  if (a === null) return false;
-  let d = ((a - S.aimFree.f + Math.PI*3) % (Math.PI*2)) - Math.PI;   // −π..π
-  // ⚠️⚠️ 여기서 자석을 부르면 **끌기가 통째로 죽는다** (사용자 2026-08-18:
-  //   '54와 55 사이를 못그려요 조정이 않되요' — 1쿠션 40 과 42 사이 41 을 못 잡았다).
-  //   못 맞히는 각마다 가까운 득점 각으로 끌어가므로, 80도를 쓸어도 값이 **하나에
-  //   고정**된다. Node 로 재 보니 자석 켜고 끌면 멈춘 값이 1가지, 끄면 12가지였다.
-  //   → 자석은 **누를 때 한 번만** 건다 (aimAtPx 쪽). 끄는 동안은 손에 맡긴다.
-  //     '대충 눌러 길을 잡고, 끌어서 다듬는다' 가 된다.
-  return setAimPxAngle(S.aimFree.a + d * AIM_GAIN);
-}
+// ★★★★★★ **다이 안 손가락 조준은 통째로 뺐다** (사장님 2026-08-21)
+//   '테이블 수구 뒤에서 조정 … 그거 삭제하세요. 불편해요.'
+//   '이제 쓸 일 없어요. **프레임에서 기준 잡고 화살표로** 하면 됩니다.'
+//   여기 있던 것 넷을 지웠다 —
+//     aimAtPx      누른 쪽 반대로 조준 (뒤에서 총 쏘듯)
+//     magnetPull   누를 때 한 번 득점 각으로 붙이기
+//     aimDragPx    끌면 손가락 각의 20% 만 따라오기
+//     S.aimFree    그 끌기의 기준값
+//   지금 조준은 둘뿐이다 — **프레임(테두리) 탭 = 기준** · **◀ ▶ · 키보드 화살표 = 세밀**.
+//   (snapAim·snapAimMark 는 남아 있다. 득점하는 각이면 깜빡여 알려 주는 쪽이다)
 
 // ─────────────────────────────── 두께판 (사용자 아이디어 ④ · 2026-08-18)
 // '1적구를 직접 칠 경우 1적구를 탭하면 공이 많이 커지고 8/2 · 8/4 · 8/6 을 고른다'
@@ -3103,13 +3056,7 @@ function down(px,py){
   // ⚠️ **경로설정 모드일 때만** 받는다 (사용자 2026-08-18: '해제시 경로설정 불가').
   //   테두리(프레임) 조준은 그대로 둔다 — 거기는 버튼이 없어 부딪힐 일이 없고,
   //   미세조정에 쓰던 오래된 길이다.
-  // ★★★★★★ **다이 안(천 위) 조준을 뺀다** (사장님 2026-08-21:
-  //   '테이블 수구 뒤에서 조정 … 그거 삭제하세요. 불편해요. 써 보니 이제
-  //    **프레임에서 기본 조정하고 화살표나 보정에서 조정**하는 게 세밀합니다.')
-  //   손가락으로 천 위를 미는 것은 폰에서 너무 예민했다. 대신 —
-  //     프레임(테두리) 탭 = 큰 조정   ·   ◀ ▶(경로조정)·키보드 화살표 = 세밀 조정
-  //   ⚠️ 프레임 조준은 그대로 둔다. S.aimFree(끌기)는 이제 안 켜진다 —
-  //      코드는 남겨 둔다. 다시 필요해지면 이 한 덩어리만 되살리면 된다.
+  // (다이 안 손가락 조준은 뺐다 — 위 aimAtPx 자리의 ★★★★★★ 주석 참고)
 }
 function move(px,py){
   if (S.thickPanel){ moveThickPanel(px,py); return; }
@@ -3121,7 +3068,6 @@ function move(px,py){
     S.pal.x = px; S.pal.y = py;
     return;
   }
-  if (S.aimFree){ aimDragPx(px,py); return; }      // ★ 다이 안 직접 지정 — 손가락의 20%
   if (S.drag){
     // ★ 손가락이 이만큼 못 움직였으면 **끈 것이 아니라 탭**이다 (아래 up 의 두께판)
     if (S.dragAt && Math.hypot(px-S.dragAt[0], py-S.dragAt[1]) > BW*0.22) S.dragMoved = 1;
@@ -3134,30 +3080,15 @@ function move(px,py){
     //    블링크 중 손을 떼면 확정. 블링크 중에는 탭을 움직여도 무시.
     //    블링크가 3초 후 꺼진 다음부터 다시 탭 이동 허용.'
     if (blinking()) return;                        // 잠김 — 움직여도 무시한다
-    // ★★★ 손가락을 **천천히** 움직이면 조준이 곱게 따라온다 (사용자 2026-08-17:
-    //   '직접지정시 너무 휙 경로가 지나가서 중간에 세울 수가 없어요').
-    //   3쿠션은 1쿠션이 조금만 움직여도 끝이 크게 흔들린다. 손가락을 그대로 따라가면
-    //   원하는 자리에 세울 수가 없다.
-    //   → 각도로 따라가되, **한 번에 움직인 양이 작으면 그 몫을 줄여** 준다.
-    //     크게 휘두르면 1:1 로 따라오고(멀리 옮길 때), 살살 밀면 1/4 만 움직인다.
+    // ★★★★★★ **프레임 미세조정을 뺐다** (사장님 2026-08-21:
+    //   '프레임 미세조정을 지우라는 얘기입니다.' · '프레임에서 기준 잡고 화살표로 하면 됩니다')
+    //   여기 있던 것 — 프레임을 끌면 손가락이 움직인 각의 일부(AIM_GAIN)만 따라오게 해서
+    //   1쿠션을 곱게 미는 장치였다 (2026-08-17 '너무 휙 지나가서 중간에 세울 수가 없어요').
+    //   이제 세밀 조정은 **◀ ▶(경로조정)과 키보드 화살표**가 한다. 그쪽은 1쿠션 번호를
+    //   한 칸씩 딱 떨어지게 옮기므로 손가락으로 각을 더듬을 일이 없다.
+    //   → 프레임은 **누른 자리로 한 번에 간다**(기준 잡기). 끌어도 그 자리를 따라갈 뿐이다.
     const f = frameAt(px,py);
-    if (f){
-      const cue = S.balls.cue;
-      const aNow = (cue && S.aim)
-        ? Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]) : null;
-      const aFin = cue ? Math.atan2(f[1]-cue.p[1], f[0]-cue.p[0]) : null;
-      if (aNow === null || aFin === null){ S.aim = S.lastAim = f; }
-      else {
-        let d = ((aFin - aNow + Math.PI*3) % (Math.PI*2)) - Math.PI;   // −π..π
-        const deg = Math.abs(d) * 180/Math.PI;
-        const a2 = aNow + d*AIM_GAIN;          // ★ 다이 안과 같은 값 (위 AIM_GAIN 주석)
-        const len = Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) || 2000;
-        const q = frameAt(...toPx(cue.p[0] + Math.cos(a2)*len,
-                                 cue.p[1] + Math.sin(a2)*len));
-        S.aim = S.lastAim = q || [cue.p[0] + Math.cos(a2)*len, cue.p[1] + Math.sin(a2)*len];
-        S.dirSet = 1;              // ★ 손으로 방향을 정했다 (아래 findRoutes 의 ★★★★)
-      }
-    }
+    if (f){ S.aim = S.lastAim = f; S.dirSet = 1; }
     // 방금 붙었던 각에서 충분히 벗어나야 다시 붙는다.
     // (안 그러면 깜빡임이 끝나자마자 같은 자리에 도로 붙어 영영 못 빠져나온다)
     if (S.snapA !== null){
@@ -3328,7 +3259,6 @@ function up(px, py){
   //   끌면 공이 움직이고, 안 끌고 떼면 판이 뜬다.
   //   ⚠️ 1적구일 때만 열지 않는다 — 사장님은 **치려는 공**을 탭한다. 그 공을
   //      1적구로 삼고 연다. 수구만 뺀다.
-  if (S.aimFree) snapAimMark();       // 닿았으면 그 회로를 붙잡아 둔다 (안 끌어당긴다)
   if (S.drag && S.drag !== 'cue' && !S.dragMoved && !previewOn()){
     const c0 = S.balls[S.drag] && S.balls[S.drag].color;
     // 이미 1적구면 setFirstObject 를 안 부른다 — 그 안의 tipAuto() 가 손으로 잡아 둔
@@ -3336,7 +3266,7 @@ function up(px, py){
     if (c0 && S.drag !== 'obj1') setFirstObject(c0);
     if (c0) openThickPanel();
   }
-  S.drag = null; S.dragMoved = 0; S.dragAt = null; S.aiming = false; S.aimFree = 0;
+  S.drag = null; S.dragMoved = 0; S.dragAt = null; S.aiming = false;
 }
 
 // 두께판을 탭했을 때
@@ -11217,7 +11147,7 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => { move(...pos(e)); });
 addEventListener('pointerup', e => up(...pos(e)));
 // 브라우저가 가로채면 놓지 말고 **그냥 취소**한다 (엉뚱한 자리에 공이 놓이면 안 된다)
-function cancelTouch(){ S.pal = null; S.drag = null; S.aiming = false; S.aimFree = 0;
+function cancelTouch(){ S.pal = null; S.drag = null; S.aiming = false;
                         S.tipDrag2 = 0; }
 cv.addEventListener('pointercancel', cancelTouch);
 addEventListener('pointercancel', cancelTouch);
