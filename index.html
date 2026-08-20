@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 483;
+const MOBILE_VER = 484;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2315,6 +2315,21 @@ function voicePick(text){
   else if ((grp || said('직접')) && !miss.length && !soft.length)
     out.sort((a, b) => (b.w || 0) - (a.w || 0));
   else out.sort((a, b) => rank(b) - rank(a));
+  // ★★★★★★ **못 찾았으면 대신 그리지 않는다** (사장님 2026-08-20, 138·139.jpg:
+  //   '**이런 그림이 어디 있어요. 불가능한 경로입니다. 누가 이렇게 친다고 소설을 씁니까?**')
+  //   139 는 '빨간공 빵꾸 ✕ 빵꾸 없음 → 투뱅크' 였다. 없다고 말하면서 **엉뚱한 길을
+  //   대신 그려 놓았다.** 빨간공은 오른쪽에 있는데 수구가 반대로 크게 돌아 V 두 개를
+  //   그리는 길이다. 그것이 소설이다.
+  //   → 사장님이 콕 집어 부른 것을 못 찾았으면 **아무것도 새로 그리지 않는다.**
+  //     화면은 그대로 두고 '✕ ○○ 없음' 만 말한다. 대체품은 답이 아니다.
+  //   ⚠️ 이건 '거부' 가 아니다. 없는 것을 없다고 하는 것이다. 있는데 못 찾는 것은
+  //      찾는 쪽을 고쳐야 할 문제이지, 딴 길을 내밀어 덮을 문제가 아니다.
+  if (miss.length){
+    voiceSay(text, 0, (say.length ? say.join(' ') + '   ' : '')
+                      + '✕ ' + miss.join('·') + ' 없음');
+    blink();
+    return;
+  }
   pickRoute(out[0]);
   S.routeIx = list.indexOf(out[0]);
   S.rblink = 0;
