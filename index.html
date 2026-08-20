@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 489;
+const MOBILE_VER = 490;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -9802,8 +9802,11 @@ function drawBrand(){
   g.textAlign = 'left'; g.textBaseline = 'middle';
   const gap = () => fs * 0.42;                     // 공과 글자 사이
   const R = () => fs * 0.46;                       // 공 반지름
+  // ★ 임시 — 로고 옆에 판 번호 (사장님 2026-08-20: '상단 로고 자리에 버전을 띄우세요').
+  //   폰이 새 판을 받았는지 눈으로 바로 갈리라고 둔 것이다. 다 잡히면 뗀다.
+  const BRAND = 'BASystem v' + MOBILE_VER;
   const width = () => { g.font = 'italic 700 ' + Math.round(fs) + face;
-                        return R()*2 + gap() + g.measureText('BASystem').width; };
+                        return R()*2 + gap() + g.measureText(BRAND).width; };
   for (let k = 0; k < 14 && width() > PANEL.w * 0.90 && fs > 8; k++) fs *= 0.92;
   if (fs < 8){ g.restore(); return; }
   const w = width(), bx = cx - w/2 + R(), tx = cx - w/2 + R()*2 + gap();
@@ -9829,7 +9832,7 @@ function drawBrand(){
   g.shadowBlur = Math.max(2, fs*0.18);
   g.font = 'italic 700 ' + Math.round(fs) + face;
   g.fillStyle = '#ffffff';
-  g.fillText('BASystem', tx, cy);
+  g.fillText(BRAND, tx, cy);
   g.shadowBlur = 0;
   g.restore();
 }
