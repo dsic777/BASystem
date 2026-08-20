@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 499;
+const MOBILE_VER = 500;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5671,7 +5671,19 @@ function engineScores(cueP, aim){
     if (pl){
       const r = engineRun(pl.dir, pl.V0 * SIM_PLAY_BOOST, pl.kk,
                           englishSideFor(cueP, pl.dir));
-      v = r ? !!r.scored : null;
+      // ★★★★★★ **여기가 그림과 엔진이 갈리던 자리다** (사장님 2026-08-20:
+      //   '그림과 엔진이 왜 다른지부터 확인을 하세요')
+      //   두 모델의 **궤적은 똑같았다.** 한 점을 어떻게 세느냐만 달랐다 —
+      //     그림   … → (2417,1001) → (2249,895) = 노란공(2188,891)과 61mm = 맞음 · 득점 O
+      //     엔진   … → (2417,1001) → (2249,895) 를 **'rail' 로 적고** 득점 X
+      //   까닭: engineRun 은 '닿았다' 를 안 순간과 실제로 꺾이는 순간이 어긋나서
+      //   bumped 를 여섯 걸음만 들고 있는다. 얇게 맞아 **느리게 굴러온 수구**는 여섯 걸음
+      //   안에 안 꺾여서, 공에 맞아 꺾인 자리를 쿠션으로 잘못 적는다. scoreIdx 는
+      //   그 표를 보고 세므로 통째로 놓친다.
+      //   ⚠️ 이 함수 위(shotScored)에 **이미 경고가 적혀 있었다** —
+      //      'scoreIdx 는 아무 공이나 다시 맞으면 서므로 못 쓴다. hitBoth·railsAtScore 를 쓴다.'
+      //      득점 판정은 그 규칙 하나로 통일한다. 시범경기와 관문이 같은 자를 쓴다.
+      v = r ? shotScored(r) : null;
     }
   } catch(e){ v = null; }
   ESC_CACHE = {key, val: v};
