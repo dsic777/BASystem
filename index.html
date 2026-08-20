@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 516;
+const MOBILE_VER = 517;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6482,22 +6482,35 @@ function nudgeFirstPoint(dirPx){
                               return h ? toPx(...h)[0] : null; } catch(e){ return null; } };
   const n0 = numAt(a0), x0 = pxAt(a0);
   if (n0 === null || x0 === null) return;
-  const STEP = 0.02 * Math.PI/180;
-  // 어느 쪽으로 돌려야 화면에서 그 쪽으로 가나
+  // ★★★★★ **한 번에 계산해서 건너뛴다** (사장님 2026-08-21: '보정바나 화살표 반응이
+  //   조금 느리네요?')
+  //   전에는 0.02도씩 최대 4000번을 밀며 번호가 바뀌는 자리를 찾았다. 한 번 누를 때마다
+  //   firstNumFor 를 수천 번 부르니 폰에서 굼떴다.
+  //   → 기울기(도당 번호 변화)를 **한 번만 재고** 목표 번호 자리로 바로 뛴 뒤,
+  //     그 언저리만 ±0.3도 훑어 다듬는다. 부르는 횟수가 수천 → 서른몇으로 준다.
+  const PROBE = 0.2 * Math.PI/180;
   let sg = 1;
-  { const xA = pxAt(a0 + STEP*10), xB = pxAt(a0 - STEP*10);
+  { const xA = pxAt(a0 + PROBE), xB = pxAt(a0 - PROBE);
     if (xA !== null && xB !== null) sg = ((xA - xB) * dirPx >= 0) ? 1 : -1; }
-  for (let i = 1; i <= 4000; i++){
-    const a = a0 + sg*i*STEP;
-    const n = numAt(a);
-    if (n === null) break;
-    if (Math.abs(Math.round(n) - Math.round(n0)) >= 1){
-      S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
-      S.aimSnapped = 0; S.snapA = null;
-      blink(); draw();
-      return;
+  const nP = numAt(a0 + sg*PROBE);
+  if (nP === null) return;
+  const slope = (nP - n0) / (sg*PROBE);            // 라디안당 번호 변화
+  if (!isFinite(slope) || Math.abs(slope) < 1e-9) return;
+  const want = Math.round(n0) + ((slope*sg > 0) ? 1 : -1);
+  let aim = a0 + (want - n0)/slope;
+  let hit = null;
+  for (let k = 0; k <= 30 && hit === null; k++){
+    for (const q of (k ? [1, -1] : [1])){
+      const t = aim + q*k*0.02*Math.PI/180;
+      const n = numAt(t);
+      if (n !== null && Math.round(n) === want){ hit = t; break; }
     }
   }
+  const a = (hit !== null) ? hit : aim;
+  if (numAt(a) === null) return;
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+  S.aimSnapped = 0; S.snapA = null;
+  blink(); draw();
 }
 // ★ 위·아래 — **당점을 파이브앤하프 자리에서 한 칸씩** (사장님 2026-08-20:
 //   '키보드 위 아래도 같이 넣어주세요 경로조정')
