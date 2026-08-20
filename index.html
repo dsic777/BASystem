@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 494;
+const MOBILE_VER = 495;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5412,7 +5412,21 @@ function drawnScores(r, ang){
         //      그 조건 아래 1적구 2적구를 모두 맞춰야 성공'
         //   ⚠️ 이 한 줄이 빠져 있어서 못 치는 길이 추천·시범경기에 계속 섞였다.
         const nC = (cut.pts.length - 2) + (post.pts.length - 2);  // 빈쿠션 + 충돌 후 쿠션
-        ok = post.hit && (cut.pts.length - 2) === r.before && nC >= 3;
+        // ★★★★★ **먼저 맞는 공이 그대로여야 한다** (사장님 2026-08-20)
+        //   '경로는 키스를 제외하고는 **1적구를 거쳐서 2적구로** 가야 합니다.'
+        //   각을 밀다 보면 먼저 맞는 공이 뒤바뀔 수 있다. 그러면 이름표(앞돌리기…)도
+        //   수구수도 다 딴 경로의 것이 된다. 두께를 고치는 것과 길을 바꾸는 것은 다르다.
+        //   ⚠️ 각을 ±2도까지 넓히면서(routeFix) 이 확인이 꼭 필요해졌다.
+        let same = true;
+        if (r.first && cut.obj){
+          let who = '?';
+          for (const kk2 in S.balls){
+            const q = S.balls[kk2].p;
+            if (kk2 !== 'cue' && Math.hypot(q[0]-cut.obj[0], q[1]-cut.obj[1]) < 1){ who = kk2; break; }
+          }
+          same = (who === r.first);
+        }
+        ok = same && post.hit && (cut.pts.length - 2) === r.before && nC >= 3;
         if (ok) LAST_THICK = af.thick;      // 조준이 옮겨졌으면 두께도 바뀐다
       }
     }
@@ -5450,12 +5464,22 @@ function routeSettle(r){
 //   그 경로의 각 구간 안팎을 훑어 **득점하는 각**을 찾아 그리로 옮긴다.
 //   가운데에서 가까운 각부터 본다 — 원래 자리에서 최대한 안 벗어나게.
 //   그래도 없으면 그때는 뺀다 (진짜로 안 되는 길이다).
-function routeFix(r){
-  if (typeof r.a !== 'number') return true;
+// ★★★★★★ **두께로 안 되면 당점도 움직인다** (사장님 2026-08-20, 155.jpg)
+//   '이 당점으로 치면 3쿠션이 성공을 해야 할텐데 … **두께를 조금만 더 두껍게** 사용하면
+//    성공입니다. **결과를 성공으로 조정하세요. 두께 당점 등으로.**'
+//   그리고 '경로는 키스를 제외하고는 **1적구를 거쳐서 2적구로 가야** 합니다.'
+//   ⚠️ 전에는 그 경로의 각 폭(w)의 1.5배 안에서만 찾았다. w 는 흔히 0.10~0.20도라
+//      **±0.15~0.3도**밖에 안 움직였다. '조금만 더 두껍게' 가 그 밖이면 못 찾는다.
+//   → ① 각(=두께)을 **±2도**까지 0.05도씩 민다. 가운데에서 가까운 쪽부터 본다.
+//     ② 그래도 안 되면 **판의 이웃 당점 여덟 자리**로 옮겨 ①을 다시 한다.
+//        (같은 팁수의 시계 ±1칸 · 팁수 ±1 의 같은·이웃 시계자리)
+//     ③ 그래도 안 되면 뺀다. 못 치는 길을 내놓느니 없는 것이 낫다.
+//   ⚠️ ② 는 실패한 경로에만 돈다. 되는 길은 첫 줄에서 바로 끝난다.
+const FIX_LIM  = 2.0 * Math.PI/180;      // 각을 최대 얼마까지 미나
+const FIX_STEP = 0.05 * Math.PI/180;     // 미는 걸음
+function fixByAngle(r){
   if (drawnScores(r, r.a)){ if (LAST_THICK !== null) r.thick = LAST_THICK; return true; }
-  const W = Math.max(0.20, r.w || 0.5) * Math.PI/180;   // 그 경로의 각 폭
-  const STEP = W/12;
-  for (let d = STEP; d <= W*1.5 + 1e-12; d += STEP)
+  for (let d = FIX_STEP; d <= FIX_LIM + 1e-12; d += FIX_STEP)
     for (const sg of [1, -1]){
       const a = r.a + sg*d;
       if (drawnScores(r, a)){
@@ -5464,6 +5488,28 @@ function routeFix(r){
         return true;
       }
     }
+  return false;
+}
+function routeFix(r){
+  if (typeof r.a !== 'number') return true;
+  if (fixByAngle(r)) return true;
+  // ② 당점을 판의 이웃 점으로 옮겨 본다 — 시계는 30분(24자리), 팁수는 0~3
+  const h0 = r.tip, v0 = (r.tipV === undefined ? 0 : r.tipV), a0 = r.a, t0 = r.thick;
+  if (h0 === undefined) return false;
+  const rr0 = Math.max(0, Math.min(3, Math.round(Math.hypot(h0, v0))));
+  const dd0 = ((Math.round(Math.atan2(h0, v0) / (Math.PI/12)) % 24) + 24) % 24;
+  for (const dr of [0, 1, -1])
+  for (const dd of [0, 1, -1]){
+    if (!dr && !dd) continue;
+    const rr = rr0 + dr;
+    if (rr < 0 || rr > 3) continue;
+    const d = ((dd0 + dd) % 24 + 24) % 24;
+    r.tip  = rr * Math.sin(d*Math.PI/12);
+    r.tipV = rr * Math.cos(d*Math.PI/12);
+    r.a = a0;
+    if (fixByAngle(r)){ r.dot = 1; r.tipFixed = 1; return true; }
+  }
+  r.tip = h0; r.tipV = v0; r.a = a0; r.thick = t0;
   return false;
 }
 
