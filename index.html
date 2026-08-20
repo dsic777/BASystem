@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 510;
+const MOBILE_VER = 511;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2195,6 +2195,27 @@ function voicePick(text){
   //   ⚠️ soft 는 비워 둔다. 화면 글과 정렬 판단이 이 값을 보므로 지우지 않는다.
   const soft = [];
   const BALLNM = {yellow:'노란공', white:'흰공', red:'빨간공'};
+  // ★★★★★★ **말로 부르면 당점을 파이브앤하프 기본으로 되돌린다** (사장님 2026-08-20)
+  //   '스피치 경로는 팁수 기본을 파이브앤하프로 지정합니다.
+  //    **무조건** 중간에 변경을 해도 팁수 초기화 합니다.'
+  //   ⚠️ 앞 요구에서 루프가 당점을 옮겨 놓으면 그 값이 그대로 남아, 다음 요구가
+  //      엉뚱한 자리에서 출발했다. 부를 때마다 같은 자리에서 시작해야 한다.
+  //   기본 = 파이브앤하프 당점(FH_TIPS) 중 **3팁**, 지금 좌우 쪽을 지킨 제일 가까운 자리.
+  {
+    const h = S.tipH || 0, v = S.tipV || 0;
+    let bt = null;
+    for (const [tp, tv] of FH_TIPS){
+      if (Math.round(Math.hypot(tp, tv)) !== 3) continue;      // 팁수는 3으로
+      if (h !== 0 && (tp > 0) !== (h > 0)) continue;           // 좌우 쪽은 지킨다
+      const d = Math.hypot(tp-h, tv-v);
+      if (!bt || d < bt.d) bt = {tp, tv, d};
+    }
+    if (bt){
+      S.tipH = bt.tp; S.tipV = bt.tv; S.tipR = 3;
+      S.tipDir = ((Math.round(Math.atan2(bt.tp, bt.tv) / (Math.PI/12)) % 24) + 24) % 24;
+      S.tipLock = 0;
+    }
+  }
   // ① 먼저 맞힐 공
   //   ★★ 그 공이 **지금 수구**면 수구를 바꾼다 (사장님 2026-08-20: '기본은 수구가
   //     결정이 되어 있을꺼고, 아니면 수구전환 하면 자동으로 수구를 바꿔주고').
@@ -2363,9 +2384,14 @@ function voicePick(text){
   //     ⚠️ 이름표(r.name)는 **안 바꾼다.** 그건 순위(NAME_SCORE)와 판정 열쇠(route key)에
   //        쓰여서, 건드리면 지금까지 쌓아 둔 평가 자료가 통째로 어긋난다. 글만 늘린다.
   const nm0 = out[0].name || '경로';
-  const nm  = nm0 === '원뱅크' ? (out[0].thru ? '원뱅크 넣어치기' : '원뱅크 걸어치기') : nm0;
+  let nm  = nm0 === '원뱅크' ? (out[0].thru ? '원뱅크 넣어치기' : '원뱅크 걸어치기') : nm0;
+  // ★★★★★ **한계까지 갔다는 것을 화면에 적는다** (사장님 2026-08-20, 173.jpg:
+  //   '173이 한계각인가요?')
+  //   v510 에서 '못 찾으면 한계 자리를 그대로 그린다' 를 넣어 놓고 **표시를 안 했다.**
+  //   그러니 화면만 보고는 득점한 길인지 밀다가 막힌 자리인지 갈릴 수가 없다.
+  if (out[0].limit) nm += ' · 한계(득점 못 함)';
   voiceSay(text,
-           miss.length ? 0 : (soft.length ? 2 : 1),
+           out[0].limit ? 0 : (miss.length ? 0 : (soft.length ? 2 : 1)),
            (say.length ? say.join(' ') + '   ' : '')
            + (miss.length ? '✕ ' + miss.join('·') + ' 없음   ' : '')
            + (soft.length ? '~ ' + soft.join('·') + '   ' : '') + '→ ' + nm);
