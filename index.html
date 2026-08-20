@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 507;
+const MOBILE_VER = 508;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5670,12 +5670,20 @@ function engineRun(dir, V0, kk, E){
 // ★★★ **엔진으로 한 번만 굴려** 2적구에 닿는지 본다 (추천을 거르는 데 쓴다).
 //   enginePath 는 세기를 이분탐색하느라 한 번에 70ms 가 넘는다 — 추천 여덟 개를 그렇게
 //   보면 폰에서 몇 초가 걸린다. 거르는 데는 '닿나 안 닿나' 만 있으면 되므로 한 번만 굴린다.
-let ESC_CACHE = {key: null, val: null};
+// ★★★★★★ **먼저 맞은 공이 무엇인지도 같이 내놓는다** (사장님 2026-08-20, 171.jpg:
+//   '1적구를 내가 먼저 지정을 하면 **지정한 방향으로 무조건 수구가 진행**을 해야 합니다.
+//    경로를 자의적으로 만들지 마세요.')
+//   v507 에서 루프의 판정을 엔진 하나로 줄이면서 drawnScores 를 통째로 뺐는데,
+//   거기에 '먼저 맞는 공이 그대로인가' 가 같이 들어 있었다. 그래서 '빨간공 빵꾸' 를
+//   불렀는데 루프가 **노란공을 먼저 맞히는 길**로 가 버렸다 (171).
+//   → 회로(빈쿠션 수·쿠션 차례)는 안 본다. 그러나 **먼저 맞는 공은 못 바꾼다.**
+let ESC_CACHE = {key: null, val: null, first: null};
+let ESC_FIRST = null;                    // 방금 판정에서 수구가 처음 맞힌 공
 function engineScores(cueP, aim){
   const key = cueP + '|' + aim + '|' + S.tipH + '|' + S.tipV + '|' + S.corr + '|' +
               Object.keys(S.balls).map(k => S.balls[k].p).join(';');
-  if (ESC_CACHE.key === key) return ESC_CACHE.val;
-  let v = null;
+  if (ESC_CACHE.key === key){ ESC_FIRST = ESC_CACHE.first; return ESC_CACHE.val; }
+  let v = null, first = null;
   try {
     const pl = planShot(cueP, aim);
     if (pl){
@@ -5694,9 +5702,11 @@ function engineScores(cueP, aim){
       //      'scoreIdx 는 아무 공이나 다시 맞으면 서므로 못 쓴다. hitBoth·railsAtScore 를 쓴다.'
       //      득점 판정은 그 규칙 하나로 통일한다. 시범경기와 관문이 같은 자를 쓴다.
       v = r ? shotScored(r) : null;
+      first = r ? r.hitObj : null;
     }
-  } catch(e){ v = null; }
-  ESC_CACHE = {key, val: v};
+  } catch(e){ v = null; first = null; }
+  ESC_CACHE = {key, val: v, first};
+  ESC_FIRST = first;
   return v;
 }
 function enginePath(cueP, aim, fast){
@@ -6772,7 +6782,7 @@ function pickFix(r){
                          catch(e){ return null; } };
   let base = null;
   try { base = engineScores(cue.p, aimAt(r.a)); } catch(e){ base = null; }
-  if (base === true) return;                // 이미 닿는다 — 손대지 않는다
+  if (base === true && (!r.first || ESC_FIRST === r.first)) return;   // 이미 닿는다
   // ⚠️ 전에는 판정을 못 할 때(null)도 손을 뗐다. 그러면 루프가 아예 안 돈다. 이제는 돈다.
   const a0 = r.a;
   const n0 = numAt(a0);
@@ -6806,7 +6816,9 @@ function pickFix(r){
     //      (shotScored). 그것만 본다.
     let ok = false;
     tries++;
-    try { ok = engineScores(cue.p, aimAt(a)) === true; } catch(e){ ok = false; }
+    // ★★★★★ **먼저 맞는 공은 사장님이 지목한 그 공이라야 한다** (위 ESC_FIRST 주석)
+    try { ok = engineScores(cue.p, aimAt(a)) === true
+               && (!r.first || ESC_FIRST === r.first); } catch(e){ ok = false; }
     if (ok){
       r.a = a; r.fixed = 1;
       // 이름표·두께·쿠션 차례를 **그 각의 것으로** 다시 읽는다 (안 그러면 딴 값이 남는다)
