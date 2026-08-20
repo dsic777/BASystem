@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 474;
+const MOBILE_VER = 475;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2161,8 +2161,18 @@ function voicePick(text){
   //      전에는 그걸 괄호로 달았는데, 사장님이 보고 싶은 것은 '앱이 뭘 하기로 했나' 다.
   const say = [];                       // 알아들은 낱말을 제 이름으로 모은다
   const said = w => !!findWord(raw, w);
+  // ★★★★★ **요구가 들어오면 추천을 아예 하지 않는다** (사장님 2026-08-20)
+  //   '일단 사용자 요구시 **추천 자체를 하지 마세요.** 방법을 찾은 후 조정합시다.'
+  //   v474 는 추천 목록에서 **먼저 찾아보고** 못 찾을 때만 자를 껐다. 그러면 첫 판이
+  //   이미 걸러진 목록이라 있는 길을 못 본다 (123.jpg 의 빵꾸 둘은 두께 89%·82% ·
+  //   분리각 61°·59° 라 추천용 자에 네 조건 다 걸려 죽어 있었다).
+  //   → 말이 들어온 순간부터 자를 끄고 훑는다. 추천은 여기에 끼지 않는다.
+  //   ⚠️ 훑고 나면 깃발은 되돌린다. 다만 목록(ROUTES)은 그대로 둔다 —
+  //      되돌려 지우면 그린 경로와 화살표로 넘길 목록이 서로 다른 것을 가리킨다.
+  SEEK_ALL = 1; ROUTES = {key:null, list:[]};
   let list = null;
   try { list = findRoutes(); } catch(e){ list = null; }
+  SEEK_ALL = 0;
   if (!list || !list.length){ voiceSay(text + ' — 경로가 없습니다', 0); return; }
   let out = list.slice();
   // ★★★★ **못 찾으면 못 찾았다고 말한다** (사장님 2026-08-20, 110.jpg)
@@ -2200,7 +2210,11 @@ function voicePick(text){
     const cueC = S.balls.cue && S.balls.cue.color;
     if (cueC === want){
       swapCue();
+      // ⚠️ 수구를 바꾸면 다시 훑는데, 여기서도 **자를 꺼야** 한다.
+      //    안 그러면 수구전환된 배치만 추천용 목록이 되어 앞뒤가 안 맞는다.
+      SEEK_ALL = 1;
       try { list = findRoutes() || []; } catch(e){}
+      SEEK_ALL = 0;
       out = list.slice();
     }
     say.push(BALLNM[want]);
@@ -2258,11 +2272,7 @@ function voicePick(text){
   //   ⚠️ 깃발로 막아 **딱 한 번만** 다시 돈다 (무한 재귀 방지).
   //   ⚠️ 다시 훑은 목록을 **그대로 둔다.** 되돌리면 그린 경로와 화살표로 넘길 목록이
   //      서로 다른 것을 가리킨다. 공을 옮기면 어차피 새로 훑는다.
-  if ((miss.length || soft.length) && !SEEK_ALL){
-    SEEK_ALL = 1; ROUTES = {key:null, list:[]};
-    try { voicePick(text); } finally { SEEK_ALL = 0; }
-    return;
-  }
+  //   (v475: 첫 판부터 자를 끄므로 여기서 다시 훑을 일이 없다 — 위 SEEK_ALL 참고)
   // ★★★★★ **말로 요구하면 순위를 태우지 않는다** (사장님 2026-08-20)
   //   '사용자가 경로를 요구하면 **판단이 필요한게 아니라 경로를 찾아내야** 합니다.
   //    **추천이 아니에요. 우선순위 필요 없어요.**'
