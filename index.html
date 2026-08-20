@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 492;
+const MOBILE_VER = 494;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4976,25 +4976,6 @@ const SEEK_KIND = {
   //      씨앗 단계는 r.thru 가 아직 없으므로 g.s 로 본다 (아래 seedOK).
   '빵꾸': (r, g) => r.before === 1 && (r.thru !== undefined ? r.thru : g.s >= g.D * 0.5),
 };
-// ★★★★★★ **장쿠션 지그재그는 우리 앱에 없는 길이다** (사장님 2026-08-20, 152.jpg)
-//   '더불 & 횡단을 제외하고 장다이 지그재그 안 한다고 몇 번을 얘기했는데
-//    152는 딱 그런 유형이잖아요' · '지우세요. 우리 앱에는 없는 길로 보세요.'
-//   ⚠️ 이 규칙은 2026-08-19 에 이미 들어와 있었다 (rank 의 zigOK · −1500).
-//      그런데 **요구 경로(seekRoutes)는 rank 를 안 태운다.** 그래서 그대로 나왔다.
-//      규칙을 순위에만 걸어 두면 순위를 안 쓰는 길에서는 없는 것과 같다.
-//   ⚠️ 여기서는 **뒤로 미는 것이 아니라 지운다** — 사장님이 '지우세요' 라고 하셨다.
-//      (추천 쪽은 지금까지대로 −1500 벌점만 걸어 둔다. 그건 순위라 승인 사항이다.)
-//   장쿠션 = 상·하 (2540mm). 이어지는 두 쿠션이 마주 보는 장쿠션이면 건너뛴 것이다.
-//   152: 상단(빈쿠션) → 빨간공 → **하단** → 상단   ← 지그재그
-//   154: 상단(빈쿠션) → 빨간공 → **상단** → …      ← 같은 쿠션. 이건 넣어치기다
-const LONG_RAIL = {top:1, bottom:1};
-function zigzagLong(r){
-  if (r.name === '횡단&더블시스템' || r.name === '횡단샷') return false;
-  const rails = r.rails || [];
-  for (let i = 1; i < rails.length; i++)
-    if (LONG_RAIL[rails[i]] && LONG_RAIL[rails[i-1]] && rails[i] !== rails[i-1]) return true;
-  return false;
-}
 function seekRoutes(want, kind){
   const cue = S.balls.cue;
   if (!cue || !T || !SEEK_KIND[kind]) return [];
@@ -5072,8 +5053,7 @@ function seekRoutes(want, kind){
   S.tipH = hS; S.tipV = vS; S.tipR = rS; S.aim = aS; TIP_NOW = tH; TIPV_NOW = tV;
   SEEK_ALL = seekSave; SWEEP_C_NOW = cSave; MIN_C_NOW = mSave;
   // ── 득점 확인 (3쿠션 + 2적구). 통과 못 하면 안 내놓는다.
-  const ok = out.filter(r => !zigzagLong(r))
-                .filter(r => { try { return drawnScores(r, r.a); } catch(e){ return false; } });
+  const ok = out.filter(r => { try { return drawnScores(r, r.a); } catch(e){ return false; } });
   for (const r of ok) r.reach = 1;
   // ★★★★★ **세기가 약한 것부터** (사장님 2026-08-20, 152·154.jpg)
   //   '가볍게 굴리는 공입니다. 원뱅크는 1적구 두께와 당점만 조절하면 쉬운 공들입니다.'
@@ -7460,7 +7440,25 @@ function afterHit(from, to, obj){
   const side = dx*oy - dy*ox;                    // 적구가 왼쪽(+)인가 오른쪽(−)인가
   const perp = Math.abs(side);                   // 접촉 순간 중심선까지 거리
   const thick = Math.max(0, Math.min(1, (D - perp) / D));
-  const deg = separationAngle(thick);
+  // ★★★★★★ **쿠션을 맞고 온 수구는 끌기가 죽는다** (사장님 확인 2026-08-20)
+  //   152.jpg 가 이것 하나로 만들어졌다 — 상단 쿠션을 맞고 온 수구가 하단 3팁으로
+  //   두께 69% 에 **분리각 85도**를 냈다. 사장님: '그냥 없는 길입니다.'
+  //   까닭은 표의 전제다. separation.cue_ball 의 상하 당점 분리각표는 **직접 겨냥**
+  //   기준이다 (CLAUDE.md: '표마다 전제 조건이 다르다 — 섞어 쓰면 안 된다').
+  //   쿠션을 한 번 돌고 온 공은 이미 앞으로 구르고 있어 뒷회전이 남아 있지 않다.
+  //   → 빈쿠션을 지나온 뒤에는 **하단(음수) 당점을 0(중단)으로** 본다.
+  //     상단(밀어)은 그대로 둔다 — 쿠션을 나온 공은 원래 앞으로 구른다.
+  //   ⚠️ 규칙으로 거르지 않는다. 애초에 그런 궤적이 **안 만들어진다.**
+  //   ⚠️ 여기(afterHit)에 두는 까닭 — 추천·그리기·시뮬레이션이 이 함수 하나를 같이
+  //      쓴다 (위 ★★★ 주석). 한 군데만 고치면 세 쪽이 어긋난다.
+  //   '쿠션을 맞고 왔나' 는 **출발점이 쿠션 위인가**로 본다. 수구 제자리에서 바로
+  //   출발한 경우(붙어 있는 공)는 뺀다 — 그건 직접 겨냥이다.
+  const banked = (() => {
+    const c = S.balls && S.balls.cue;
+    if (c && c.p && Math.hypot(from[0]-c.p[0], from[1]-c.p[1]) < 1) return false;
+    try { return !!railParam(from); } catch(e){ return false; }
+  })();
+  const deg = separationAngle(thick, banked ? Math.max(0, S.tipV) : undefined);
   if (deg === null) return null;
   const sgn = Math.sign(side || 1);
   const r = -sgn * deg * Math.PI/180;                    // 수구는 적구 반대쪽으로
