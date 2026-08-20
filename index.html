@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 508;
+const MOBILE_VER = 509;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2213,7 +2213,18 @@ function voicePick(text){
       out = list.slice();
     }
     say.push(BALLNM[want]);
-    cut(r => S.balls[r.first] && S.balls[r.first].color === want, BALLNM[want]);
+    // ★★★★★★ **공 지정은 예외가 없다** (사장님 2026-08-20)
+    //   '스피치 배치에서는 1적구를 지정하면 **무조건** 수구가 1적구로, 바로 가든 쿠션을
+    //    거치고 가든 그대로 가야 합니다. **예외 없습니다.** 절대 자의적으로 경로설정
+    //    하지 마세요.'
+    //   ⚠️ 전에는 cut() 으로 걸렀다. cut 은 **다 걸러지면 조용히 원래 목록을 둔다** —
+    //      그래서 빨간공을 부르셨는데 노란공을 먼저 맞히는 길이 그대로 남았다 (171).
+    //   → 여기서는 **딱딱하게** 자른다. 그 공을 먼저 맞히는 길이 하나도 없으면
+    //      '없음' 이라고 말하고 아무것도 새로 그리지 않는다.
+    {
+      const q = out.filter(r => S.balls[r.first] && S.balls[r.first].color === want);
+      if (q.length) out = q; else miss.push(BALLNM[want]);
+    }
     // ★★★★★ **공을 지정하면 그 공 쪽을 본다** (사장님 2026-08-20, 131.jpg)
     //   '공(1적구)을 지정하면 **무조건 공 방향을 보세요. 자의적으로 해석하지 말고.**'
     //   131 에서 빨간공을 지정했는데 수구가 **반대쪽(좌측)** 으로 출발하는 투뱅크가
@@ -5008,8 +5019,8 @@ function tipsFor(kind){ return kind === '빵꾸' ? FH_TIPS : SEEK_TIPS; }
 function seekRoutes(want, kind){
   const cue = S.balls.cue;
   if (!cue || !T || !SEEK_KIND[kind]) return [];
-  let ob = null;
-  for (const k in S.balls) if (k !== 'cue' && S.balls[k].color === want) ob = S.balls[k];
+  let ob = null, obKey = null;
+  for (const k in S.balls) if (k !== 'cue' && S.balls[k].color === want){ ob = S.balls[k]; obKey = k; }
   if (!ob) return [];
   const O = ob.p, D = T.ball_diameter, R = D/2;
   // 그 공이 붙어 있는 쿠션 — 제일 가까운 것 하나
@@ -5063,7 +5074,10 @@ function seekRoutes(want, kind){
           const sd = {g};
           let r = null;
           try { r = simulate([Math.cos(a), Math.sin(a)], k0); } catch(e){}
-          if (!r || !SEEK_KIND[kind](r, sd.g)) continue;
+          // ★★★★★ **지목한 공을 먼저 맞히는 것만** (사장님 2026-08-20: '예외 없습니다')
+          //   씨앗은 cutAtBall 로 잡는데 그것은 **아무 공이나** 맞으면 잡힌다.
+          //   그래서 '빨간공 빵꾸' 인데 노란공을 먼저 맞히는 길이 섞였다.
+          if (!r || r.first !== obKey || !SEEK_KIND[kind](r, sd.g)) continue;
           // ★★★★★ 같은 회로·같은 당점이면 **제일 두꺼운 것**을 남긴다.
           //   ⚠️ 전에는 먼저 들어온 것을 남기고 나머지를 버렸다. 미세각을 −1도부터
           //      도니까 **제일 얇은 것**이 남았다 — 138 에서 두께 24% 짜리를 찾아
