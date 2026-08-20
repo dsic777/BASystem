@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 502;
+const MOBILE_VER = 503;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -8352,6 +8352,7 @@ function drawPath(){
                            : Math.min(DRAW_UPTO, post.pts.length - 1);
   let pts2 = post.pts.slice(0, lastSeg + 1);
   let scoreHit = post.hit;
+  let objPoly = null;                 // 1적구가 가는 길 — 글자가 이것도 피해야 한다
   if (EP && EP.hitIdx > 0){
     // 엔진 선을 **같은 규칙으로** 자른다 — 2적구에 닿으면 거기까지, 아니면 표대로.
     let end = EP.cue.p.length - 1, tail = null;
@@ -8461,6 +8462,7 @@ function drawPath(){
     if (!oq.hit)
       oq = cutAtBall([cut.obj, ...rollPlain(cut.obj, a.objDir, 4).map(h => h.p)], cut.obj);
     let op = oq.pts;
+    objPoly = op;                     // 글자 자리를 고를 때 쓴다 (아래 ★★★★★)
     if (EP && EP.obj && EP.obj.p.length > 1){
       let rails = 0, end = 0, ballHit = false;
       for (let i = 1; i < EP.obj.p.length; i++){
@@ -8660,9 +8662,43 @@ function drawPath(){
   const off = ballR()*2.0 + fs*0.9;
   const half = g.measureText(txt).width/2 + fs*0.3;
   const c2 = L.cloth;
-  // 천 밖으로 나가지 않게 잡아 둔다
-  const tx = Math.min(Math.max(hx + vx*off, c2.x + half), c2.x + c2.w - half);
-  const ty = Math.min(Math.max(hy + vy*off, c2.y + fs*0.7), c2.y + c2.h - fs*0.7);
+  // ★★★★★ 글자가 **궤적과 공을 피한다** (사장님 2026-08-20: '두께 반사각 괘적과 공을 피하세요')
+  //   전에는 1적구 반대쪽 **한 자리**에만 붙였다. 거기에 선이나 다른 공이 있으면 그대로
+  //   겹쳤다 (164·166.jpg — '14% 23°' 가 궤적과 빨간공 위에 얹혔다).
+  //   → 접촉점 둘레를 **열여섯 방향 × 두 거리**로 돌면서, 선과 공에서 제일 멀리 떨어진
+  //     자리를 고른다. 글자 폭까지 보려고 가운데와 좌우 끝 세 점으로 잰다.
+  //   ⚠️ 원래 자리(1적구 반대쪽)에는 가산점을 준다 — 뜻이 바뀌지 않게, 비켜야 할 때만 비킨다.
+  const segsPx = [];
+  const addSeg = (poly) => { if (!poly || poly.length < 2) return;
+    for (let i = 1; i < poly.length; i++) segsPx.push([toPx(...poly[i-1]), toPx(...poly[i])]); };
+  addSeg(before); addSeg(pts2); addSeg(objPoly);
+  const ballsPx = [];
+  for (const bk in S.balls) ballsPx.push(toPx(...S.balls[bk].p));
+  const segDist = (px, py, A, B) => {
+    const dx = B[0]-A[0], dy = B[1]-A[1], L2 = dx*dx + dy*dy;
+    let t = L2 ? ((px-A[0])*dx + (py-A[1])*dy) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (A[0]+t*dx), py - (A[1]+t*dy));
+  };
+  const clearAt = (px, py) => {
+    let m = 1e9;
+    for (const q of [[px-half*0.7, py], [px, py], [px+half*0.7, py]]){
+      for (const sg of segsPx) m = Math.min(m, segDist(q[0], q[1], sg[0], sg[1]));
+      for (const bp of ballsPx) m = Math.min(m, Math.hypot(q[0]-bp[0], q[1]-bp[1]) - ballR());
+    }
+    return m;
+  };
+  const dir0 = Math.atan2(vy, vx);
+  let spot = null;
+  for (const rad of [off, off*1.6])
+    for (let i = 0; i < 16; i++){
+      const ang = dir0 + i*Math.PI/8;
+      const px = Math.min(Math.max(hx + Math.cos(ang)*rad, c2.x + half), c2.x + c2.w - half);
+      const py = Math.min(Math.max(hy + Math.sin(ang)*rad, c2.y + fs*0.7), c2.y + c2.h - fs*0.7);
+      const sc = clearAt(px, py) + (i === 0 && rad === off ? fs*0.6 : 0);
+      if (!spot || sc > spot.sc) spot = {px, py, sc};
+    }
+  const tx = spot.px, ty = spot.py;
   g.strokeText(txt, tx, ty); g.fillStyle = COL.hit;
   g.fillText(txt, tx, ty);
   g.restore();
