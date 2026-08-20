@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 500;
+const MOBILE_VER = 501;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3460,9 +3460,9 @@ const SHOW_XY = false;
 //   좌표는 사장님이 요청 #20 으로 보내 주신 그 배치다 (mm, 좌하단 0,0).
 //   그 배치로 돌리면 2시 3팁 · 1쿠션 37 이 나오는데, 157 화면의 값과 같다.
 //   ⚠️ 시험이 끝나면 SET_LAYOUT 과 AUTO_SAY 를 **둘 다 null 로 되돌린다.**
-const SET_LAYOUT = {cue:'white', white:[421,1072], red:[1511,1092], yellow:[2188,891]};
+const SET_LAYOUT = null;   // ← 시험 끝. 사장님 2026-08-20 '시험배치 고정은 푸세요'
 // ★ 켜질 때 이 말을 **앱이 스스로 한다.** 사장님은 결과만 보시면 된다.
-const AUTO_SAY = '빨간공 빵꾸';
+const AUTO_SAY = null;     // ← 같이 푼다
 //   ↑ 2026-08-13 영상(15-55-33)의 그 대회전. 무회전 자연회전(v241) 확인용.
 //     두께 74% · 분리각 52° · 1쿠션 상단 x=2182 (영상에서 잰 값과 같다)
 //     ⚠️ 확인이 끝나면 null 로 되돌린다.
