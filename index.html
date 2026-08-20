@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 477;
+const MOBILE_VER = 478;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2219,6 +2219,24 @@ function voicePick(text){
     }
     say.push(BALLNM[want]);
     cut(r => S.balls[r.first] && S.balls[r.first].color === want, BALLNM[want]);
+    // ★★★★★ **공을 지정하면 그 공 쪽을 본다** (사장님 2026-08-20, 131.jpg)
+    //   '공(1적구)을 지정하면 **무조건 공 방향을 보세요. 자의적으로 해석하지 말고.**'
+    //   131 에서 빨간공을 지정했는데 수구가 **반대쪽(좌측)** 으로 출발하는 투뱅크가
+    //   나왔다. 빙 돌아 맞기는 하지만 사장님이 손으로 가리킨 쪽이 아니다.
+    //   → 출발 방향이 그 공 쪽(90도 안)인 것만 남긴다.
+    //   ⚠️ 빵꾸·걸어치기처럼 쿠션을 먼저 쓰는 길도 대개 공 쪽으로 출발한다
+    //      (117·123 이 그렇다). 90도는 그것들을 다 살리면서 **정반대만** 걸러내는 폭이다.
+    //   ⚠️ cut 은 다 걸러지면 아무것도 안 한다 — 거부하지 않는다 (soften 주석 참고).
+    //      그래서 이름표를 안 붙인다. '없음' 이라고 말할 일이 아니다.
+    const bp = (() => { for (const k in S.balls)
+                          if (k !== 'cue' && S.balls[k].color === want) return S.balls[k].p;
+                        return null; })();
+    if (bp && S.balls.cue){
+      const cp = S.balls.cue.p, bd = [bp[0]-cp[0], bp[1]-cp[1]];
+      const bn = Math.hypot(bd[0], bd[1]) || 1;
+      cut(r => r.a !== undefined &&
+               (Math.cos(r.a)*bd[0] + Math.sin(r.a)*bd[1]) / bn > 0);
+    }
   }
   // ② 진로 묶음
   //   ★★★★ **글자가 그대로 있으면 그것이 먼저다** (2026-08-20)
