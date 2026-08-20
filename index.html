@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 482;
+const MOBILE_VER = 483;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -5239,6 +5239,20 @@ function findRoutes(){
   //   ★ 키스는 안 뺀다. 키스는 당점으로 피할 수 있고, 사용자가 그렇게 정했다.
   const drawn = list.filter(routeSettle); // 판의 점 당점으로 붙이고, 각(두께)으로 맞춘다
   if (drawn.length) list = drawn;          // 다 빠지면 원래대로 둔다 (빈 목록보다 낫다)
+  // ★★★★★★ **빵꾸라고 내놓는 것은 반드시 득점해야 한다** (사장님 136·137.jpg)
+  //   137 의 길은 수구 → 상단(1쿠션) → 노란공 → 상단(2쿠션) → 빨간공 이다.
+  //   충돌 후 쿠션이 하나뿐이라 **2쿠션 · 득점이 아니다.** 사장님: '이 그림은 2쿠션이에요.
+  //   3쿠션이 나와야 성공이지.' 그런데 목록에 남았다 — 바로 윗줄의 '다 빠지면 원래대로
+  //   둔다' 가 득점 확인에서 탈락한 길까지 되살리기 때문이다.
+  //   추천이라면 그래도 된다 (볼 것이 없는 것보다 낫다). 그런데 사장님이 **'빵꾸' 라고
+  //   콕 집어 부른 것**에 득점도 못 하는 길을 빵꾸라고 내밀면 안 된다.
+  //   → SEEK_NAB 일 때, 득점 확인을 통과 못 한 thru 는 **빵꾸 딱지를 뗀다.**
+  //     ⚠️ 경로를 지우지는 않는다. 목록에는 남아 '원뱅크 걸어치기' 로 보인다 —
+  //        거부하지 않는다는 원칙은 그대로다. 빵꾸라고 부르지 않을 뿐이다.
+  if (SEEK_NAB && drawn.length < list.length){
+    const ok = new Set(drawn);
+    for (const r of list) if (r.thru && !ok.has(r)) r.thru = false;
+  }
   for (const r of list){
     r.reach = routeReach(r);
     // ★ 키스도 **엔진 판정**으로 덮어쓴다 (위 kissRun 주석 — 옛 판정은 30% 틀렸다).
@@ -5316,7 +5330,17 @@ function drawnScores(r, ang){
         const later = roll(P, af.dir, 8, kk);
         const post = cutAtBall([P, ...later.map(h => h.p)], cut.obj);
         // ⚠️ 회로(쿠션 차례)까지 같아야 '그 경로' 다. 다른 길로 득점하면 딴 경로다.
-        ok = post.hit && (cut.pts.length - 2) === r.before;
+        // ★★★★★★ **쿠션 3회 이상이라야 득점이다** (사장님 2026-08-20, 136·137.jpg:
+        //   '이 그림은 2쿠션이에요. **3쿠션이 나와야 성공이지.**')
+        //   전에는 '2적구를 맞았나' 만 봤다. 그래서 137 처럼
+        //     수구 → 상단(1쿠션) → 노란공 → 상단(2쿠션) → 빨간공
+        //   인 길이 **2쿠션인데도** 득점으로 통과했다. 두 공을 다 맞았다는 것만 본 탓이다.
+        //   규칙은 CLAUDE.md 에 사장님 확정(2026-08-18)으로 적혀 있다 —
+        //     '두 적구를 **모두 맞히기 전에** 쿠션을 **3회 이상** 맞아야 하고,
+        //      그 조건 아래 1적구 2적구를 모두 맞춰야 성공'
+        //   ⚠️ 이 한 줄이 빠져 있어서 못 치는 길이 추천·시범경기에 계속 섞였다.
+        const nC = (cut.pts.length - 2) + (post.pts.length - 2);  // 빈쿠션 + 충돌 후 쿠션
+        ok = post.hit && (cut.pts.length - 2) === r.before && nC >= 3;
         if (ok) LAST_THICK = af.thick;      // 조준이 옮겨졌으면 두께도 바뀐다
       }
     }
