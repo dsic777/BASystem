@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 484;
+const MOBILE_VER = 485;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7194,10 +7194,15 @@ function drawNumbers2Bank(){
   const put = (rail, corner, dia, txt, col) => {
     const mm = railPos(rail, corner, dia);
     let [x,y] = toPx(...mm);
-    if (rail === 'top')    y += fs * 0.70;
-    if (rail === 'bottom') y -= fs * 0.70;
-    if (rail === 'left')   x += fs * 0.85;
-    if (rail === 'right')  x -= fs * 0.85;
+    // ★★ **바깥(프레임)으로 뺀다** (사장님 2026-08-20, 140.jpg:
+    //   '포인트 숫자가 **모두 다이 안에** 있어요')
+    //   쿠션 선에 찍은 뒤 글자를 안쪽으로 밀어 넣고 있었다. 그러면 숫자가 천 위에
+    //   올라앉아 경로와 겹친다. 파이브앤하프 눈금은 프레임 바깥에 찍는다 — 같이 맞춘다.
+    //   ⚠️ 읽는 기준은 그대로 **레일 포인트**다 (system_2bank.json). 그리는 자리만 옮긴다.
+    if (rail === 'top')    y -= fs * 0.70;
+    if (rail === 'bottom') y += fs * 0.70;
+    if (rail === 'left')   x -= fs * 0.85;
+    if (rail === 'right')  x += fs * 0.85;
     g.fillStyle = col;
     g.strokeStyle = '#101014'; g.lineWidth = Math.max(3, fs*0.28);
     g.strokeText(txt, x, y); g.fillText(txt, x, y);
