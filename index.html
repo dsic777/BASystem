@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 520;
+const MOBILE_VER = 521;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6442,7 +6442,12 @@ function nudgeFirstPoint(dirPx){
   if (numAt(a) === null) return;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
   S.aimSnapped = 0; S.snapA = null;
-  blink(); draw();
+  // ⚠️⚠️ **여기서 draw() 를 부르면 안 된다.** draw() 는 끝에서
+  //   requestAnimationFrame(draw) 로 스스로 다음 프레임을 예약한다. 손으로 한 번 더
+  //   부르면 **그리기 고리가 하나 더 생겨** 영영 남는다. 화살표를 스무 번 누르면
+  //   고리가 스물한 개가 되고 매 프레임 일이 21배가 된다 — 사장님 2026-08-21:
+  //   '화살표 움직일 때마다 수만 번 뭔 하고 있는 듯' · '프로그램 다운됐어요'
+  //   값만 바꾸면 다음 프레임에 알아서 그려진다.
 }
 // ★ 위·아래 — **당점을 파이브앤하프 자리에서 한 칸씩** (사장님 2026-08-20:
 //   '키보드 위 아래도 같이 넣어주세요 경로조정')
@@ -6461,7 +6466,7 @@ function nudgeTip(step){
   S.tipH = tp; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(tp, tv));
   S.tipDir = ((Math.round(Math.atan2(tp, tv) / (Math.PI/12)) % 24) + 24) % 24;
   S.tipLock = 1;                       // 손으로 정한 값이다 — 자동으로 안 되돌린다
-  blink(); draw();
+  // ⚠️ draw() 를 부르지 않는다 (위 nudgeFirstPoint 의 ⚠️⚠️ 참고)
 }
 addEventListener('keydown', function(e){
   const K = e.key;
@@ -6845,6 +6850,10 @@ const PICK_FINE  = 0.05;   // 그 사이를 얼마씩 훑나 (1쿠션 수가 한
 const PICK_TRY   = 120;    // 지금 당점에서 엔진을 최대 몇 번 굴리나
 const PICK_TRY_MORE = 60;  // 당점을 옮긴 뒤에는 이만큼씩
 const PICK_TIPS  = 5;      // 당점을 몇 자리까지 옮겨 보나 (지금 것 포함 · 가까운 순서)
+// ★★★★★ **시간 예산** — 아무리 못 찾아도 여기서 멈춘다 (사장님 2026-08-21 '프로그램 다운됐어요')
+//   엔진 한 번이 폰에서는 데스크톱보다 몇 배 느리다. 5당점 × 120·60번을 다 돌면
+//   폰이 몇십 초를 멈춘다. 못 찾으면 못 찾은 대로 한계를 보여주는 것이 낫다.
+const PICK_MS = 700;
 function pickFix(r){
   const cue = S.balls.cue;
   if (!PICK_FIX || !cue || typeof r.a !== 'number') return;
@@ -6878,6 +6887,7 @@ function pickFix(r){
   //     '두께를 올리다가 **한계가 온 건지** 중요한 판단의 근거가 됩니다.
   //      한계가 온 거면 **거기까지 경로로 표현은 해 주세요.** 실패라고 보고
   //      **초기값을 보여주지 말고.** 그 다음은 당점을 조정해서 경로를 수정해야 하거든요.'
+  const t0ms = nowMs();
   const sweepOne = (cap) => {
     let sgUp = 1;
     { const t = 0.5*Math.PI/180;
@@ -6886,6 +6896,7 @@ function pickFix(r){
     let tries = 0, seen = null, last = null, lastN = null, why = '끝까지 못 찾음', n0k = null;
     { const n = numAt(a0); seen = (n === null ? null : Math.round(n)); n0k = seen; }
     for (let d = PICK_FINE; d <= PICK_SWEEP + 1e-9 && tries < cap; d += PICK_FINE){
+      if (nowMs() - t0ms > PICK_MS){ why = '시간 안에 못 찾음'; break; }   // 위 PICK_MS
       const a = a0 + sgUp*d*Math.PI/180;
       const n = numAt(a);
       if (n === null){ if (last !== null){ why = '조준이 판을 벗어남'; break; } continue; }
@@ -6925,6 +6936,7 @@ function pickFix(r){
     .slice(0, PICK_TIPS);
   let limit = null;
   for (let i = 0; i < tips.length; i++){
+    if (nowMs() - t0ms > PICK_MS) break;              // 시간 예산 (위 PICK_MS)
     setTipTo(tips[i][0], tips[i][1]);
     const got = sweepOne(i === 0 ? PICK_TRY : PICK_TRY_MORE);
     if (got.ok !== undefined){
