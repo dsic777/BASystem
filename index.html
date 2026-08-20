@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 491;
+const MOBILE_VER = 492;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -4976,6 +4976,25 @@ const SEEK_KIND = {
   //      씨앗 단계는 r.thru 가 아직 없으므로 g.s 로 본다 (아래 seedOK).
   '빵꾸': (r, g) => r.before === 1 && (r.thru !== undefined ? r.thru : g.s >= g.D * 0.5),
 };
+// ★★★★★★ **장쿠션 지그재그는 우리 앱에 없는 길이다** (사장님 2026-08-20, 152.jpg)
+//   '더불 & 횡단을 제외하고 장다이 지그재그 안 한다고 몇 번을 얘기했는데
+//    152는 딱 그런 유형이잖아요' · '지우세요. 우리 앱에는 없는 길로 보세요.'
+//   ⚠️ 이 규칙은 2026-08-19 에 이미 들어와 있었다 (rank 의 zigOK · −1500).
+//      그런데 **요구 경로(seekRoutes)는 rank 를 안 태운다.** 그래서 그대로 나왔다.
+//      규칙을 순위에만 걸어 두면 순위를 안 쓰는 길에서는 없는 것과 같다.
+//   ⚠️ 여기서는 **뒤로 미는 것이 아니라 지운다** — 사장님이 '지우세요' 라고 하셨다.
+//      (추천 쪽은 지금까지대로 −1500 벌점만 걸어 둔다. 그건 순위라 승인 사항이다.)
+//   장쿠션 = 상·하 (2540mm). 이어지는 두 쿠션이 마주 보는 장쿠션이면 건너뛴 것이다.
+//   152: 상단(빈쿠션) → 빨간공 → **하단** → 상단   ← 지그재그
+//   154: 상단(빈쿠션) → 빨간공 → **상단** → …      ← 같은 쿠션. 이건 넣어치기다
+const LONG_RAIL = {top:1, bottom:1};
+function zigzagLong(r){
+  if (r.name === '횡단&더블시스템' || r.name === '횡단샷') return false;
+  const rails = r.rails || [];
+  for (let i = 1; i < rails.length; i++)
+    if (LONG_RAIL[rails[i]] && LONG_RAIL[rails[i-1]] && rails[i] !== rails[i-1]) return true;
+  return false;
+}
 function seekRoutes(want, kind){
   const cue = S.balls.cue;
   if (!cue || !T || !SEEK_KIND[kind]) return [];
@@ -5053,7 +5072,8 @@ function seekRoutes(want, kind){
   S.tipH = hS; S.tipV = vS; S.tipR = rS; S.aim = aS; TIP_NOW = tH; TIPV_NOW = tV;
   SEEK_ALL = seekSave; SWEEP_C_NOW = cSave; MIN_C_NOW = mSave;
   // ── 득점 확인 (3쿠션 + 2적구). 통과 못 하면 안 내놓는다.
-  const ok = out.filter(r => { try { return drawnScores(r, r.a); } catch(e){ return false; } });
+  const ok = out.filter(r => !zigzagLong(r))
+                .filter(r => { try { return drawnScores(r, r.a); } catch(e){ return false; } });
   for (const r of ok) r.reach = 1;
   // ★★★★★ **세기가 약한 것부터** (사장님 2026-08-20, 152·154.jpg)
   //   '가볍게 굴리는 공입니다. 원뱅크는 1적구 두께와 당점만 조절하면 쉬운 공들입니다.'
