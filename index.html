@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 549;
+const MOBILE_VER = 550;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3389,10 +3389,22 @@ function up(px, py){
     //      여기서 또 건드리면 두 번째 탭이 껐다 켰다를 뒤집어 놓기가 어긋난다.
     //      두 번 탭일 때만 그 토글을 끄고 1적구로 넘어간다.
     if (!q.moved){
+      // ★★ **공이 다이에 놓여 있을 때만** 두 번 탭이 1적구·두께판으로 간다
+      //   (사장님 2026-08-24: '공버튼 더블탭은 **공배치가 되어 있을 때** 하는 거일 걸요.
+      //    지금은 배치도 되기 전에 열리는데')
+      //   배치 전에는 정할 두께가 없다. 그때 두 번 탭은 **놓기를 그대로 켜 둔다** —
+      //   down() 이 토글이라 두 번째 탭에서 꺼지는데, 놓으려고 두 번 누른 것이니
+      //   꺼지면 안 된다.
+      //   ⚠️ 흰·노랑을 탭하면 **나머지가 수구**가 되므로 둘 다 놓여 있어야 한다.
+      //      빨강은 수구만 있으면 된다.
+      const hasC = c => Object.keys(S.balls).some(k => S.balls[k].color === c);
+      const ready = hasC(q.c) &&
+                    (q.c === 'red' ? !!S.balls.cue : (hasC('white') && hasC('yellow')));
       tapOrDouble('pal:' + q.c,
         () => {},                                     // 한 번 — down() 이 이미 했다
-        () => {                                       // 두 번 — 1적구 + 두께·당점판
-          S.place = null;
+        () => {
+          if (!ready){ S.place = q.c; return; }       // 아직 배치 전 — 놓기만 켜 둔다
+          S.place = null;                             // 두 번 — 1적구 + 두께·당점판
           setFirstObject(q.c); blink(q.c);
           openThickPanel();
         });
