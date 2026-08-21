@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 540;
+const MOBILE_VER = 541;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3603,6 +3603,9 @@ function drawDebugXY(){
   const f = v => (v >= 0 ? '+' : '') + (v || 0).toFixed(1);
   t += ' | 팁 ' + f(S.tipH) + '/' + f(S.tipV) + ' | 보정 ' + (S.corr || 0);
   if (S.routeIx >= 0) t += ' | 추천 ' + (S.routeIx + 1);
+  // ★ 경로조정이 켜졌는지 · 화살표가 함수까지 닿았는지 (2026-08-21 '화살표 안 먹어요')
+  t += ' | 경로조정 ' + (S.pathMode ? 'ON' : 'off');
+  if (NUDGE_LOG) t += ' | ' + NUDGE_LOG;
   g.save();
   g.font = '700 ' + Math.round(c.h*0.032) + 'px ui-monospace, Menlo, monospace';
   g.textAlign = 'left'; g.textBaseline = 'top';
@@ -6577,9 +6580,13 @@ function drawNextBtn(){
 //   ← 는 1쿠션 자리를 **화면 왼쪽**으로, → 는 **오른쪽**으로 한 칸(1포인트) 옮긴다.
 //   숫자가 커지는 쪽이 어느 쪽인지는 배치가 정하므로 **보이는 방향**으로 맞춘다.
 //   ★ 사장님 2026-08-21: '이제 임시기능 아닙니다.' → 정식 기능이다. 빼지 말 것.
+let NUDGE_N_HIT = 0;
+let NUDGE_LOG = '';                 // ★ 진단 — 화살표가 함수까지 닿았나 (SHOW_XY 줄에 뜬다)
 function nudgeFirstPoint(dirPx){
+  NUDGE_N_HIT = (NUDGE_N_HIT || 0) + 1;
+  NUDGE_LOG = (dirPx > 0 ? '▶' : '◀') + NUDGE_N_HIT;
   const cue = S.balls.cue;
-  if (!cue) return;
+  if (!cue){ NUDGE_LOG += ' 수구없음'; return; }
   if (!S.aim) S.aim = S.lastAim = [cue.p[0] + 1000, cue.p[1]];
   const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
   const len = Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) || 2000;
@@ -6613,7 +6620,8 @@ function nudgeFirstPoint(dirPx){
     if (n === null) continue;                       // 판 밖 — 더 돌려 본다
     if (n0 === null || Math.abs(n - n0) >= NUDGE_N){ hit = a; break; }
   }
-  if (hit === null) return;
+  if (hit === null){ NUDGE_LOG += ' 못찾음(n0=' + (n0 === null ? '-' : n0.toFixed(1)) + ')'; return; }
+  NUDGE_LOG += ' ' + (n0 === null ? '-' : n0.toFixed(1)) + '→' + (numAt(hit)||0).toFixed(1);
   S.aim = S.lastAim = [cue.p[0] + Math.cos(hit)*len, cue.p[1] + Math.sin(hit)*len];
   S.aimSnapped = 0; S.snapA = null;
   // ⚠️ draw() 는 부르지 않는다 — rAF 가 다음 프레임에 그린다 (v521 의 ⚠️⚠️ 참고)
