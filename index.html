@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 529;
+const MOBILE_VER = 530;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2336,7 +2336,15 @@ function voicePick(text){
     //   공에서 출발해 각을 벌리고, 두께·당점을 대입해 3쿠션을 완성시켜 온다.
     //   ⚠️ 넓히지 않는다 — '빵꾸와 원뱅크는 일부만 같은 겁니다' (2026-08-20).
     //      없으면 없다고 한다. 대신 그리지도 않는다 (아래 miss 처리).
+    // ★ 같이 말한 낱말이 빈쿠션 수를 정한다 (위 SEEK_BEFORE 주석)
+    SEEK_NAME = null;
+    if (said('대회전') || said('네지')){ SEEK_BEFORE = null; SEEK_NAME = '대회전'; }
+    else if (said('쓰리뱅크') || said('완전가락') || said('쓰리가락')) SEEK_BEFORE = 3;
+    else if (said('투뱅크') || said('투가락')) SEEK_BEFORE = 2;
+    else SEEK_BEFORE = 1;                       // 단독이면 원뱅크 (2026-08-19 사장님 확정)
+    if (SEEK_NAME) say.push('대회전');
     const nab = want ? seekRoutes(want, '빵꾸') : [];
+    SEEK_BEFORE = 1; SEEK_NAME = null;          // 되돌린다
     if (nab.length){
       list = nab; out = nab.slice();
       ROUTES = {key: routeKey(), list: nab};   // 화살표로 넘길 목록도 이것으로
@@ -4985,6 +4993,19 @@ const SEEK_TIPS = (() => {
   return a;
 })();
 // 진로별 **기하 조건 한 줄**. 사장님께 들은 것만 넣는다 — 지어내지 않는다.
+// ★★★★★★ **빵꾸(넣어치기)는 원뱅크만이 아니다** (사장님 2026-08-21:
+//   '**대회전 넣어치기 이것은 뱅크샷입니다. 넣어치기가 빵꾸입니다.**
+//    쿠션과 공 사이를 넣어치는 의미라고 설명을 했잖아요')
+//   넣어치기는 **틈으로 들어간다(thru)** 는 뜻이고, 빈쿠션이 몇 개냐는 **같이 말한
+//   낱말**이 정한다 —
+//     빵꾸 · 넣어치기 (단독)   빈쿠션 1 (원뱅크)   ← 2026-08-19 '구멍 빵꾸 다 원뱅크'
+//     원뱅크 넣어치기          빈쿠션 1
+//     투뱅크 넣어치기          빈쿠션 2
+//     쓰리뱅크 넣어치기        빈쿠션 3
+//     대회전 넣어치기          개수 제한 없음 · 진로 이름이 대회전
+//   전에는 before === 1 로 못박아 두어 '대회전 넣어치기' 를 영영 못 찾았다.
+let SEEK_BEFORE = 1;          // 빈쿠션 몇 개짜리를 찾나 (null = 안 따진다)
+let SEEK_NAME = null;         // 진로 이름까지 맞춰야 하나 (null = 안 따진다)
 const SEEK_KIND = {
   // 빵꾸(넣어치기·구멍) — 1적구와 쿠션 사이 틈으로 밀고 들어간다.
   //   '구멍 넣어치기는 공 반개만 벌어져 있어도 밀고 들어가서 성공을 시킵니다' (2026-08-20)
@@ -4993,7 +5014,9 @@ const SEEK_KIND = {
   //      당점을 바꾼 뒤의 실제 충돌점과 어긋난다 — 143.jpg 에서 '빵꾸' 를 달랬는데
   //      화면에 '원뱅크 **걸어치기**' 가 뜬 까닭이다 (이름표는 r.thru 를 본다).
   //      씨앗 단계는 r.thru 가 아직 없으므로 g.s 로 본다 (아래 seedOK).
-  '빵꾸': (r, g) => r.before === 1 && (r.thru !== undefined ? r.thru : g.s >= g.D * 0.5),
+  '빵꾸': (r, g) => (SEEK_BEFORE === null || r.before === SEEK_BEFORE)
+                && (!SEEK_NAME || !r.rails || r.name === SEEK_NAME)
+                && (r.thru !== undefined ? r.thru : g.s >= g.D * 0.5),
 };
 // ★★★★★★ **파이브앤하프 당점으로 자동설정** (사장님 2026-08-20, 157.jpg:
 //   '일단 당점을 파이브앤하프 시스템 기준으로 자동설정하세요. 그리고 방법을 찾아보세요.')
@@ -5046,7 +5069,9 @@ function seekRoutes(want, kind){
   //   138.jpg 의 정답 당점이 **2시 3팁**(좌우 2.6팁)이라 ②에 걸려 죽고 있었다.
   //   요구는 '억지인가' 를 묻지 않는다. **있는가** 만 묻는다.
   const seekSave = SEEK_ALL, cSave = SWEEP_C_NOW, mSave = MIN_C_NOW;
-  SEEK_ALL = 1; SWEEP_C_NOW = SWEEP_MAX_C; MIN_C_NOW = 3;
+  //   ★ 대회전 넣어치기는 쿠션을 일곱까지 쓴다 (위 SEEK_BEFORE 주석)
+  SEEK_ALL = 1; MIN_C_NOW = 3;
+  SWEEP_C_NOW = (SEEK_NAME === '대회전') ? BIG_MAX_C : SWEEP_MAX_C;
   let k0 = 0;
   if (S.corr && S.aim){ try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; } }
   const out = [], seen = new Map();
