@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 552;
+const MOBILE_VER = 553;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6673,7 +6673,10 @@ function nudgeFirstPoint(dirPx){
   //   못 했어요. 현재가 100이라면 **30 정도로** 줄여주세요')
   //   ⚠️ 이 숫자만 만지면 세기가 바뀐다. 계산은 아무 데도 안 걸려 있다.
   const NUDGE_DEG = 0.3;
-  const hit = a0 + dirPx * NUDGE_DEG * Math.PI/180;
+  //   ⚠️ 부호는 **−** 다 (사장님 2026-08-24: '좌우 방향이 반대입니다').
+  //      화면각 = −수학각 이라 시계방향이 각을 키우는 쪽이라고 봤는데 반대였다.
+  //      화면에서 확인한 것이 맞다 — 되돌리지 말 것.
+  const hit = a0 - dirPx * NUDGE_DEG * Math.PI/180;
   NUDGE_LOG += ' ' + (hit * 180/Math.PI).toFixed(1) + '도';
   S.aim = S.lastAim = [cue.p[0] + Math.cos(hit)*len, cue.p[1] + Math.sin(hit)*len];
   S.aimSnapped = 0; S.snapA = null;
