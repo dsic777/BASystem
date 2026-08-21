@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 539;
+const MOBILE_VER = 540;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -10637,12 +10637,22 @@ function crossPoint(i){
 }
 // ★ 다이에 크게 띄울 **1쿠션 포인트** — 판독창의 1쿠션 칸과 같은 값·같은 색.
 //   시스템마다 자가 다르므로 그 갈래를 그대로 따라간다 (위 tipName 옆 ★★★★ 주석).
+// ★★★★★ **경로조정 중에는 소수 첫째 자리까지 보여준다** (사장님 2026-08-21:
+//   '화살표를 누르면 1쿠션수가 변해야 하는데 왜 팁수를 조정해서 경로를 변경하나요?')
+//   v539 에서 화살표 한 번에 **1쿠션 0.3칸**만 밀도록 줄였다 (사장님 요청).
+//   그런데 화면 숫자는 **정수로 반올림**해서 보여 주니, 세 번을 눌러야 27 → 28 이 된다.
+//   그 사이에 궤적은 눈에 띄게 움직이니 **'1쿠션은 그대로인데 딴 걸 바꿔서 경로가 변한다'**
+//   로 보인다. 실제로 팁은 손대지 않는다.
+//   → 경로조정(◀ 경로 ▶)이 켜져 있을 때만 27.3 처럼 한 자리를 더 보여준다.
+function fcRound(v){
+  return S.pathMode ? (Math.round(v*10)/10).toFixed(1) : String(Math.round(v));
+}
 function firstCushionShow(){
   try {
     if (curSystem() === 1){                                  // 2뱅크시스템
       const tb = twoBank();
       if (!tb || tb.first === null || tb.first === undefined) return null;
-      return {txt: String(Math.round(tb.first)), col: TWOBANK_FIRST};
+      return {txt: fcRound(tb.first), col: TWOBANK_FIRST};
     }
     if (curShotName() === '횡단&더블시스템'){                  // 레일 칸수
       const v = crossPoint(0);
@@ -10651,10 +10661,10 @@ function firstCushionShow(){
     }
     const ft = foreTurn();                                   // 앞돌리기 — 단쿠션 레일
     if (ft && ft.first !== null && ft.first !== undefined)
-      return {txt: String(Math.round(ft.first)), col: scaleColor('first_cushion_short')};
+      return {txt: fcRound(ft.first), col: scaleColor('first_cushion_short')};
     const n = systemNumbers();                               // 파이브앤하프
     if (n && n.first !== null && n.first !== undefined)
-      return {txt: String(Math.round(n.first)), col: scaleColor('first_cushion')};
+      return {txt: fcRound(n.first), col: scaleColor('first_cushion')};
   } catch(e){}
   return null;
 }
