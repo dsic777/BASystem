@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 537;
+const MOBILE_VER = 539;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6579,49 +6579,44 @@ function drawNextBtn(){
 //   ★ 사장님 2026-08-21: '이제 임시기능 아닙니다.' → 정식 기능이다. 빼지 말 것.
 function nudgeFirstPoint(dirPx){
   const cue = S.balls.cue;
-  if (!cue || !S.aim) return;
+  if (!cue) return;
+  if (!S.aim) S.aim = S.lastAim = [cue.p[0] + 1000, cue.p[1]];
   const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
   const len = Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) || 2000;
   const numAt = (a) => { try { return firstNumFor(cue.p, [Math.cos(a), Math.sin(a)]); }
                          catch(e){ return null; } };
   const pxAt = (a) => { try { const h = frameHit(cue.p, [Math.cos(a), Math.sin(a)]);
                               return h ? toPx(...h)[0] : null; } catch(e){ return null; } };
-  const n0 = numAt(a0), x0 = pxAt(a0);
-  if (n0 === null || x0 === null) return;
-  // ★★★★★ **한 번에 계산해서 건너뛴다** (사장님 2026-08-21: '보정바나 화살표 반응이
-  //   조금 느리네요?')
-  //   전에는 0.02도씩 최대 4000번을 밀며 번호가 바뀌는 자리를 찾았다. 한 번 누를 때마다
-  //   firstNumFor 를 수천 번 부르니 폰에서 굼떴다.
-  //   → 기울기(도당 번호 변화)를 **한 번만 재고** 목표 번호 자리로 바로 뛴 뒤,
-  //     그 언저리만 ±0.3도 훑어 다듬는다. 부르는 횟수가 수천 → 서른몇으로 준다.
-  const PROBE = 0.2 * Math.PI/180;
+  // ⚠️⚠️ v521 에서 '기울기를 재서 한 번에 건너뛰는' 방식으로 바꿨는데, **자주 빈손으로
+  //   돌아왔다** (사장님 2026-08-21: '◀ ▶ 로는 바뀌는데 눌러도 1쿠션이 안 움직인다').
+  //   기울기가 작으면 건너뛴 자리가 판 밖으로 나가고, 그러면 아무것도 안 하고 끝난다.
+  //   → **한 걸음씩 민다.** 0.05도 × 8도 = 160번뿐이라 느릴 일이 없다.
+  //     (v513 이 느렸던 진짜 까닭은 4000번이 아니라 draw() 를 손으로 불러 그리기 고리를
+  //      늘린 것이었다 — v521 에서 잡았다.)
+  // ★★★★★ **한 번에 얼마나 옮기나** (사장님 2026-08-21, 199.jpg:
+  //   '화살표를 누르면 각도변경을 지금 설정보다 줄여주세요. **1쿠션은 1이 바뀌면
+  //    3쿠션은 많이 바뀌어서 미세조정을 못 했어요.** 현재가 100이라면 **30 정도로** 줄여주세요')
+  //   1쿠션 한 칸이 3쿠션에서는 여러 칸이 된다 — 3쿠션은 원래 그렇게 벌어진다.
+  //   그래서 1쿠션을 **0.3칸씩** 민다. 화면의 1쿠션 숫자는 서너 번 눌러야 1이 바뀌지만,
+  //   3쿠션 도착점은 그만큼 곱게 움직인다.
+  const NUDGE_N = 0.3;
+  const STEP = 0.02 * Math.PI/180, LIM = 8 * Math.PI/180;
+  // 화면에서 그 쪽으로 가려면 어느 쪽으로 돌려야 하나
   let sg = 1;
-  { const xA = pxAt(a0 + PROBE), xB = pxAt(a0 - PROBE);
-    if (xA !== null && xB !== null) sg = ((xA - xB) * dirPx >= 0) ? 1 : -1; }
-  const nP = numAt(a0 + sg*PROBE);
-  if (nP === null) return;
-  const slope = (nP - n0) / (sg*PROBE);            // 라디안당 번호 변화
-  if (!isFinite(slope) || Math.abs(slope) < 1e-9) return;
-  const want = Math.round(n0) + ((slope*sg > 0) ? 1 : -1);
-  let aim = a0 + (want - n0)/slope;
+  { const xA = pxAt(a0 + STEP*10), xB = pxAt(a0 - STEP*10);
+    if (xA !== null && xB !== null && (xA - xB) * dirPx < 0) sg = -1; }
+  const n0 = numAt(a0);
   let hit = null;
-  for (let k = 0; k <= 30 && hit === null; k++){
-    for (const q of (k ? [1, -1] : [1])){
-      const t = aim + q*k*0.02*Math.PI/180;
-      const n = numAt(t);
-      if (n !== null && Math.round(n) === want){ hit = t; break; }
-    }
+  for (let d = STEP; d <= LIM + 1e-9; d += STEP){
+    const a = a0 + sg*d;
+    const n = numAt(a);
+    if (n === null) continue;                       // 판 밖 — 더 돌려 본다
+    if (n0 === null || Math.abs(n - n0) >= NUDGE_N){ hit = a; break; }
   }
-  const a = (hit !== null) ? hit : aim;
-  if (numAt(a) === null) return;
-  S.aim = S.lastAim = [cue.p[0] + Math.cos(a)*len, cue.p[1] + Math.sin(a)*len];
+  if (hit === null) return;
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(hit)*len, cue.p[1] + Math.sin(hit)*len];
   S.aimSnapped = 0; S.snapA = null;
-  // ⚠️⚠️ **여기서 draw() 를 부르면 안 된다.** draw() 는 끝에서
-  //   requestAnimationFrame(draw) 로 스스로 다음 프레임을 예약한다. 손으로 한 번 더
-  //   부르면 **그리기 고리가 하나 더 생겨** 영영 남는다. 화살표를 스무 번 누르면
-  //   고리가 스물한 개가 되고 매 프레임 일이 21배가 된다 — 사장님 2026-08-21:
-  //   '화살표 움직일 때마다 수만 번 뭔 하고 있는 듯' · '프로그램 다운됐어요'
-  //   값만 바꾸면 다음 프레임에 알아서 그려진다.
+  // ⚠️ draw() 는 부르지 않는다 — rAF 가 다음 프레임에 그린다 (v521 의 ⚠️⚠️ 참고)
 }
 // ★ 위·아래 — **당점을 파이브앤하프 자리에서 한 칸씩** (사장님 2026-08-20:
 //   '키보드 위 아래도 같이 넣어주세요 경로조정')
