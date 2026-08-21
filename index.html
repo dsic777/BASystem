@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 536;
+const MOBILE_VER = 537;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1670,7 +1670,13 @@ function tapButton(px,py){
     //   꺼진 자리를 눌러도 아무 일이 없고, 그 아래 다이 조준이 받는다.
     // ★ 시범경기·배치 중에는 보정을 안 그리므로 **눌러도 안 먹어야 한다** —
     //   안 보이는데 눌리는 버튼은 없어야 한다.
-    if ((S.aimMode || S.solo || S.showPlace) && btnOnCloth(b)) continue;
+    // ⚠️⚠️ **경로설정 모드(aimMode)로는 더 이상 버튼을 끄지 않는다** (2026-08-21)
+    //   원래 까닭은 '천 위를 손가락으로 눌러 조준하니 그 자리를 비워야 한다' 였다.
+    //   그런데 v515 에서 **다이 위 손가락 조준을 통째로 뺐다** (사장님: '불편해요').
+    //   목적이 사라졌는데 끄는 것만 남아, **보정 바가 죽어 ◀ ▶(경로조정)를 못 눌렀다**
+    //   (사장님 2026-08-21: '보정에서 화살표 경로변경 안 되요').
+    //   시범경기·배치 3초에는 그대로 끈다 — 그때는 정말로 안 보이는 버튼이다.
+    if ((S.solo || S.showPlace) && btnOnCloth(b)) continue;
     if (px < b.x || px > b.x+b.w || py < b.y || py > b.y+b.h) continue;
     // ★ 보정을 바꿔도 같이 따라간다 (당점과 같은 이유 — reaimForTip 주석 참고)
     // ★★★★★★ **보정 바가 두 역할이다 — 보정 / 경로조정** (사장님 2026-08-20:
@@ -10897,7 +10903,7 @@ function drawButtons(){
     // ★ 경로설정 중에는 **천 위에 얹힌 버튼만** 흐리게 — 꺼졌다는 것이 보여야 한다.
     //   오른쪽 칸은 다이 바깥이라 그대로 둔다 (btnOnCloth 주석).
     if (hideCorr && btnOnCloth(b)) continue;     // 시범경기·배치 중 — 보정을 지운다
-    g.globalAlpha = (S.aimMode && btnOnCloth(b)) ? 0.30 : 1;
+    g.globalAlpha = 1;                       // (aimMode 로 흐리게 하던 것 — 위 ⚠️⚠️ 참고)
     const cx = b.x+b.w/2, cy = b.y+b.h/2, u = Math.min(b.w, b.h);
     const armed = S.place === b.lb || (b.lb === 'power' && S.aimMode);
     const onBar = ['-','0','+'].includes(b.lb);
