@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 544;
+const MOBILE_VER = 545;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2466,40 +2466,29 @@ function voicePick(text){
     blink();
     return;
   }
-  // ★★★★★★ **갈래가 갈리면 보여 드리고 탭하시게 한다** (사장님 2026-08-21)
-  //   되묻기·말소리는 **안 만든다** — 사장님 결정: '그냥 추천경로 보여주면 되겠네요, 보고 탭하기'
-  //   197·198 이 그 자리였다 — 같은 배치·같은 완전가락인데 1쿠션이 장상단이냐 장하단이냐로
-  //   완전히 다른 길이었다. 말없이 하나를 고르면 나머지 하나가 통째로 숨는다.
-  //   ⚠️ **세 개 이내만** 보여 준다 (사장님: '추천경로 3개 이내면 되겠네요.
-  //      또 장황하게 만들면 이상해 보일 거고. **대부분 2개를 넘지 않을 겁니다**').
-  //   ⚠️ **갈릴 때만** 띄운다. 한 쪽뿐이면 지금까지대로 하나만 그린다
-  //      (사장님 2026-08-20: '경로 하나만 보여주세요. 앞돌리기 외 7은 필요없잖아요').
-  //   ⚠️ 목록은 **거른 것만** 담는다 — 화살표로 넘겨도 요구에 맞는 것만 돈다.
-  {
-    const sides = {};
-    for (const r of out) if (r.rails && r.rails.length){
-      const sd = railSide(r.rails[0]);
-      if (sd) sides[sd] = 1;
-    }
-    if (out.length >= 2 && Object.keys(sides).length >= 2){
-      // 쪽마다 제일 앞선 것 하나씩 — 그래야 세 칸이 서로 다른 길이 된다
-      const pick = [], got = {};
-      for (const r of out){
-        const sd = r.rails && r.rails.length ? railSide(r.rails[0]) : null;
-        if (!sd || got[sd]) continue;
-        got[sd] = 1; pick.push(r);
-        if (pick.length >= 3) break;
-      }
-      for (const r of out){                       // 세 칸이 안 차면 순위대로 채운다
-        if (pick.length >= 3) break;
-        if (pick.indexOf(r) < 0) pick.push(r);
-      }
-      out = pick;
-      ROUTES = {key: routeKey(), list: out};
-      list = out;
-      S.listShown = placeKey(); S.lapEnd = false;
-      S.routeList = true; S.routePage = 0;
-    }
+  // ★★★★★★ **최단경로 하나만 남긴다** (사장님 2026-08-24, 208.jpg:
+  //   '**1번만 남아야 합니다. 2번은 소설이고 3번도 무리합니다. 최단경로 1개만 남기세요.**')
+  //
+  //   208 은 셋 다 완전가락이었는데 1번은 마름모 하나로 짧고, 2·3번은 지그재그로 길었다.
+  //   **짧은 길이 실제로 치는 길이다.** 길게 도는 것은 힘으로 억지로 만든 것이다.
+  //
+  //   재는 자는 **v0** — 그 길을 완주하는 데 드는 세기다 (simulate 이 경로에 얹어 준다).
+  //   길수록 · 두껍게 맞을수록 커진다. 그래서 v0 가 작은 것이 곧 '가볍게 굴리는 공' 이다
+  //   (사장님 2026-08-20: '가볍게 굴리는 공입니다').
+  //
+  // ⚠️ 여기 있던 **'갈래가 갈리면 세 개까지 보여 준다'** 를 걷어냈다 (2026-08-21 · 197·198).
+  //    그때는 같은 완전가락인데 1쿠션이 장상단이냐 장하단이냐로 갈려 하나를 숨길까 봐
+  //    셋을 띄웠다. 그런데 지금은 사장님이 **말로 쪽을 지정하신다** ('장상 완전가락' · 207).
+  //    쪽을 말할 수 있으면 갈래를 벌려 놓을 이유가 없다. 셋을 띄우면 2·3번 같은
+  //    소설이 같이 올라온다 — 208 이 그것이다.
+  //    ★ 쪽을 안 말했는데 갈래가 갈리는 배치가 다시 문제되면, 그때는 **셋을 띄우는 것이
+  //      아니라 되물어야** 한다. 없애지 말고 여기 적어 둔다.
+  if (out.length > 1){
+    out = out.slice().sort((x, y) => (x.v0 || 1e9) - (y.v0 || 1e9)).slice(0, 1);
+    ROUTES = {key: routeKey(), list: out};
+    list = out;
+    S.listShown = placeKey(); S.lapEnd = false;
+    S.routeList = false; S.routePage = 0;
   }
   pickRoute(out[0]);
   S.routeIx = list.indexOf(out[0]);
