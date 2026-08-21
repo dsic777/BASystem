@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 558;
+const MOBILE_VER = 559;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -7325,6 +7325,63 @@ function pickRoute(r){
   pickFix(r);                          // ★ 그려지는 선이 2적구에 닿게 두께를 맞춘다
   const len = S.aim ? Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) : 2000;
   S.aim = S.lastAim = [cue.p[0] + Math.cos(r.a)*len, cue.p[1] + Math.sin(r.a)*len];
+  if (r.kiss) kissFixNow();            // ★ 키스가 나면 스스로 고친다 (아래)
+}
+
+// ★★★★★★ **추천 경로에 키스가 있으면 경로를 고친다** (사장님 2026-08-24)
+//   '214 경로설정을 **217로 하는 것은 어렵나요**. **키스 빼는 팁수와 두께를 찾으면**
+//    되는데. 215는 **당점 때문에** 키스, 216은 4쿠션.'
+//   그리고 — '**추천경로에 키스가 있으면 경로수정**'
+//
+//   215 → 217 을 재보면 무엇이 바뀌었는지 그대로 보인다 —
+//     215  팁 **1시 2팁**  · 두께 70% · 3쿠션 51   → 키스
+//     217  팁 **10시 3팁** · 두께 61% · 3쿠션 27   → 키스 없음
+//   당점이 반대쪽으로 넘어갔다. **두께만 흔들어서는 못 찾는다.**
+//
+// ⚠️ v206 의 kissFreeThick 은 **조준각(두께)만** 훑는다. 그래서 215 같은 자리에서
+//    답을 못 냈다. 여기서는 **당점 × 두께**를 같이 훑는다.
+//   ⚠️ 회로(쿠션 차례)는 지킨다 — 다른 길로 갈아타면 그건 '수정' 이 아니라 딴 경로다.
+//   ⚠️ 키스가 날 때만 돈다. 열여섯 당점 × 조준 ±4도라 한 번은 감당되지만
+//      매번 돌 일은 아니다.
+function kissFixNow(){
+  const cue = S.balls.cue;
+  if (!cue || !S.aim || !S.lockRails || !FH_TIPS.length) return false;
+  const d0 = [S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]];
+  const len = Math.hypot(d0[0], d0[1]) || 2000;
+  const a0 = Math.atan2(d0[1], d0[0]);
+  let k0 = 0;
+  try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; }
+  const hS = S.tipH, vS = S.tipV, rS = S.tipR, dS = S.tipDir;
+  const now = scoresAt(a0, k0);
+  if (!now || !now.kiss){ return false; }          // 키스가 없으면 그대로 둔다
+  const RAD = Math.PI/180, LIM = 4*RAD, STEP = 0.05*RAD;
+  let best = null;
+  for (const [th, tv] of FH_TIPS){
+    S.tipH = th; S.tipV = tv; S.tipR = Math.min(3, Math.hypot(th, tv));
+    const tipCost = Math.hypot(th - hS, tv - vS);   // 당점을 적게 옮길수록 좋다
+    for (let dd = 0; dd <= LIM + 1e-9; dd += STEP){
+      for (const sg of (dd ? [1, -1] : [0])){
+        const a = a0 + sg*dd, q = scoresAt(a, k0);
+        if (!q || q.kiss) continue;
+        if ((q.rails || []).join('-') !== S.lockRails) continue;
+        //   조준을 옮긴 각(도) + 당점을 옮긴 거리(팁). 둘 다 적은 쪽이 이긴다.
+        const cost = (dd/RAD) + tipCost * 1.5;
+        if (!best || cost < best.cost) best = {cost, a, th, tv};
+      }
+    }
+    if (best && best.cost < 0.2) break;             // 거의 그 자리면 더 볼 것 없다
+  }
+  if (!best){                                       // 못 찾으면 손대지 않는다
+    S.tipH = hS; S.tipV = vS; S.tipR = rS; S.tipDir = dS;
+    return false;
+  }
+  S.tipH = best.th; S.tipV = best.tv;
+  S.tipR = Math.min(3, Math.hypot(best.th, best.tv));
+  S.tipDir = ((Math.round(Math.atan2(S.tipH, S.tipV) / (Math.PI/12)) % 24) + 24) % 24;
+  S.aim = S.lastAim = [cue.p[0] + Math.cos(best.a)*len, cue.p[1] + Math.sin(best.a)*len];
+  S.aimSnapped = 0; S.snapA = null;
+  S.rblink = nowMs();                               // 고쳤다는 것을 깜빡임으로 알린다
+  return true;
 }
 
 // ─────────────────────────────── 자석 (사용자 지시 2026-08-11)
