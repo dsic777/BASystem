@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 531;
+const MOBILE_VER = 532;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2091,9 +2091,9 @@ const V_NAME = [
   {말:['대회전','네지마우시','네지'], 이름:['대회전']},
   {말:['원뱅크','원가락'], 이름:['원뱅크']},
   {말:['투뱅크','투가락'], 이름:['투뱅크']},
-  {말:['쓰리뱅크','완전가락','쓰리가락'], 이름:['쓰리뱅크']},
-  // ⚠️ '포쿠션' 은 안 넣는다 — 그건 일반 득점(직접)을 뜻한다 (위 BANK_KR 주석)
-  {말:['포뱅크','포뱅크샷','사뱅크'], 이름:['포뱅크']},
+  // ★ 3뱅크 이상은 **완전가락** 하나다 (위 BANK_KR 주석). '완전뱅크' 라고는 안 한다.
+  // ⚠️ '포쿠션' 은 안 넣는다 — 그건 일반 득점(직접)을 뜻한다
+  {말:['완전가락','쓰리뱅크','쓰리가락','포뱅크','포뱅크샷','사뱅크'], 이름:['완전가락']},
   {말:['횡단','더블','접접이','조단조'], 이름:['횡단&더블시스템']}
 ];
 // ★★★★ **넓게 알아듣는다** (사용자 2026-08-20):
@@ -2290,9 +2290,10 @@ function voicePick(text){
   //     v526 에서 내가 '대회전은 둘 다 된다' 로 읽고 직접 강제를 풀었다 — 틀렸다.
   //     뱅크로 칠 때는 사장님이 반드시 뱅크 낱말을 같이 말씀하신다. 그러면 아래
   //     BANK_WORDS 가 잡는다. 대회전만 있으면 직접이다.
-  const BANK_WORDS = ['원뱅크','투뱅크','쓰리뱅크','포뱅크','포뱅크샷','사뱅크',
+  const BANK_WORDS = ['원뱅크','투뱅크','완전가락','쓰리뱅크','쓰리가락',
+                      '포뱅크','포뱅크샷','사뱅크',
                       '빵꾸','구멍','구멍치기','넣어치기','가락넣기',
-                      '원가락','투가락','쓰리가락','완전가락','시까끼','걸어치기'];
+                      '원가락','투가락','시까끼','걸어치기'];
   if (want && !BANK_WORDS.some(w => said(w))){
     say.push('직접');
     const q = out.filter(r => r.before === 0);
@@ -2341,11 +2342,13 @@ function voicePick(text){
     // ★ 같이 말한 낱말이 빈쿠션 수를 정한다 (위 SEEK_BEFORE 주석)
     SEEK_NAME = null;
     if (said('대회전') || said('네지')){ SEEK_BEFORE = null; SEEK_NAME = '대회전'; }
-    else if (said('포뱅크') || said('포뱅크샷') || said('사뱅크')) SEEK_BEFORE = 4;
-    else if (said('쓰리뱅크') || said('완전가락') || said('쓰리가락')) SEEK_BEFORE = 3;
+    else if (said('완전가락') || said('쓰리뱅크') || said('쓰리가락') ||
+             said('포뱅크') || said('포뱅크샷') || said('사뱅크')){
+      SEEK_BEFORE = null; SEEK_NAME = '완전가락';      // 3뱅크 이상 (위 BANK_KR 주석)
+    }
     else if (said('투뱅크') || said('투가락')) SEEK_BEFORE = 2;
     else SEEK_BEFORE = 1;                       // 단독이면 원뱅크 (2026-08-19 사장님 확정)
-    if (SEEK_NAME) say.push('대회전');
+    if (SEEK_NAME) say.push(SEEK_NAME);
     const nab = want ? seekRoutes(want, '빵꾸') : [];
     SEEK_BEFORE = 1; SEEK_NAME = null;          // 되돌린다
     if (nab.length){
@@ -4071,7 +4074,12 @@ const DROP_REVERSE = false;   // ★ 켜지 말 것 — '역각은 쓰리쿠션�
 //   ⚠️ '**포쿠션**' 단독은 뱅크가 **아니다** — '목적구를 먼저 맞히고 쿠션을 4개 이상
 //      돌려 맞히는 디렉트 형태의 길(일반 득점)' 을 뜻하는 경우가 대다수다.
 //      그래서 낱말표에도 '포쿠션' 은 안 넣는다.
-const BANK_KR = ['', '원뱅크', '투뱅크', '쓰리뱅크', '포뱅크'];
+//   ★★★★★★ **3뱅크 이상은 '완전가락' 하나로** (사장님 2026-08-21:
+//     '3뱅크 이상 완전가락으로 통일합시다. **실제 당구장에서는 그렇게 쓰고 있어요**')
+//     ⚠️ '완전뱅크' 라고는 하지 않는다 (사장님 확인). 낱말은 '완전가락' 이다.
+//     이걸로 **빈쿠션 5개 이상이 이름이 없어 버려지던 것**도 같이 풀린다 —
+//     전에는 c1 <= 4 까지만 이름을 줘서 그 위는 통째로 사라졌다.
+const BANK_KR = ['', '원뱅크', '투뱅크'];
 // 2뱅크 곱셈 1쿠션 포인트 색 — 밝은 핑크 (사용자 2026-08-17). 상황판도 이 값을 쓴다
 const TWOBANK_FIRST = '#ff5ce0';
 // ★★ 뱅크샷은 **빼는 게 아니라 뒤로 민다.** 사용자 확정 2026-08-12 —
@@ -4160,7 +4168,7 @@ function shotName(c1, rails, cueP, objP){
   //      쓰리뱅크입니다. 2.jpg 는 손으로 조준해서 만든 길이 정답입니다.'
   //      전에는 c1 <= 2 만 이름을 줘서 빈쿠션 3개는 이름이 없었고, 아래
   //      '뱅크는 이름이 있어야 한다' 에 걸려 통째로 사라졌다.
-  if (c1 > 0) return DROP_BANK ? null : (c1 <= 4 ? BANK_KR[c1] : null);
+  if (c1 > 0) return DROP_BANK ? null : (BANK_KR[c1] || '완전가락');
   const r0 = rails[0], r1 = rails[1];
   if (!r0 || !r1) return null;
   // ★★★★ 장-장 은 **횡단**, 단-단 은 **종단** 이다 (data/shot_types.json 규칙 그대로).
@@ -4732,7 +4740,10 @@ function routeKey(){
 //   ⚠️ 키스 벌점을 −1000 → −70 으로 내렸다. 자료상 키스 36.5 vs 비키스 43.6 —
 //      **7점 차이**뿐이고 상관은 −0.075 로 거의 없다. 맨 뒤로 보낼 근거가 없었다.
 //      (사용자 2026-08-17 '키스는 뒤로' 는 지킨다 — 다만 그 정도가 과했다)
-const NAME_SCORE = {'직접지정':56, '옆돌리기':49, '뒤돌리기':48, '쓰리뱅크':43,
+//   ⚠️ '완전가락' 은 옛 '쓰리뱅크' 자리를 그대로 쓴다 (v532 에서 이름을 합쳤다).
+//      점수를 안 바꿔야 지금까지 쌓은 판정과 순위가 안 어긋난다.
+const NAME_SCORE = {'직접지정':56, '옆돌리기':49, '뒤돌리기':48,
+                    '완전가락':43, '쓰리뱅크':43,
                     '앞돌리기':39, '투뱅크':36, '원뱅크':33, '대회전':31};
 const NAME_SCORE_AVG = 42;          // 표에 없는 진로 · 전체 평균
 // 되돌이로 보는 경계 — 법선에서 20도 (dot = −cos40°). 숫자 하나만 고치면 된다.
@@ -5080,7 +5091,8 @@ function seekRoutes(want, kind){
   const seekSave = SEEK_ALL, cSave = SWEEP_C_NOW, mSave = MIN_C_NOW;
   //   ★ 대회전 넣어치기는 쿠션을 일곱까지 쓴다 (위 SEEK_BEFORE 주석)
   SEEK_ALL = 1; MIN_C_NOW = 3;
-  SWEEP_C_NOW = (SEEK_NAME === '대회전') ? BIG_MAX_C : SWEEP_MAX_C;
+  SWEEP_C_NOW = (SEEK_NAME === '대회전' || SEEK_NAME === '완전가락')
+                ? BIG_MAX_C : SWEEP_MAX_C;
   let k0 = 0;
   if (S.corr && S.aim){ try { pathFromAim(cue.p, S.aim, S.corr); k0 = LAST_K; } catch(e){ k0 = 0; } }
   const out = [], seen = new Map();
