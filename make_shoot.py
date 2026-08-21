@@ -385,5 +385,6 @@ def page5():
     p.save("촬영5.png")
 
 
-for fn in (page0, page1, page2, page3, page4, page5):
-    fn()
+if __name__ == "__main__":          # * make_shoot_next.py 가 헬퍼만 가져다 쓴다
+    for fn in (page0, page1, page2, page3, page4, page5):
+        fn()
