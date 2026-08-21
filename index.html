@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 555;
+const MOBILE_VER = 556;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2485,15 +2485,38 @@ function voicePick(text){
   //   길수록 · 두껍게 맞을수록 커진다. 작은 것이 곧 '가볍게 굴리는 공' 이다
   //   (사장님 2026-08-20: '가볍게 굴리는 공입니다').
   //   ⚠️ BRANCH_MAX 는 내가 정한 값이다. 갈래가 안 뜨거나 억지가 끼면 이 숫자만 만진다.
+  // ★★★★★★ **최단 = 쿠션 수가 적은 것** (사장님 2026-08-24)
+  //   '최단경로라 함은 **쿠션수가 적음**을 의미합니다. 그리고 **한 바퀴를 도는 방법이
+  //    최선의 길**이고, 단 **우라와 오마가 나오면 일단 우라를 먼저** 봅니다.
+  //    이유는 **3쿠션을 확보 후 가장 확률이 크기** 때문입니다. 바로 맞든 짧든 길든.'
+  //   (우라 = 뒤돌리기 · 오마 = 앞돌리기 — 사장님 확인)
+  //
+  // ⚠️ v545 에서 내가 '최단' 을 **세기(v0)** 로 읽었다. 틀렸다.
+  //    그래서 212 처럼 코앞 쿠션을 스치는 길이 '최단' 으로 뽑혔다.
+  //    (겨냥 못 하는 자리 자체는 v555 에서 후보에서 뺐다. 여기는 **자를 바로잡는다**)
+  //
+  //   순서 — ① 쿠션 수 적은 것  ② 뒤돌리기 먼저  ③ 그래도 같으면 가벼운 것(v0)
+  //   ⚠️ ②는 rank() 의 NAME_SCORE 와 같은 이야기다 (뒤돌리기 48 > 앞돌리기 39).
+  //      말로 요구하면 rank() 를 안 태우므로 여기에 따로 둔다.
+  const ORDER = {'뒤돌리기':0, '옆·뒤돌리기':0, '옆돌리기':1, '앞돌리기':2};
+  const seekKey = r => [r.cushions === undefined ? 99 : r.cushions,
+                        ORDER[r.name] === undefined ? 3 : ORDER[r.name],
+                        r.v0 || 1e9];
+  const seekCmp = (x, y) => {
+    const a = seekKey(x), b = seekKey(y);
+    return (a[0]-b[0]) || (a[1]-b[1]) || (a[2]-b[2]);
+  };
   const BRANCH_MAX = 1.25;                 // 최단의 이 배수 안이면 '둘 다 칠 만하다'
   if (out.length > 1){
-    const byV = out.slice().sort((x, y) => (x.v0 || 1e9) - (y.v0 || 1e9));
+    const byV = out.slice().sort(seekCmp);
     const best = byV[0];
     const sideOf = r => (r.rails && r.rails.length) ? railSide(r.rails[0]) : null;
     const sd0 = sideOf(best);
     const pick = [best];
     if (sd0) for (const r of byV.slice(1)){
       if (sideOf(r) === sd0 || !sideOf(r)) continue;
+      // 갈래로 인정하려면 **쿠션 수가 같고** 세기도 그만큼이라야 한다
+      if (r.cushions !== best.cushions) continue;
       if ((r.v0 || 1e9) <= (best.v0 || 1) * BRANCH_MAX){ pick.push(r); break; }
     }
     out = pick;
