@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 551;
+const MOBILE_VER = 552;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -6653,71 +6653,28 @@ function nudgeFirstPoint(dirPx){
   if (!S.aim) S.aim = S.lastAim = [cue.p[0] + 1000, cue.p[1]];
   const a0 = Math.atan2(S.aim[1]-cue.p[1], S.aim[0]-cue.p[0]);
   const len = Math.hypot(S.aim[0]-cue.p[0], S.aim[1]-cue.p[1]) || 2000;
-  // ★★★★★★ **실제 경로의 1쿠션 자리를 잰다** (사장님 2026-08-24, 211.jpg:
-  //   '이때는 보정판 경로설정이 안 되네요. **아래위라서 그런가요?**
-  //    화살표로 360도를 돌아야 하는데 잘못되어 있네요')
+  // ★★★★★★ **수구를 중심으로 조준을 좌우로 돌린다. 그게 전부다.**
+  //   사장님 2026-08-24 (211.jpg 이야기 정정): '그 얘기가 아니고 **수구 기준
+  //   화살표 방향을 좌우로 360도 돌아가게** 하면 됩니다. **1적구와 관계 없어요.**'
   //
-  // ⚠️⚠️ 화면 디버그 줄에 답이 찍혀 있었다 — `◀20 못찾음(n0=-)`.
-  //   ◀ 를 스무 번 눌렀는데 **1쿠션 숫자가 아예 null** 이었다.
-  //   firstNumFor 는 **조준 광선이 처음 닿는 프레임**에서 눈금을 읽는다 —
-  //     뱅크(빈쿠션 먼저)  그 프레임이 곧 1쿠션이다 → 맞는다 (206 이 그 경우였다)
-  //     직접 타격          1쿠션은 **공을 맞고 난 뒤** 생긴다. 광선이 닿는 쪽엔
-  //                        1쿠션 눈금이 아예 없다 → null → '못찾음'
-  //   211 은 흰공을 69% 로 먼저 맞히는 옆·뒤돌리기였다. 그래서 스무 번을 눌러도
-  //   아무 일도 안 일어났다. (이 한계는 pathFromAim 위 주석에
-  //   '공을 먼저 맞히는 길은 … 아직 안 만들었다' 로 적혀 있던 바로 그것이다)
+  // ⚠️⚠️ 여기 있던 것을 통째로 걷어냈다. 전에는 —
+  //     ① 1쿠션 눈금(firstNumFor)을 읽어 0.3칸 움직일 각을 **찾아** 다녔다
+  //     ② 못 찾으면 아무 일도 안 하고 끝났다 ('◀20 못찾음(n0=-)')
+  //   직접 타격은 1쿠션이 충돌 뒤에 생겨 그 눈금이 아예 없다. 그래서 211 처럼
+  //   흰공을 먼저 맞히는 배치에서는 스무 번을 눌러도 조준이 안 움직였다.
+  //   ★ 그런데 애초에 **1쿠션을 잴 이유가 없었다.** 화살표는 조준을 돌리는 것이고,
+  //     1쿠션이 얼마가 되는지는 그 결과일 뿐이다. 원인과 결과를 뒤집어 잡고 있었다.
   //
-  //   → 눈금 대신 **공이 실제로 처음 닿는 쿠션 자리(mm)** 를 잰다. 둘 다 이 자로 통한다.
-  //     직접이면 충돌 뒤 첫 쿠션, 뱅크면 그냥 첫 쿠션.
-  const fcAt = (a) => {
-    try {
-      const d = [Math.cos(a), Math.sin(a)];
-      const E = englishSideFor(cue.p, d);
-      const seq = roll(cue.p, d, 5, 0, E);
-      if (!seq.length) return null;
-      const c1 = cutAtBall([cue.p, ...seq.map(h => h.p)]);
-      if (!c1.hit) return seq[0].p;                     // 뱅크 — 첫 쿠션이 곧 1쿠션
-      const P = c1.pts[c1.pts.length-1];
-      const af = afterHit(c1.from, P, c1.obj);
-      if (!af) return null;
-      const s2 = roll(P, af.dir, 3, 0, E);
-      return s2.length ? s2[0].p : null;                // 직접 — 충돌 뒤 첫 쿠션
-    } catch(e){ return null; }
-  };
-  const numAt = (a) => { try { return firstNumFor(cue.p, [Math.cos(a), Math.sin(a)]); }
-                         catch(e){ return null; } };
-  // ★★★★★ **한 번에 얼마나 옮기나** (사장님 2026-08-21, 199.jpg:
-  //   '화살표를 누르면 각도변경을 지금 설정보다 줄여주세요. **1쿠션은 1이 바뀌면
-  //    3쿠션은 많이 바뀌어서 미세조정을 못 했어요.** 현재가 100이라면 **30 정도로** 줄여주세요')
-  //   1쿠션 한 칸(다이아 하나 = 장축 8등분)의 **0.3칸**씩 민다.
-  //   ⚠️ 전에는 눈금 숫자로 쟀다. 이제 mm 로 잰다 — 다이아 한 칸이 T.width/8 이다.
-  const NUDGE_MM = 0.3 * (T.width / 8);
-  const STEP = 0.05 * Math.PI/180, LIM = 12 * Math.PI/180;
-  const P0 = fcAt(a0);
-  // 화면에서 그 쪽으로 가려면 어느 쪽으로 돌려야 하나 —
-  // **1쿠션 자리가 화면에서 어느 쪽으로 움직이나**로 본다 (조준 광선이 아니라).
-  // ⚠️ 상·하 쿠션이면 좌우(x)로, 좌·우 쿠션이면 위아래(y)로 움직인다.
-  //    211 이 그 자리였다 — 위아래로 움직이는데 x 만 보고 있었다.
-  let sg = 1;
-  { const pA = fcAt(a0 + STEP*6), pB = fcAt(a0 - STEP*6);
-    if (P0 && pA && pB){
-      const [ax,ay] = toPx(...pA), [bx,by] = toPx(...pB);
-      const mv = Math.abs(ax-bx) >= Math.abs(ay-by) ? (ax-bx) : (ay-by);
-      if (mv * dirPx < 0) sg = -1;
-    } }
-  let hit = null;
-  for (let d = STEP; d <= LIM + 1e-9; d += STEP){
-    const a = a0 + sg*d;
-    const q = fcAt(a);
-    if (!q) continue;                                 // 그 각은 길이 안 선다 — 더 돌려 본다
-    if (!P0){ hit = a; break; }                       // 처음부터 없었으면 되는 첫 각으로
-    if (Math.hypot(q[0]-P0[0], q[1]-P0[1]) >= NUDGE_MM){ hit = a; break; }
-  }
-  if (hit === null){ NUDGE_LOG += ' 못찾음'; return; }
-  { const n1 = numAt(hit), q1 = fcAt(hit);
-    NUDGE_LOG += ' ' + (n1 === null
-      ? (q1 ? Math.round(q1[0]) + ',' + Math.round(q1[1]) : '-')
-      : n1.toFixed(1)); }
+  //   화면 기준 시계방향이 **각을 키우는 쪽**이다 (toPx 가 y 를 뒤집으므로
+  //   화면각 = −수학각). ▶ 는 시계, ◀ 는 반시계. 끝이 없으니 360도가 다 돈다.
+  //
+  // ★ 한 걸음의 크기 (사장님 2026-08-21, 199.jpg: '화살표를 누르면 각도변경을
+  //   지금 설정보다 줄여주세요. 1쿠션은 1이 바뀌면 3쿠션은 많이 바뀌어서 미세조정을
+  //   못 했어요. 현재가 100이라면 **30 정도로** 줄여주세요')
+  //   ⚠️ 이 숫자만 만지면 세기가 바뀐다. 계산은 아무 데도 안 걸려 있다.
+  const NUDGE_DEG = 0.3;
+  const hit = a0 + dirPx * NUDGE_DEG * Math.PI/180;
+  NUDGE_LOG += ' ' + (hit * 180/Math.PI).toFixed(1) + '도';
   S.aim = S.lastAim = [cue.p[0] + Math.cos(hit)*len, cue.p[1] + Math.sin(hit)*len];
   S.aimSnapped = 0; S.snapA = null;
   // ⚠️ draw() 는 부르지 않는다 — rAF 가 다음 프레임에 그린다 (v521 의 ⚠️⚠️ 참고)
