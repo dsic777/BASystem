@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 532;
+const MOBILE_VER = 533;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2078,6 +2078,36 @@ const V_BALL = {'노란':'yellow','노랑':'yellow','흰':'white','하얀':'whit
                 '빨간':'red','빨강':'red'};
 // 묶음 셋 — 사장님 2026-08-19: '비껴치기나 뒤돌려치기나 우라나 기레까시나 하나로 보고'
 //   ⚠️ '옆·뒤돌리기' 는 앱이 못 정한 애매한 이름이라 **어느 쪽을 불러도 걸리게** 한다
+// ★★★★★★ **1쿠션이 어느 쿠션인지 지정한다** (사장님 2026-08-21, 197·198.jpg)
+//   '이때 1뱅크 위치를 지정해야 하나요? 장상단 장하단 등을 지정해야 하는 거 아닌지'
+//   197·198 은 **같은 배치 · 같은 완전가락**인데 1쿠션이 서로 다른 장쿠션이었다.
+//   이름만으로는 못 좁힌다.
+//   ★ 기준은 **화면**이다 (사장님 확정: '**카메라로 찍은 화면이 기준이 됩니다**').
+//     다이는 돌려 놓아도 사장님은 폰을 보고 말씀하신다. 그래서 mm 좌표의 top/bottom 이
+//     아니라 **그려진 화면에서 위/아래/왼/오른쪽**으로 가른다.
+//   ⚠️ '상단·하단' 단독은 안 받는다 — 그건 당점(상단 3팁)에도 쓰는 말이다.
+//      '장상단·장하단·단좌·단우' 처럼 쿠션임이 분명한 낱말만 받는다.
+function railSide(rail){
+  if (!T || !rail) return null;
+  const mid = {top:[T.width/2, T.height], bottom:[T.width/2, 0],
+               left:[0, T.height/2], right:[T.width, T.height/2]};
+  const pts = {};
+  for (const k in mid){ try { pts[k] = toPx(...mid[k]); } catch(e){ return null; } }
+  const ks = Object.keys(pts);
+  const byY = ks.slice().sort((a,b) => pts[a][1] - pts[b][1]);
+  const byX = ks.slice().sort((a,b) => pts[a][0] - pts[b][0]);
+  if (rail === byY[0]) return '상';
+  if (rail === byY[ks.length-1]) return '하';
+  if (rail === byX[0]) return '좌';
+  if (rail === byX[ks.length-1]) return '우';
+  return null;
+}
+const V_SIDE = [
+  {말:['장상단','위장쿠션','윗장쿠션','상단장쿠션'], 쪽:'상'},
+  {말:['장하단','아래장쿠션','밑장쿠션','하단장쿠션'], 쪽:'하'},
+  {말:['단좌','좌단','왼쪽단쿠션','좌측단쿠션'], 쪽:'좌'},
+  {말:['단우','우단','오른쪽단쿠션','우측단쿠션'], 쪽:'우'}
+];
 const V_NAME = [
   // ★ '확고' — 폰이 '하꼬' 를 그렇게 받아 적는다 (사장님 2026-08-20, 111.jpg:
   //   '111은 확고을 하꼬라고만 변환하면 되겟네요'). 틀리게 들은 것도 별칭이 된다.
@@ -2139,6 +2169,7 @@ function vocab(){
   if (V_ALL) return V_ALL;
   const a = Object.keys(V_BALL).slice();
   for (const g of V_NAME) for (const w of g.말) a.push(w);
+  for (const g of V_SIDE) for (const w of g.말) a.push(w);
   for (const w of ['시까끼','걸어치기','기레까시','비껴치기',
                    '빵꾸','구멍','구멍치기','넣어치기','가락넣기',
                    '직접','길게','긴각','짧게','짧은각']) a.push(w);
@@ -2298,6 +2329,15 @@ function voicePick(text){
     say.push('직접');
     const q = out.filter(r => r.before === 0);
     if (q.length) out = q; else miss.push('직접 타격');
+  }
+  // ★★★★★ **1쿠션 쪽을 지정하면 그것만** (위 railSide 주석)
+  //   공 지정과 같이 딱딱하게 자른다. 없으면 '없음' 이라 말하고 새로 안 그린다.
+  for (const g of V_SIDE){
+    if (!g.말.some(w => said(w))) continue;
+    say.push(g.말[0]);
+    const q = out.filter(r => r.rails && r.rails.length && railSide(r.rails[0]) === g.쪽);
+    if (q.length) out = q; else miss.push(g.말[0]);
+    break;
   }
   // ② 진로 묶음
   //   ★★★★ **글자가 그대로 있으면 그것이 먼저다** (2026-08-20)
