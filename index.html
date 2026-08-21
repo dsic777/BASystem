@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 535;
+const MOBILE_VER = 536;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3192,8 +3192,31 @@ function move(px,py){
     snapAimMark();                                 // 닿으면 알려만 준다 (안 끌어당긴다)
   }
 }
-const LONG_MS = 450;                 // 이만큼 누르고 있으면 '길게'
+const LONG_MS = 450;                 // (안 쓴다 — 아래 tapOrDouble 참고)
 const LONG_MOVE = 14;                // 그 사이 이만큼 넘게 움직이면 끌기로 본다
+// ★★★★★★ **길게 누르기를 전부 두 번 탭으로 바꾼다** (사장님 2026-08-21:
+//   '길게 누르기 전부 2회 터치로 변경합시다. **모바일에서 길게 누르기가 안 되요**')
+//   폰 브라우저에서 길게 누르면 브라우저가 제 것으로 채간다 (글자 선택·확대 메뉴).
+//   그래서 450ms 를 채워도 우리 손까지 안 온다. 두 번 탭은 그런 일이 없다.
+//   ⚠️ 한 번 탭의 일을 **바로 하면 안 된다.** 두 번째 탭이 올지 아직 모르기 때문이다 —
+//      카메라가 그렇다. 한 번 탭 = 촬영인데 먼저 찍어 놓고 마이크로 바꾸면 못 쓴다.
+//      → 한 번 탭의 일은 DBL_MS 만큼 미뤄 두고, 그 사이에 두 번째가 오면 취소한다.
+const DBL_MS = 320;
+let TAP2 = {key: null, t: 0, timer: 0};
+function tapOrDouble(key, onSingle, onDouble){
+  const now = nowMs();
+  if (TAP2.key === key && now - TAP2.t < DBL_MS){          // 두 번째 탭
+    if (TAP2.timer) clearTimeout(TAP2.timer);
+    TAP2 = {key: null, t: 0, timer: 0};
+    onDouble();
+    return;
+  }
+  if (TAP2.timer) clearTimeout(TAP2.timer);                 // 다른 자리를 눌렀다
+  TAP2 = {key, t: now, timer: setTimeout(() => {
+    TAP2 = {key: null, t: 0, timer: 0};
+    onSingle();
+  }, DBL_MS)};
+}
 function up(px, py){
   if (S.tipDrag2){ S.tipDrag2 = 0; return; }     // ★ 당점 스와이프 끝 (판은 그대로)
   // ★ 점수 슬라이더 — 떼는 순간 저장한다 (탭도 여기로 온다: 누르고 그 자리에서 뗌)
@@ -3206,52 +3229,52 @@ function up(px, py){
   if (S.camDown){
     const d = S.camDown; S.camDown = null;
     const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
-    if (moved <= LONG_MOVE){
-      if (nowMs() - d.t >= LONG_MS){            // 길게 — 카메라 ↔ 마이크 맞바꾸기
+    if (moved <= LONG_MOVE) tapOrDouble('cam',
+      () => {                                   // 한 번 — 촬영 / 듣기 켜고 끄기
+        if (S.micMode) micToggle();
+        else shoot();
+      },
+      () => {                                   // 두 번 — 카메라 ↔ 마이크 맞바꾸기
         S.micMode = S.micMode ? 0 : 1;
-        if (!S.micMode) micStop();              // 카메라로 돌아가면 듣기를 끈다
+        if (!S.micMode) micStop();
         S.heard = null;
         blink();
-      } else {                                  // 짧게
-        if (S.micMode) micToggle();             // 마이크일 때 — 듣기 켜고 끄기
-        else shoot();                           // 카메라일 때 — 지금까지대로
-      }
-    }
+      });
     return;
   }
-  // ★ 보정 가운데 — 길게면 모드 전환, 짧게면 보정 0 (위 ★★★★★★ 주석)
+  // ★ 보정 가운데 — 두 번 탭이면 경로조정 전환, 한 번이면 보정 0
   if (S.corrDown){
     const d = S.corrDown; S.corrDown = null;
     const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
-    if (moved <= LONG_MOVE){
-      if (nowMs() - d.t >= LONG_MS){ S.pathMode = S.pathMode ? 0 : 1; blink(); }
-      else if (!S.pathMode){ S.corr = 0; reaimForTip(); }
-    }
+    if (moved <= LONG_MOVE) tapOrDouble('corr',
+      () => { if (!S.pathMode){ S.corr = 0; reaimForTip(); } },
+      () => { S.pathMode = S.pathMode ? 0 : 1; blink(); });
     return;
   }
   if (S.powDown){
     const d = S.powDown; S.powDown = null;
     const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
-    if (moved <= LONG_MOVE){
-      if (nowMs() - d.t >= LONG_MS) S.aimMode = S.aimMode ? 0 : 1;   // 길게 — 모드 바꾸기
-      else if (!S.aimMode) S.power = (S.power + 1) % 3;              // 짧게 — 약·중·강
-    }
+    if (moved <= LONG_MOVE) tapOrDouble('pow',
+      () => { if (!S.aimMode) S.power = (S.power + 1) % 3; },        // 한 번 — 약·중·강
+      () => { S.aimMode = S.aimMode ? 0 : 1; blink(); });            // 두 번 — 모드 바꾸기
     return;
   }
   if (S.sugDown){
     const d = S.sugDown; S.sugDown = null;
-    const held = nowMs() - d.t;
     const moved = (px === undefined) ? 0 : Math.hypot(px - d.x, py - d.y);
-    if (moved <= LONG_MOVE){
+    const openList = () => {
       findRoutes();
-      const k = placeKey();
-      const long = held >= LONG_MS;
-      if (long || S.listShown !== k || S.lapEnd){
-        // 길게 · 배치가 바뀌었을 때 · 한 바퀴를 돈 다음 — 목록을 보여준다
-        S.listShown = k; S.lapEnd = false;
-        S.routeList = true; S.routePage = 0;
-      } else nextRoute();
-    }
+      S.listShown = placeKey(); S.lapEnd = false;
+      S.routeList = true; S.routePage = 0;
+    };
+    if (moved <= LONG_MOVE) tapOrDouble('sug',
+      () => {                                    // 한 번 — 다음 경로 (배치가 바뀌었으면 목록)
+        findRoutes();
+        const k = placeKey();
+        if (S.listShown !== k || S.lapEnd) openList();
+        else nextRoute();
+      },
+      openList);                                 // 두 번 — 목록
     return;
   }
   if (S.tipPanel) return;
