@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 556;
+const MOBILE_VER = 557;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3523,7 +3523,29 @@ function moveThickPanel(px,py){
 }
 
 // ---------------------------------------------------------------- 그리기
+// ★★★★★★ **멈춰 있을 때는 천천히 그린다** (사장님 2026-08-24:
+//   '우리 앱이 **배터리 소모량이 많은가봅니다. 핸드폰이 개발중에는 항상 뜨거워요**')
+//
+//   draw() 는 초당 60번 화면을 통째로 다시 그린다. 공을 안 건드리고 가만히 둬도
+//   격자·다이아·눈금·궤적·상황판을 매번 다시 그리고, 그 안에서 pathFromAim(이분법)·
+//   systemBase·키스 판정까지 돈다. 폰이 뜨거울 수밖에 없다.
+//
+//   → **움직이는 것이 없으면 네 프레임에 한 번만** 그린다 (60 → 15fps).
+//     화면이 안 바뀌는 동안이므로 눈에는 똑같고, 일은 4분의 1이 된다.
+//     상태가 바뀌면 늦어도 66ms 안에 나온다 — 사람 눈에 안 걸린다.
+//
+//   ⚠️ 이 판정이 틀려도 **깨지지 않는다.** 놓친 것이 있으면 그것만 15fps 로 보일 뿐이다.
+//      그래서 목록을 넉넉히 잡는다 — 손이 닿아 있거나 무엇이든 굴러가는 중이면 60fps.
+let FRAME_N = 0;
+function busyNow(){
+  return !!(S.anim || S.sim || S.solo || S.scatter || S.evalWait ||
+            S.rblink || S.blink || S.place ||
+            S.pal || S.drag || S.aiming || S.thDrag || S.verDrag || S.tipDrag2 ||
+            S.micMode || S.routeList || S.tipPanel || S.thickPanel ||
+            (typeof PREVIEW !== 'undefined' && PREVIEW));
+}
 function draw(){
+  if (!busyNow() && (++FRAME_N & 3)){ requestAnimationFrame(draw); return; }
   // ★ 보이는 창 크기와 어긋나면 다시 잡는다 (위 resize 의 ★★★★ 주석)
   {
     const [vw,vh] = viewSize();
