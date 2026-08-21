@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 533;
+const MOBILE_VER = 535;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -2102,11 +2102,15 @@ function railSide(rail){
   if (rail === byX[ks.length-1]) return '우';
   return null;
 }
+//   ★ 사장님 2026-08-21: '**위 아래 오른쪽 왼쪽도 인지는 할 수 있게** 해 두세요.
+//     그런데 **장 단 상 하 좌 우** 로 표현을 할 거에요.'
+//     → 쓰실 말(장상·장하·단좌·단우)을 앞에 두고, 평소 말(위·아래·왼쪽·오른쪽)도 받는다.
+//   ⚠️ '상단·하단' 단독은 여전히 안 받는다 — 당점(상단 3팁)과 겹친다.
 const V_SIDE = [
-  {말:['장상단','위장쿠션','윗장쿠션','상단장쿠션'], 쪽:'상'},
-  {말:['장하단','아래장쿠션','밑장쿠션','하단장쿠션'], 쪽:'하'},
-  {말:['단좌','좌단','왼쪽단쿠션','좌측단쿠션'], 쪽:'좌'},
-  {말:['단우','우단','오른쪽단쿠션','우측단쿠션'], 쪽:'우'}
+  {말:['장상단','장상','상장','위장쿠션','윗장쿠션','상단장쿠션','위쪽','윗쪽','위'], 쪽:'상'},
+  {말:['장하단','장하','하장','아래장쿠션','밑장쿠션','하단장쿠션','아래쪽','아래','밑'], 쪽:'하'},
+  {말:['단좌','좌단','왼쪽단쿠션','좌측단쿠션','왼쪽','좌측','왼'], 쪽:'좌'},
+  {말:['단우','우단','오른쪽단쿠션','우측단쿠션','오른쪽','우측','오른'], 쪽:'우'}
 ];
 const V_NAME = [
   // ★ '확고' — 폰이 '하꼬' 를 그렇게 받아 적는다 (사장님 2026-08-20, 111.jpg:
@@ -2262,8 +2266,12 @@ function voicePick(text){
   //   ★★ 그 공이 **지금 수구**면 수구를 바꾼다 (사장님 2026-08-20: '기본은 수구가
   //     결정이 되어 있을꺼고, 아니면 수구전환 하면 자동으로 수구를 바꿔주고').
   //     노란공을 치라는데 노란공이 수구면 말이 안 된다 — 바꿔 놓고 다시 훑는다.
+  // ★★★★★ **글자가 그대로 있으면 그것이 먼저다** (2026-08-21)
+  //   자모 근사로만 보면 짧은 낱말이 서로 잡아먹는다 — '빨간공 **장하** 완전가락' 이
+  //   '흰공' 으로 잡혔다 ('하' ↔ '흰' 이 자모 2 차이). 진로 묶음은 이미 이렇게 한다.
   let want = null;
-  for (const w in V_BALL) if (said(w)){ want = V_BALL[w]; break; }
+  for (const w in V_BALL) if (raw.includes(w)){ want = V_BALL[w]; break; }
+  if (!want) for (const w in V_BALL) if (said(w)){ want = V_BALL[w]; break; }
   if (want){
     const cueC = S.balls.cue && S.balls.cue.color;
     if (cueC === want){
@@ -2332,12 +2340,18 @@ function voicePick(text){
   }
   // ★★★★★ **1쿠션 쪽을 지정하면 그것만** (위 railSide 주석)
   //   공 지정과 같이 딱딱하게 자른다. 없으면 '없음' 이라 말하고 새로 안 그린다.
-  for (const g of V_SIDE){
-    if (!g.말.some(w => said(w))) continue;
-    say.push(g.말[0]);
-    const q = out.filter(r => r.rails && r.rails.length && railSide(r.rails[0]) === g.쪽);
-    if (q.length) out = q; else miss.push(g.말[0]);
-    break;
+  //   ⚠️⚠️ **글자 그대로만 본다.** 자모 근사로 보면 '위' 한 글자가 아무 데나 걸려
+  //      '아래' 도 '오른쪽' 도 전부 상단으로 갔다 (2026-08-21 시험).
+  //      그리고 **제일 긴 낱말이 이긴다** — '장상단' 이 '상' 보다 먼저다.
+  {
+    let hit = null;
+    for (const g of V_SIDE) for (const w of g.말)
+      if (raw.includes(w) && (!hit || w.length > hit.w.length)) hit = {g, w};
+    if (hit){
+      say.push(hit.w);
+      const q = out.filter(r => r.rails && r.rails.length && railSide(r.rails[0]) === hit.g.쪽);
+      if (q.length) out = q; else miss.push(hit.w);
+    }
   }
   // ② 진로 묶음
   //   ★★★★ **글자가 그대로 있으면 그것이 먼저다** (2026-08-20)
