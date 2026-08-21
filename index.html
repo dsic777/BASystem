@@ -100,7 +100,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 557;
+const MOBILE_VER = 558;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3536,16 +3536,53 @@ function moveThickPanel(px,py){
 //
 //   ⚠️ 이 판정이 틀려도 **깨지지 않는다.** 놓친 것이 있으면 그것만 15fps 로 보일 뿐이다.
 //      그래서 목록을 넉넉히 잡는다 — 손이 닿아 있거나 무엇이든 굴러가는 중이면 60fps.
-let FRAME_N = 0;
+let FRAME_N = 0, LAST_SIG = '', IDLE_N = 0;
+// **지금 움직이는 것이 있나** — 있으면 60fps 그대로 간다.
+// ⚠️ 깜빡임(S.blink · S.rblink)은 **시각**이라 값이 남아 있어도 지났으면 안 바쁘다.
+//    시간을 안 보면 한 번 깜빡인 뒤로 영영 60fps 가 된다 (v557 의 구멍).
+// ⚠️ 판(추천목록·당점판·두께판)과 놓기(S.place)는 **가만히 있는 화면**이라 뺐다.
+//    바뀌면 아래 지문이 잡는다.
 function busyNow(){
+  const t = nowMs();
   return !!(S.anim || S.sim || S.solo || S.scatter || S.evalWait ||
-            S.rblink || S.blink || S.place ||
+            (S.rblink && t - S.rblink < 1500) ||
+            (S.blink && S.blink > Date.now()) ||
             S.pal || S.drag || S.aiming || S.thDrag || S.verDrag || S.tipDrag2 ||
-            S.micMode || S.routeList || S.tipPanel || S.thickPanel ||
+            S.micMode ||
             (typeof PREVIEW !== 'undefined' && PREVIEW));
 }
+// ★★★★★★ **상태 지문 — 당기는 방식** (사장님 2026-08-24 승인)
+//   '바뀌면 깨우기' 는 상태를 만지는 **1,271곳**이 저마다 알려 줘야 한다.
+//   한 곳만 빠뜨려도 화면이 멈춘다. 이 앱은 class 가 0개이고 전역이 191개라
+//   그 방식을 못 쓴다 (사장님 물음: '우리 앱이 객체지향 방식인가요?' → 아니다).
+//   → 반대로 한다. 그리기 전에 **바뀌었나 물어본다.** 아무도 깨울 필요가 없으니
+//     빠뜨릴 것도 없다. 지문 만드는 값은 그리기의 수백 분의 일이다.
+//   ⚠️ 그래도 지문에 빠진 것이 있을 수 있다. 그래서 **1초에 네 번은 무조건** 그린다
+//      (아래 IDLE_N). 최악이 '250ms 늦게 나타남' 이지 멈추지는 않는다.
+function stateSig(){
+  const a = [];
+  for (const k in S.balls){ const q = S.balls[k];
+    a.push(k, q.color, q.p[0]|0, q.p[1]|0); }
+  a.push(S.aim ? (S.aim[0]|0) + ',' + (S.aim[1]|0) : '-',
+         S.tipH, S.tipV, S.tipR, S.tipDir, S.corr, S.power, S.sysMode,
+         S.routeIx, S.routeList ? 1 : 0, S.routePage, S.place || '-',
+         S.tipPanel ? 1 : 0, S.thickPanel ? 1 : 0, S.pathMode ? 1 : 0,
+         S.cueWhite ? 1 : 0, S.obj1c || '-', S.rMode, S.listShown || '-',
+         S.lapEnd ? 1 : 0, S.noteList ? 1 : 0, S.heard || '-',
+         S.evalWait ? 1 : 0, S.soloStat ? S.soloStat.shots : -1,
+         (ROUTES && ROUTES.key) || '-',
+         (typeof NUDGE_LOG !== 'undefined' ? NUDGE_LOG : ''),
+         (typeof msg !== 'undefined' && msg ? msg.textContent : ''),
+         cv.width, cv.height);
+  return a.join('|');
+}
 function draw(){
-  if (!busyNow() && (++FRAME_N & 3)){ requestAnimationFrame(draw); return; }
+  if (!busyNow()){
+    if (++FRAME_N & 3){ requestAnimationFrame(draw); return; }   // 60 → 15fps
+    const sg = stateSig();
+    if (sg === LAST_SIG && ++IDLE_N < 4){ requestAnimationFrame(draw); return; }
+    LAST_SIG = sg; IDLE_N = 0;                                   // 초당 네 번은 무조건
+  }
   // ★ 보이는 창 크기와 어긋나면 다시 잡는다 (위 resize 의 ★★★★ 주석)
   {
     const [vw,vh] = viewSize();
