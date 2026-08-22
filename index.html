@@ -84,25 +84,44 @@ var D = document.getElementById('diag');
 if (location.search.indexOf('debug') >= 0) D.style.display = 'block';
 function log(t){ D.textContent += t + String.fromCharCode(10); }
 log('BASystem 진단 v8');
-// ★★★★ **카톡 안에서 열면 설치가 안 된다** (사장님 2026-08-24)
-//   '카톡으로 주소를 보내고 링크를 여니 설치안내가 안나오네요. 문자로 보내면 되던데'
-//   카톡·페북·인스타는 링크를 **자기 안의 브라우저**로 연다. 그 브라우저에는
-//   '홈 화면에 추가' 가 아예 없다. 크롬으로 넘겨야 설치가 된다.
+// ★★★★ **설치가 막히는 두 가지** (사장님 2026-08-24)
+//   ① 카톡  '카톡으로 주소를 보내고 링크를 여니 설치안내가 안나오네요. 문자로 보내면 되던데'
+//           카톡·페북·인스타는 링크를 **자기 안의 브라우저**로 연다. 거기엔
+//           '홈 화면에 추가' 가 아예 없다.
+//   ② 삼성 인터넷  '기본적으로는 거부를 하는데 강제설치를 해야 설치가 됩니다'
+//           Play 프로텍트: *"안전하지 않은 앱 차단됨 — Android 이전 버전에 맞게 개발"*
+//           우리 페이지 탓이 아니다. **홈 화면 앱 껍데기를 누가 만드느냐**의 문제다.
+//             크롬       구글이 만든다 — 최신 규격 → 경고 없음
+//             삼성 인터넷 자기가 만든다 — 규격이 낡음 → 그 경고
+//   둘 다 답이 같다 — **크롬으로 넘긴다.**
 //   ⚠️ 이 안내는 **본 스크립트보다 앞**에 둔다. 뒤엣것이 죽어도 이건 떠야 하니까.
 (function(){
   var UA = navigator.userAgent || '';
-  if (!/KAKAOTALK|FB_IAB|FBAN|FBAV|Instagram|Line\/|NAVER\(inapp|DaumApps|kakaostory/i.test(UA)) return;
+  var inApp = /KAKAOTALK|FB_IAB|FBAN|FBAV|Instagram|Line\/|NAVER\(inapp|DaumApps|kakaostory/i.test(UA);
+  // 삼성 인터넷은 **멀쩡한 브라우저**다. 앱은 잘 돌아간다 — 설치만 걸린다.
+  // 그래서 문구도 다르고, 한 번 닫으면 다시 안 띄운다.
+  var sbr = !inApp && /SamsungBrowser/i.test(UA);
+  if (!inApp && !sbr) return;
   // 이미 설치해서 앱으로 연 경우엔 띄우지 않는다
   try {
     if (navigator.standalone ||
         (matchMedia && (matchMedia('(display-mode: standalone)').matches ||
                         matchMedia('(display-mode: fullscreen)').matches))) return;
   } catch(e){}
+  if (sbr){ try { if (localStorage.getItem('iabHide') === '1') return; } catch(e){} }
   var box = document.getElementById('iab');
   if (!box) return;
   var iOS = /iPhone|iPad|iPod/i.test(UA);
-  log('앱 안 브라우저 감지 → 안내 표시');
-  if (iOS){
+  log((sbr ? '삼성 인터넷' : '앱 안 브라우저') + ' 감지 → 안내 표시');
+  var GO = '<button id="iabGo">크롬으로 열기</button>';
+  var X  = '<span class="sp"></span><button class="x" id="iabX">닫기</button>';
+  if (sbr){
+    box.innerHTML =
+      '<b>설치하시려면 크롬으로 여세요.</b>' +
+      '<div class="s">삼성 인터넷으로 설치하면 <b>“안전하지 않은 앱”</b> 경고가 뜹니다.' +
+      ' 앱 자체는 여기서도 그냥 쓰실 수 있습니다.</div>' +
+      '<div class="r">' + GO + X + '</div>';
+  } else if (iOS){
     // ⚠️ 아이폰은 **사파리에서만** 홈 화면 추가가 된다. 강제로 넘길 방법이 없어서
     //    말로 안내한다.
     box.innerHTML =
@@ -113,12 +132,14 @@ log('BASystem 진단 v8');
     box.innerHTML =
       '<b>카카오톡 안에서 열렸습니다.</b> 여기서는 앱 설치가 안 됩니다.' +
       '<div class="s">크롬으로 연 뒤 우측 상단 <b>⋮ → 앱 설치</b> 를 누르세요</div>' +
-      '<div class="r"><button id="iabGo">크롬으로 열기</button>' +
-      '<span class="sp"></span><button class="x" id="iabX">닫기</button></div>';
+      '<div class="r">' + GO + X + '</div>';
   }
   box.style.display = 'block';
   var x = document.getElementById('iabX');
-  if (x) x.onclick = function(){ box.style.display = 'none'; };
+  if (x) x.onclick = function(){
+    box.style.display = 'none';
+    if (sbr) try { localStorage.setItem('iabHide', '1'); } catch(e){}
+  };
   var go = document.getElementById('iabGo');
   if (go) go.onclick = function(){
     var url = location.href.split('#')[0];
@@ -160,7 +181,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 562;
+const MOBILE_VER = 563;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1765,16 +1786,31 @@ function tapButton(px,py){
     }
 
     else if (b.lb === 'exit'){
-      // 설치한 앱(PWA)이면 창이 닫히고, 브라우저 탭이면 못 닫는 경우가 있다.
-      // 그때는 사진과 공을 지워 처음 상태로 돌린다.
-      window.close();
-      setTimeout(() => {
-        PHOTO = WARPED = TABLE_HULL = null;
-        TEST.img = null; TEST.i = -1;
-        S.balls = {}; S.aim = null; S.corr = 0;
-        msg.style.display = 'block'; msg.textContent = '처음 상태로 돌렸습니다';
-        setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2000);
-      }, 300);
+      // ⚠️⚠️ **순서가 거꾸로였다** (사장님 2026-08-24:
+      //   '종료버튼을 누르면 화면이 죽어버리고, 하단을 스와이프해서 종료버튼을
+      //    눌러야 정상적으로 종료가 됩니다')
+      //   window.close() 는 **스크립트가 연 창만** 닫는다. 홈 화면에서 연 앱은
+      //   못 닫으면서 화면만 죽인다. 그걸 먼저 부르니 뒤따르는 되돌리기가
+      //   죽은 화면에 그려져 아무도 못 봤다 (219 의 빈 당구대가 그 결과다).
+      //   → **되돌리기를 먼저** 한다.
+      PHOTO = WARPED = TABLE_HULL = null;
+      TEST.img = null; TEST.i = -1;
+      S.balls = {}; S.aim = null; S.corr = 0;
+      // ★ 설치한 앱에서는 close() 를 **아예 부르지 않는다.**
+      //   안드로이드는 앱이 스스로 나가는 방법이 없다. 불러 봐야 못 나가고
+      //   화면만 죽는다 — 사장님이 겪은 그것이다. 나가는 건 홈 버튼이 한다.
+      let installed = false;
+      try {
+        installed = !!(navigator.standalone ||
+          (matchMedia && (matchMedia('(display-mode: standalone)').matches ||
+                          matchMedia('(display-mode: fullscreen)').matches)));
+      } catch(e){}
+      msg.style.display = 'block';
+      msg.textContent = installed ? '처음 상태로 돌렸습니다 — 나가시려면 홈 버튼'
+                                  : '처음 상태로 돌렸습니다';
+      setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2000);
+      // 브라우저 탭으로 연 경우에만 닫아 본다. 안 닫혀도 위 화면이 그대로 남는다.
+      if (!installed) setTimeout(() => { try { window.close(); } catch(e){} }, 300);
     }
     else if (b.lb === 'swap') swapCue();   // ★ 자동 전환과 같은 길로 (swapCue 주석)
     else if (['white','yellow','red'].includes(b.lb)){
