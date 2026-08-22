@@ -41,9 +41,25 @@
   #noteList .a{color:#8fe3a8;white-space:pre-wrap;margin-top:4px;
                border-left:3px solid #3aa76d;padding-left:8px}
   #noteList .t{color:#7c848f;font-size:13px}
+  /* ★ '앱 안 브라우저' 안내 (사장님 2026-08-24)
+     카톡으로 주소를 보내면 **카톡 자기 브라우저**로 열리는데 거기엔 설치 메뉴가 없다.
+     문자로 보내면 크롬으로 열려서 설치가 됐다 — 그게 증거다. 앱 잘못이 아니다. */
+  #iab{position:fixed;left:0;right:0;top:0;z-index:9500;display:none;
+       background:#1d2a3a;border-bottom:2px solid #0f1114;color:#eef2f8;
+       font:15px/1.5 system-ui,-apple-system,sans-serif;padding:12px 14px;
+       box-shadow:0 6px 24px #000a}
+  #iab b{color:#ffd98a}
+  #iab .r{display:flex;gap:10px;align-items:center;margin-top:10px}
+  #iab .r .sp{flex:1}
+  #iab button{padding:11px 16px;border-radius:10px;border:2px solid #0f1114;
+              background:linear-gradient(#5ec07a,#3aa76d);color:#0d1a12;
+              font:700 16px system-ui,sans-serif}
+  #iab button.x{background:linear-gradient(#f4f6fa,#cfd5df);color:#14161a}
+  #iab .s{color:#aab4c2;font-size:13px;margin-top:6px}
 </style>
 <canvas id="c"></canvas>
 <div id="msg">데이터 읽는 중…</div>
+<div id="iab"></div>
 <div id="note"><div id="noteBox">
   <div class="row">
     <button id="noteKindA">평가</button>
@@ -68,6 +84,50 @@ var D = document.getElementById('diag');
 if (location.search.indexOf('debug') >= 0) D.style.display = 'block';
 function log(t){ D.textContent += t + String.fromCharCode(10); }
 log('BASystem 진단 v8');
+// ★★★★ **카톡 안에서 열면 설치가 안 된다** (사장님 2026-08-24)
+//   '카톡으로 주소를 보내고 링크를 여니 설치안내가 안나오네요. 문자로 보내면 되던데'
+//   카톡·페북·인스타는 링크를 **자기 안의 브라우저**로 연다. 그 브라우저에는
+//   '홈 화면에 추가' 가 아예 없다. 크롬으로 넘겨야 설치가 된다.
+//   ⚠️ 이 안내는 **본 스크립트보다 앞**에 둔다. 뒤엣것이 죽어도 이건 떠야 하니까.
+(function(){
+  var UA = navigator.userAgent || '';
+  if (!/KAKAOTALK|FB_IAB|FBAN|FBAV|Instagram|Line\/|NAVER\(inapp|DaumApps|kakaostory/i.test(UA)) return;
+  // 이미 설치해서 앱으로 연 경우엔 띄우지 않는다
+  try {
+    if (navigator.standalone ||
+        (matchMedia && (matchMedia('(display-mode: standalone)').matches ||
+                        matchMedia('(display-mode: fullscreen)').matches))) return;
+  } catch(e){}
+  var box = document.getElementById('iab');
+  if (!box) return;
+  var iOS = /iPhone|iPad|iPod/i.test(UA);
+  log('앱 안 브라우저 감지 → 안내 표시');
+  if (iOS){
+    // ⚠️ 아이폰은 **사파리에서만** 홈 화면 추가가 된다. 강제로 넘길 방법이 없어서
+    //    말로 안내한다.
+    box.innerHTML =
+      '<b>카카오톡 안에서 열렸습니다.</b> 여기서는 홈 화면 추가가 안 됩니다.' +
+      '<div class="s">메뉴에서 <b>Safari로 열기</b> → 아래 공유 버튼 → <b>홈 화면에 추가</b></div>' +
+      '<div class="r"><span class="sp"></span><button class="x" id="iabX">닫기</button></div>';
+  } else {
+    box.innerHTML =
+      '<b>카카오톡 안에서 열렸습니다.</b> 여기서는 앱 설치가 안 됩니다.' +
+      '<div class="s">크롬으로 연 뒤 우측 상단 <b>⋮ → 앱 설치</b> 를 누르세요</div>' +
+      '<div class="r"><button id="iabGo">크롬으로 열기</button>' +
+      '<span class="sp"></span><button class="x" id="iabX">닫기</button></div>';
+  }
+  box.style.display = 'block';
+  var x = document.getElementById('iabX');
+  if (x) x.onclick = function(){ box.style.display = 'none'; };
+  var go = document.getElementById('iabGo');
+  if (go) go.onclick = function(){
+    var url = location.href.split('#')[0];
+    // 안드로이드는 intent 로 크롬을 직접 띄울 수 있다. 크롬이 없으면 원래 주소로 되돌아온다.
+    location.href = 'intent://' + url.replace(/^https?:\/\//, '') +
+      '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' +
+      encodeURIComponent(url) + ';end';
+  };
+})();
 log('URL ' + location.href);
 log('화면 ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio);
 addEventListener('error', function(e){
@@ -100,7 +160,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 560;
+const MOBILE_VER = 561;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
