@@ -160,7 +160,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 561;
+const MOBILE_VER = 562;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -3609,7 +3609,12 @@ function busyNow(){
             (S.blink && S.blink > Date.now()) ||
             S.pal || S.drag || S.aiming || S.thDrag || S.verDrag || S.tipDrag2 ||
             S.micMode ||
-            (typeof PREVIEW !== 'undefined' && PREVIEW));
+            // ⚠️⚠️ **v557 의 진짜 구멍** (사장님 2026-08-24 '카메라 촬영시 화면이 끊어집니다')
+            //   여기 previewOn() 자리에 처음엔 `typeof PREVIEW !== 'undefined'` 를 썼다.
+            //   그런데 PREVIEW 는 draw() 안의 **지역 const** 다. busyNow 에서는 안 보인다.
+            //   그래서 typeof 가 늘 'undefined' 였고 — **카메라 미리보기가 통째로 빠졌다.**
+            //   살아 있는 영상을 4fps 로 그리니 뚝뚝 끊겼다. previewOn() 은 전역이다.
+            previewOn());
 }
 // ★★★★★★ **상태 지문 — 당기는 방식** (사장님 2026-08-24 승인)
 //   '바뀌면 깨우기' 는 상태를 만지는 **1,271곳**이 저마다 알려 줘야 한다.
