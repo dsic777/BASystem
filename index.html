@@ -213,7 +213,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 566;
+const MOBILE_VER = 567;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
@@ -1818,21 +1818,24 @@ function tapButton(px,py){
     }
 
     else if (b.lb === 'exit'){
-      // ★★★★ **X 는 이제 '초기화' 다. 나가는 버튼이 아니다** (사장님 2026-08-24 '가')
-      //   안드로이드는 앱이 스스로 나갈 방법이 없다. window.close() 는 스크립트가
-      //   연 창만 닫아서, 홈 화면에서 연 앱에는 통하지 않는다. 그런데도 '종료' 라고
-      //   해 두니 눌러도 아무 일이 없었고(사장님: '종료가 않되고 메세지만 나와요'),
-      //   예전엔 실패한 뒤 배치까지 지워 버렸다(219 의 빈 당구대).
-      //   → **하는 척을 그만둔다.** 나가는 건 폰이 하는 일이다.
-      //     이 버튼은 처음 상태로 돌리는 일만 한다.
-      //   ⚠️ 옆의 L/A/R(reset) 과 다르다 — 저건 조준·배치를 오가는 3단이고,
-      //      이건 **사진까지 포함해 통째로** 처음으로 되돌린다.
-      PHOTO = WARPED = TABLE_HULL = null;
-      TEST.img = null; TEST.i = -1;
-      S.balls = {}; S.aim = null; S.corr = 0;
-      S.place = null;
-      msg.style.display = 'block'; msg.textContent = '처음 상태로 돌렸습니다';
-      setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 2000);
+      // ★★★★ **다시 '종료' 다** (사장님 2026-08-24 정정:
+      //   'X 누르면 우리 프로그램은 종료가 되었는데 ... 수정전 제 핸드폰은 문제가
+      //    없었고 지인 핸드폰들이 그렇게 된것입니다. 이제는 제 핸드폰도 종료가 않됩니다')
+      //   내가 틀렸다. window.close() 는 **되는 폰에서는 된다.**
+      //     크롬이 만든 껍데기      → 닫힌다 (사장님 폰)
+      //     삼성 인터넷이 만든 껍데기 → 안 닫힌다 (지인 폰들)
+      //   안 되는 쪽만 보고 되는 길까지 없앴다. 되돌린다.
+      //   ⚠️ 실패했을 때 **배치는 절대 지우지 않는다** — 219 의 빈 당구대가 그것이었다.
+      //      못 나가는 것보다 배치를 잃는 것이 훨씬 나쁘다.
+      //   ⚠️ manifest 가 fullscreen 이라 아래 막대(홈)가 숨어 있다. 그래서
+      //      '홈 버튼' 이라고만 쓰면 못 찾는다 — 쓸어올리는 것부터 말한다.
+      try { window.close(); } catch(e){}
+      setTimeout(() => {
+        if (document.hidden) return;                 // 닫혔다
+        msg.style.display = 'block';
+        msg.textContent = '나가시려면 화면 아래에서 위로 쓸어올린 뒤 ○ (홈)';
+        setTimeout(() => { msg.textContent = ''; msg.style.display = 'none'; }, 3000);
+      }, 300);
     }
     else if (b.lb === 'swap') swapCue();   // ★ 자동 전환과 같은 길로 (swapCue 주석)
     else if (['white','yellow','red'].includes(b.lb)){
@@ -11333,8 +11336,7 @@ function drawButtons(){
       }
       continue;
     }
-    if (b.lb === 'exit'){                          // 초기화 — L 과 같은 글씨체 (사용자 지시)
-      // ⚠️ '종료' 가 아니다 (사장님 2026-08-24). 위 up() 의 주석 참고.
+    if (b.lb === 'exit'){                          // 종료 — L 과 같은 글씨체 (사용자 지시)
       heavy('X', cx, cy, u*0.60, '#e05a52');
       continue;
     }
