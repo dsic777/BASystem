@@ -49,7 +49,7 @@
        font:15px/1.5 system-ui,-apple-system,sans-serif;padding:12px 14px;
        box-shadow:0 6px 24px #000a}
   #iab b{color:#ffd98a}
-  #iab .r{display:flex;gap:10px;align-items:center;margin-top:10px}
+  #iab .r{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
   #iab .r .sp{flex:1}
   #iab button{padding:11px 16px;border-radius:10px;border:2px solid #0f1114;
               background:linear-gradient(#5ec07a,#3aa76d);color:#0d1a12;
@@ -113,12 +113,13 @@ log('BASystem 진단 v8');
   if (!box) return;
   var iOS = /iPhone|iPad|iPod/i.test(UA);
   log((sbr ? '삼성 인터넷' : '앱 안 브라우저') + ' 감지 → 안내 표시');
-  var GO = '<button id="iabGo">크롬으로 열기</button>';
+  var GO = '<button id="iabGo">크롬으로 열기</button>' +
+           '<button class="x" id="iabCp">주소 복사</button>';
   var X  = '<span class="sp"></span><button class="x" id="iabX">닫기</button>';
   if (sbr){
     box.innerHTML =
       '<b>설치하시려면 크롬으로 여세요.</b>' +
-      '<div class="s">삼성 인터넷으로 설치하면 <b>“안전하지 않은 앱”</b> 경고가 뜹니다.' +
+      '<div class="s" id="iabS">삼성 인터넷으로 설치하면 <b>“안전하지 않은 앱”</b> 경고가 뜹니다.' +
       ' 앱 자체는 여기서도 그냥 쓰실 수 있습니다.</div>' +
       '<div class="r">' + GO + X + '</div>';
   } else if (iOS){
@@ -140,13 +141,44 @@ log('BASystem 진단 v8');
     box.style.display = 'none';
     if (sbr) try { localStorage.setItem('iabHide', '1'); } catch(e){}
   };
+  var url = location.href.split('#')[0];
+  // ⚠️⚠️ **삼성 인터넷은 다른 브라우저로 넘기는 것을 막는다** (사장님 2026-08-24:
+  //   '크롬으로 열기 나오는데 눌러도 크롬으로 안열려요')
+  //   게다가 예전엔 S.browser_fallback_url 을 우리 주소로 둬서, 넘기기가 막히면
+  //   **같은 페이지가 다시 열렸다.** 그래서 '아무 일도 안 일어난' 것처럼 보였다.
+  //   → 되돌림 주소를 뺀다(막히면 그냥 아무 일도 안 일어난다). 그리고
+  //     **막혔을 때를 대비해 '주소 복사' 를 나란히 둔다** — 이건 반드시 된다.
   var go = document.getElementById('iabGo');
   if (go) go.onclick = function(){
-    var url = location.href.split('#')[0];
-    // 안드로이드는 intent 로 크롬을 직접 띄울 수 있다. 크롬이 없으면 원래 주소로 되돌아온다.
     location.href = 'intent://' + url.replace(/^https?:\/\//, '') +
-      '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' +
-      encodeURIComponent(url) + ';end';
+      '#Intent;scheme=https;action=android.intent.action.VIEW;' +
+      'category=android.intent.category.BROWSABLE;package=com.android.chrome;end';
+    // 1.5초 뒤에도 이 화면이 그대로면 넘어가지 못한 것이다 — 다른 길을 알려 준다.
+    setTimeout(function(){
+      if (document.visibilityState === 'hidden') return;   // 넘어갔다
+      var sEl = document.getElementById('iabS');
+      if (sEl) sEl.innerHTML = '크롬이 안 열립니다 (삼성 인터넷이 막습니다). ' +
+        '<b>주소 복사</b> 를 누른 뒤 <b>크롬을 직접 열어</b> 주소창에 붙여넣으세요.';
+    }, 1500);
+  };
+  var cp = document.getElementById('iabCp');
+  if (cp) cp.onclick = function(){
+    var done = function(){ cp.textContent = '복사됨'; };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText)
+        return navigator.clipboard.writeText(url).then(done, fallback);
+    } catch(e){}
+    fallback();
+    function fallback(){
+      // 옛 방식 — clipboard API 가 막힌 브라우저용
+      try {
+        var t = document.createElement('textarea');
+        t.value = url; t.style.position = 'fixed'; t.style.opacity = '0';
+        document.body.appendChild(t); t.select();
+        document.execCommand('copy'); document.body.removeChild(t);
+        done();
+      } catch(e){ cp.textContent = url; }
+    }
   };
 })();
 log('URL ' + location.href);
@@ -181,7 +213,7 @@ if (window.caches)
 // ⚠️ 버전 관리 — jbpro2.2 와 같은 방식.
 //    코드를 고치면 **이 상수와 version.json 의 mobile 값을 같이 N+1** 한다.
 //    안 올리면 폰에 캐시된 옛 화면이 계속 나온다.
-const MOBILE_VER = 565;
+const MOBILE_VER = 566;
 var NOTE_OPEN = false;        // 요청 창이 열려 있나 (열려 있으면 새로고침을 미룬다)
 function checkVersion(){
   fetch('version.json?t=' + Date.now())
